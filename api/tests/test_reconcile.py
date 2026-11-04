@@ -59,7 +59,7 @@ def test_plaid_wins_truth_regardless_of_order():
 def test_pending_then_posted_via_pending_transaction_id():
     t = run([sms(), plaid(ref="pend-1", status="pending"), plaid(ref="post-1", status="posted", pending_id="pend-1")])
     assert len(t) == 1 and t[0].plaid_transaction_id == "post-1" and t[0].status == "posted"
-    assert len(t[0].sources) == 3 or len(t[0].sources) == 2  # sms + plaid(pending refreshed/posted)
+    assert {s["source"] for s in t[0].sources} == {"sms", "plaid"}
     assert total_spend(t) == 1840
 
 def test_pending_posted_with_changed_amount_tip():
@@ -166,7 +166,7 @@ def test_user_edits_not_overwritten():
     txns[0].category_id = "cat-travel"
     txns[0].merchant_clean = "Uber (work)"
     txns[0].user_edited = {"category", "merchant"}
-    ingest(txns, plaid(category_id := None), "t1") if False else ingest(txns, plaid(), "t1")
+    ingest(txns, plaid(), "t1")
     t = txns[0]
     assert len(txns) == 1 and t.category_id == "cat-travel" and t.merchant_clean == "Uber (work)"
 
@@ -201,7 +201,6 @@ def purchases(draw):
     return out, chans
 
 def make(ch, p, i):
-    dt = p["day"] * 60 * 24  # purchases at least 5 days apart in minutes*...: day*5? keep large separation
     base = timedelta(days=p["day"]) 
     c = {"sms": sms, "applepay": apay, "plaid": plaid}[ch](p["amount"], p["merchant"].upper() if ch == "sms" else p["merchant"], p["last4"], 0, f"{ch}-{i}")
     c.occurred_at = T0 + base + timedelta(minutes={"sms": 0, "applepay": 1, "plaid": 3}[ch])
@@ -235,3 +234,67 @@ def test_property_tip_amount_converges_to_plaid(auth, merchant, tip_pct, rnd):
     rnd.shuffle(cands)
     txns = run(cands)
     assert len(txns) == 1 and txns[0].amount_cents == -final
+
+
+# ---------- regressions from the Opus review ----------
+def test_plaid_posted_without_pending_id_settles_pending_row():
+    t = run([sms(), plaid(ref="pend-1", status="pending"), plaid(ref="post-1", dt=1440)])
+    assert len(t) == 1 and total_spend(t) == 1840 and t[0].status == "posted"
+    apply_plaid_removed(t, ["pend-1"])  # the pending id is gone: nothing left to detach
+    assert len(t) == 1 and total_spend(t) == 1840
+
+def test_redelivery_beyond_window_is_not_swallowed_but_same_minute_taps_are_distinct():
+    a = sms(ref="h1", dt=0); b = sms(ref="h1", dt=30)       # same hash 30 min later: a second real purchase of the same text
+    assert len(run([a, b])) == 2
+    assert len(run([sms(ref="h1", dt=0), sms(ref="h1", dt=1)])) == 1   # a Shortcuts retry within minutes
+
+def test_naive_datetimes_are_normalised():
+    c = Candidate("sms", "n1", -500, datetime(2026, 11, 3, 14, 12), "COFFEE")
+    assert c.occurred_at.tzinfo is not None
+    assert len(run([c, plaid(-500, "Coffee")])) == 1
+
+def test_zero_amount_never_merges():
+    assert len(run([sms(0), plaid(0, ref="z")])) == 2
+
+def test_alias_uber_eats_is_not_uber():
+    from app.merchants import clean_merchant
+    assert clean_merchant("UBER EATS") == "Uber Eats" and clean_merchant("Amazon Web Services") == "AWS"
+    assert len(run([sms(-2500, "UBER EATS"), plaid(-2500, "Uber")])) == 2
+
+def test_same_first_word_different_merchant_not_merged():
+    assert len(run([sms(-1500, "BLUE APRON"), plaid(-1500, "Blue Bottle Coffee")])) == 2
+
+def test_publix_is_not_tippable():
+    assert len(run([sms(-10000, "PUBLIX #123", last4=None), plaid(-12000, "Publix", last4=None, hours=20)])) == 2
+
+def test_apple_pay_amount_is_not_pre_tip():
+    assert len(run([sms(-1840, "CHIPOTLE"), apay(-2200, "Chipotle")])) == 2
+
+def test_tip_only_within_24h():
+    assert len(run([sms(-1840, "CHIPOTLE"), plaid(-2200, "Chipotle", hours=30)])) == 2
+
+def test_lunch_dinner_same_merchant_every_order():
+    lunch_s, dinner_s = sms(-1840, "CHIPOTLE", ref="sL", dt=0), sms(-2200, "CHIPOTLE", ref="sD", dt=360)
+    lunch_p, dinner_p = plaid(-1840, "Chipotle", ref="pL", dt=3), plaid(-2200, "Chipotle", ref="pD", dt=363)
+    for order in itertools.permutations([lunch_s, dinner_s, lunch_p, dinner_p]):
+        t = run(list(order))
+        assert len(t) == 2 and total_spend(t) == 4040, [c.ref for c in order]
+
+def test_weak_merge_flags_review():
+    t = run([sms(-1500, "JOES GRILL HOUSE", last4=None), apay(-1500, "Joes Grill", last4=None)])
+    assert len(t) == 1
+
+def test_removal_flags_review_and_keeps_status():
+    t = run([sms(), plaid(ref="pend-1", status="pending")])
+    acts = apply_plaid_removed(t, ["pend-1"])
+    assert t[0].needs_review and acts[0].fields["plaid_transaction_id"] is None
+
+@settings(max_examples=120, deadline=None)
+@given(st.lists(st.tuples(st.sampled_from([1840, 2200, 1500, 3100]), st.integers(0, 600)), min_size=2, max_size=3, unique_by=lambda x: x[0]), st.randoms(use_true_random=False))
+def test_property_same_merchant_repeat_purchases(purchases, rnd):
+    cands = []
+    for i, (amt, mins) in enumerate(purchases):
+        cands += [sms(-amt, "CHIPOTLE", ref=f"s{i}", dt=mins), plaid(-amt, "Chipotle", ref=f"p{i}", dt=mins + 3)]
+    rnd.shuffle(cands)
+    t = run(cands)
+    assert len(t) == len(purchases) and total_spend(t) == sum(a for a, _ in purchases)

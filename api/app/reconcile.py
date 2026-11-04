@@ -18,6 +18,8 @@ from typing import Any
 from .merchants import is_tippable, similarity
 
 WINDOW = timedelta(hours=72)
+TIP_WINDOW = timedelta(hours=24)
+REDELIVERY_WINDOW = timedelta(minutes=10)
 TIP_TOLERANCE = 0.25
 MIN_SIMILARITY = 0.55
 REVIEW_THRESHOLD = 0.8
@@ -42,6 +44,13 @@ class Candidate:
     confidence: float = 1.0
     account_id: str | None = None
     category_id: str | None = None
+    time_precise: bool = True         # False for date-only timestamps (Plaid posting dates)
+
+    def __post_init__(self) -> None:
+        if self.occurred_at.tzinfo is None:
+            self.occurred_at = self.occurred_at.replace(tzinfo=timezone.utc)
+        else:
+            self.occurred_at = self.occurred_at.astimezone(timezone.utc)
 
 @dataclass
 class Txn:
@@ -78,27 +87,33 @@ class Action:
 def _name(x: Candidate | Txn) -> str:
     return x.merchant_clean or x.merchant_raw
 
-def _amount_compatible(cand: Candidate, t: Txn, tippable: bool) -> tuple[bool, bool]:
-    """Returns (ok, exact)."""
+def _amount_compatible(cand: Candidate, t: Txn, tippable: bool, dt: timedelta) -> tuple[bool, bool]:
+    """Returns (ok, exact). Tip band: only when the LARGER figure is a Plaid posted amount (the final, tipped charge),
+    within 24h, and for tippable merchants. Apple Pay / SMS amounts are never assumed to be pre-tip."""
     a, b = cand.amount_cents, t.amount_cents
-    if (a < 0) != (b < 0):
+    if a == 0 or b == 0 or (a < 0) != (b < 0):
         return False, False
     if a == b:
         return True, True
-    if not tippable:
+    if not tippable or dt > TIP_WINDOW:
         return False, False
     lo, hi = sorted((abs(a), abs(b)))
-    if lo == 0 or hi > lo * (1 + TIP_TOLERANCE):
+    if hi > lo * (1 + TIP_TOLERANCE):
         return False, False
-    # The larger (tipped) figure must come from the higher-priority source.
-    cand_p = priority(cand.source, cand.status)
-    t_p = t.best_priority
-    cand_is_larger = abs(a) > abs(b)
-    if cand_is_larger and cand_p >= t_p:
-        return True, False
-    if (not cand_is_larger) and t_p >= cand_p:
-        return True, False
-    return False, False
+    cand_larger = abs(a) > abs(b)
+    larger_is_plaid_posted = (cand.source == "plaid" and cand.status == "posted") if cand_larger else (t.best_priority == 5)
+    return (True, False) if larger_is_plaid_posted else (False, False)
+
+def _near(at: str | None, when: datetime) -> bool:
+    if not at:
+        return True
+    try:
+        d = datetime.fromisoformat(at)
+    except ValueError:
+        return True
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return abs(d - when) <= REDELIVERY_WINDOW
 
 def find_match(cand: Candidate, txns: list[Txn], *, category_names: dict[str, str] | None = None) -> tuple[Txn | None, str]:
     """Return (matching txn or None, reason)."""
@@ -108,16 +123,21 @@ def find_match(cand: Candidate, txns: list[Txn], *, category_names: dict[str, st
             return t, "plaid_id"
         if cand.plaid_pending_id and t.plaid_transaction_id == cand.plaid_pending_id:
             return t, "pending_to_posted"
-    # 2. Idempotent re-delivery
+    # 2. Idempotent re-delivery: same (source, ref) delivered again shortly after.
     for t in txns:
-        if any(s["source"] == cand.source and s["ref"] == cand.ref for s in t.sources):
-            return t, "redelivery"
+        for s in t.sources:
+            if s["source"] == cand.source and s["ref"] == cand.ref and _near(s.get("at"), cand.occurred_at):
+                return t, "redelivery"
     # 3. Heuristics
-    best: tuple[float, Txn] | None = None
+    best: tuple[float, Txn, bool, str] | None = None
     best_close = None
     for t in txns:
         if t.has_source(cand.source):
-            continue                                    # same source twice = two purchases
+            # Same source twice = two purchases, except Plaid posted settling a row whose only Plaid sources are pending.
+            only_pending_plaid = cand.source == "plaid" and cand.status == "posted" and all(
+                x.get("status") == "pending" for x in t.sources if x["source"] == "plaid") and t.plaid_transaction_id != cand.plaid_transaction_id
+            if not only_pending_plaid:
+                continue
         dt = abs(cand.occurred_at - t.occurred_at)
         if dt > WINDOW:
             continue
@@ -125,7 +145,7 @@ def find_match(cand: Candidate, txns: list[Txn], *, category_names: dict[str, st
             continue
         cat = (category_names or {}).get(t.category_id or "")
         tippable = is_tippable(_name(cand), cat) or is_tippable(_name(t), cat)
-        ok, exact = _amount_compatible(cand, t, tippable)
+        ok, exact = _amount_compatible(cand, t, tippable, dt)
         if not ok:
             continue
         na, nb = _name(cand), _name(t)
@@ -135,32 +155,40 @@ def find_match(cand: Candidate, txns: list[Txn], *, category_names: dict[str, st
             # A merchant-less capture may still match an exact amount on the same card within a few hours.
             if not ((not na or not nb) and exact and card_eq and dt <= timedelta(hours=6)):
                 continue
-        score = sim * 2 + (1.0 if card_eq else 0.0) + (0.5 if exact else 0.0) + 0.5 * (1 - dt / WINDOW)
+        score = sim * 2 + (1.0 if card_eq else 0.0) + (2.0 if exact else 0.0) + 0.5 * (1 - dt / WINDOW)
+        strong = exact and sim >= 0.8
         if best is None or score > best[0] + 0.05 or (abs(score - best[0]) <= 0.05 and dt < best_close):
-            best, best_close = (score, t), dt
+            kind = "heuristic" if exact and strong else ("tip" if not exact else "heuristic_weak")
+            best, best_close = (score, t, strong, kind), dt
     if best:
-        return best[1], "heuristic"
+        return best[1], best[3]
     return None, "none"
 
 def _source_entry(c: Candidate) -> dict:
-    return {"source": c.source, "ref": c.ref, "amount_cents": c.amount_cents, "status": c.status, "at": c.occurred_at.isoformat()}
+    return {"source": c.source, "ref": c.ref, "amount_cents": c.amount_cents, "status": c.status, "at": c.occurred_at.isoformat(),
+            "merchant_raw": c.merchant_raw, "card_last4": c.card_last4, "confidence": c.confidence, "pending_id": c.plaid_pending_id}
 
 def merge_fields(t: Txn, c: Candidate, reason: str) -> dict[str, Any]:
     """Compute the update patch for merging candidate [c] into [t]. Pure."""
     f: dict[str, Any] = {}
     cp = priority(c.source, c.status)
-    wins = cp > t.best_priority or (cp == t.best_priority and reason in ("pending_to_posted", "plaid_id"))
+    t_best = max(t.sources, key=lambda x: (priority(x["source"], x.get("status", "posted")), x["source"]), default=None)
+    t_key = (t.best_priority, t_best["source"] if t_best else "")
+    wins = (cp, c.source) > t_key or (cp == t.best_priority and reason in ("pending_to_posted", "plaid_id"))
     sources = list(t.sources)
     if not any(s["source"] == c.source and s["ref"] == c.ref for s in sources):
         sources.append(_source_entry(c))
     else:
         sources = [(_source_entry(c) if (s["source"] == c.source and s["ref"] == c.ref) else s) for s in sources]  # refresh status/amount
+    if reason == "tip":
+        sources = [{**x, "match": "tip"} for x in sources]       # provisional: a later exact match may take a slot back
     f["sources"] = sources
 
     if wins and "amount" not in t.user_edited:
         f["amount_cents"] = c.amount_cents
-    if wins:
+    if wins and (c.time_precise or not t.sources or not any(x["source"] != "plaid" for x in t.sources)):
         f["occurred_at"] = c.occurred_at
+    if wins:
         if c.merchant_raw:
             f["merchant_raw"] = c.merchant_raw
         if c.merchant_clean and "merchant" not in t.user_edited:
@@ -186,10 +214,12 @@ def merge_fields(t: Txn, c: Candidate, reason: str) -> dict[str, Any]:
         f["category_id"] = c.category_id
     # Corroboration: independent sources agreeing means the capture is trustworthy.
     conf = max(t.confidence, c.confidence)
-    if t.sources and c.source != "manual":
-        conf = max(conf, 0.97) if reason in ("heuristic", "pending_to_posted") else conf
+    if t.sources and c.source != "manual" and reason in ("heuristic", "tip", "pending_to_posted"):
+        conf = max(conf, 0.97)
     f["confidence"] = conf
-    if conf >= REVIEW_THRESHOLD:
+    if reason == "heuristic_weak":
+        f["needs_review"] = True              # a weak match is never silently accepted
+    elif conf >= REVIEW_THRESHOLD:
         f["needs_review"] = False
     return f
 
@@ -224,29 +254,70 @@ def apply_action(txns: list[Txn], a: Action, new_id: str) -> None:
         for k, v in a.fields.items():
             setattr(t, k, v)
 
+def _candidate_from_entry(e: dict) -> Candidate:
+    is_plaid = e["source"] == "plaid"
+    return Candidate(e["source"], e["ref"], e["amount_cents"], datetime.fromisoformat(e["at"]), e.get("merchant_raw") or "", "", e.get("card_last4"),
+                     e.get("status", "posted"), plaid_transaction_id=e["ref"] if is_plaid else None, plaid_pending_id=e.get("pending_id"),
+                     confidence=e.get("confidence", 1.0))
+
+def _without(t: Txn, e: dict) -> Txn:
+    rest = [x for x in t.sources if x is not e]
+    best = max(rest, key=lambda x: (priority(x["source"], x.get("status", "posted")), x["source"])) if rest else None
+    r = Txn(id=t.id, amount_cents=best["amount_cents"] if best else t.amount_cents, occurred_at=t.occurred_at, merchant_raw=t.merchant_raw,
+            merchant_clean=t.merchant_clean, card_last4=t.card_last4, status=t.status, sources=rest, confidence=t.confidence, needs_review=t.needs_review,
+            account_id=t.account_id, category_id=t.category_id, user_edited=set(t.user_edited))
+    if e["source"] != "plaid":
+        r.plaid_transaction_id, r.plaid_pending_id = t.plaid_transaction_id, t.plaid_pending_id
+    return r
+
+def plan(cand: Candidate, txns: list[Txn], *, category_names: dict[str, str] | None = None, depth: int = 0) -> list[Action]:
+    """All actions needed to ingest [cand]. Usually one. When [cand] exactly matches a row whose slot for the same source is held only by a
+    PROVISIONAL tip-merged entry, [cand] takes the slot back and the displaced entry is re-ingested on its own (exact beats tip, in any arrival order)."""
+    if depth < 3:
+        for t in txns:
+            for e in t.sources:
+                if e["source"] != cand.source or e.get("match") != "tip" or (e["ref"] == cand.ref):
+                    continue
+                r = _without(t, e)
+                m, reason = find_match(cand, [r], category_names=category_names)
+                if m is not None and reason == "heuristic" and cand.amount_cents == r.amount_cents:
+                    fields = merge_fields(r, cand, "heuristic")
+                    if e["source"] == "plaid" and not cand.plaid_transaction_id:
+                        fields["plaid_transaction_id"] = None
+                    elif e["source"] == "plaid":
+                        fields["plaid_transaction_id"] = cand.plaid_transaction_id
+                    first = Action("update", t.id, fields, "steal")
+                    apply_action(txns, first, t.id)
+                    return [first] + plan(_candidate_from_entry(e), txns, category_names=category_names, depth=depth + 1)
+    return [decide(cand, txns, category_names=category_names)]
+
 def ingest(txns: list[Txn], cand: Candidate, new_id: str, *, category_names: dict[str, str] | None = None) -> Action:
-    a = decide(cand, txns, category_names=category_names)
-    apply_action(txns, a, new_id)
-    return a
+    acts = plan(cand, txns, category_names=category_names)
+    last = acts[-1]
+    if last.kind in ("insert", "update") and last.reason != "steal":
+        apply_action(txns, last, new_id)
+    return acts[0] if len(acts) == 1 else acts[-1]
 
 def apply_plaid_removed(txns: list[Txn], removed_ids: list[str]) -> list[Action]:
-    """Plaid reports removed transactions (e.g. a pending charge that was cancelled). Delete if Plaid was the only source,
-    otherwise detach the Plaid refs and keep the other sources' view."""
+    """Plaid reports removed transactions (e.g. a cancelled pending authorization). Delete if Plaid was the only source; otherwise
+    detach the Plaid refs and fall back to the other sources, flagging the row for review (the hold may have been voided)."""
     out: list[Action] = []
     for t in list(txns):
         if t.plaid_transaction_id in removed_ids:
-            others = [s for s in t.sources if s["source"] != "plaid"]
+            others = [x for x in t.sources if x["source"] != "plaid"]
             if not others:
                 txns.remove(t)
                 out.append(Action("delete", t.id, {}, "plaid_removed"))
-            else:
-                best = max(others, key=lambda s: priority(s["source"], s.get("status", "posted")))
-                t.sources = others
-                t.plaid_transaction_id = None
-                t.plaid_pending_id = None
-                t.amount_cents = best.get("amount_cents", t.amount_cents)
-                t.status = "pending" if best["source"] != "manual" else "posted"
-                out.append(Action("update", t.id, {"sources": others, "plaid_transaction_id": None, "amount_cents": t.amount_cents}, "plaid_removed_keep_others"))
+                continue
+            best = max(others, key=lambda x: (priority(x["source"], x.get("status", "posted")), x["source"]))
+            t.sources = others
+            t.plaid_transaction_id = None
+            t.plaid_pending_id = None
+            if "amount" not in t.user_edited and "amount_cents" in best:
+                t.amount_cents = best["amount_cents"]
+            t.needs_review = True
+            f = {"sources": others, "plaid_transaction_id": None, "plaid_pending_id": None, "amount_cents": t.amount_cents, "needs_review": True}
+            out.append(Action("update", t.id, f, "plaid_removed_keep_others"))
     return out
 
 def total_spend(txns: list[Txn]) -> int:

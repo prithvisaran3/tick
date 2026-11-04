@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import threading
+from collections import defaultdict
+
 from .db import rest
 from .reconcile import Action, Candidate, Txn, WINDOW
 
@@ -57,3 +60,10 @@ def learned_rules(user_id: str) -> dict[str, str]:
     """pattern -> category name"""
     rows = rest().select("rules", user_id=f"eq.{user_id}", select="pattern,categories(name)")
     return {r["pattern"]: r["categories"]["name"] for r in rows if r.get("categories")}
+
+
+_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+
+def user_lock(user_id: str) -> threading.Lock:
+    """Serialise read-decide-write per user so two near-simultaneous captures (SMS + Apple Pay) cannot both insert. One Railway replica."""
+    return _locks[user_id]

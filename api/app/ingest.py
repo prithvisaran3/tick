@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import threading
+from collections import defaultdict
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import ai, store
@@ -12,7 +14,7 @@ from .auth import ingest_limiter, user_for_tick_token
 from .db import rest
 from .merchants import categorize, clean_merchant, looks_business
 from .parsers import ParsedAlert, parse_alert, parse_applepay
-from .reconcile import REVIEW_THRESHOLD, Candidate, decide
+from .reconcile import REVIEW_THRESHOLD, Candidate, plan
 
 router = APIRouter()
 
@@ -40,7 +42,7 @@ def build_candidate(user_id: str, source: str, ref: str, parsed: ParsedAlert, no
     return cand, tags
 
 @router.post("/ingest")
-def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)):
+def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token), idempotency_key: str = Header(default="")):
     user_id, token_hash = who
     ingest_limiter.check(token_hash)
     now = datetime.now(timezone.utc)
@@ -49,7 +51,7 @@ def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)
         if body.source == "sms":
             if not body.text:
                 raise HTTPException(422, "text required")
-            ref = hashlib.sha256(body.text.encode()).hexdigest()[:16] + now.strftime("%Y%m%d%H%M")
+            ref = idempotency_key or hashlib.sha256(body.text.encode()).hexdigest()[:20]
             parsed = parse_alert(body.text)
             if parsed is None or parsed.confidence < REVIEW_THRESHOLD:
                 better = ai.parse_alert_ai(user_id, body.text)
@@ -58,16 +60,20 @@ def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)
         else:
             if body.merchant is None or body.amount is None:
                 raise HTTPException(422, "merchant and amount required")
-            ref = hashlib.sha256(f"{body.merchant}|{body.amount}|{body.card}".encode()).hexdigest()[:16] + now.strftime("%Y%m%d%H%M")
+            ref = idempotency_key or hashlib.sha256(f"{body.merchant}|{body.amount}|{body.card}".encode()).hexdigest()[:20]
             parsed = parse_applepay(body.merchant, body.amount, body.card)
         if parsed is None:
             rest().update("ingest_logs", {"id": log["id"]}, {"status": "ignored", "result": {"reason": "not a transaction"}})
             return {"ok": True, "action": "ignored"}
         cand, tags = build_candidate(user_id, body.source, ref, parsed, now)
         _, id_to_name = store.category_maps(user_id)
-        action = decide(cand, store.window(user_id, now), category_names=id_to_name)
-        extra = {"tags": tags} if action.kind == "insert" and tags else None
-        tid = store.persist(user_id, action, extra)
+        with store.user_lock(user_id):
+            actions = plan(cand, store.window(user_id, now), category_names=id_to_name)
+            action = actions[0]
+            tid = None
+            for a in actions:
+                extra = {"tags": tags} if a.kind == "insert" and tags else None
+                tid = store.persist(user_id, a, extra) or tid
         res = {"action": action.kind, "reason": action.reason, "confidence": cand.confidence, "needs_review": cand.confidence < REVIEW_THRESHOLD and action.kind == "insert"}
         rest().update("ingest_logs", {"id": log["id"]}, {"status": "ok", "result": res, "transaction_id": tid})
         return {"ok": True, "transaction_id": tid, **res}

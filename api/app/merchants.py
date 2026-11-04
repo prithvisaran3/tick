@@ -9,12 +9,14 @@ _TRAILING_ID = re.compile(r"[\s#*-]+(?:\d{3,}|(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6,})
 _STATE_CITY = re.compile(r"\s+[A-Z][a-zA-Z .]+\s+[A-Z]{2}\s*$")
 
 ALIASES = {
-    "uber": "Uber", "ubereats": "Uber Eats", "lyft": "Lyft", "amzn": "Amazon", "amazon": "Amazon", "amazoncom": "Amazon",
+    "ubereats": "Uber Eats", "uber": "Uber", "amazonwebservices": "AWS", "aws": "AWS", "lyft": "Lyft", "amzn": "Amazon", "amazon": "Amazon", "amazoncom": "Amazon",
     "wholefoods": "Whole Foods", "wholefds": "Whole Foods", "wfm": "Whole Foods", "traderjoes": "Trader Joe's", "traderjoe": "Trader Joe's",
     "starbucks": "Starbucks", "chipotle": "Chipotle", "doordash": "DoorDash", "netflix": "Netflix", "spotify": "Spotify",
     "applecombill": "Apple", "appleservices": "Apple", "cursor": "Cursor", "anthropic": "Claude", "claudeai": "Claude", "openai": "OpenAI",
     "github": "GitHub", "cloudflare": "Cloudflare", "namecheap": "Namecheap", "railway": "Railway", "vercel": "Vercel",
 }
+
+_ALIAS_ORDER = sorted(ALIASES.items(), key=lambda kv: -len(kv[0]))
 
 def _alnum(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
@@ -25,7 +27,7 @@ def clean_merchant(raw: str) -> str:
     if not s:
         return ""
     raw_key = _alnum(s)
-    for alias, name in ALIASES.items():
+    for alias, name in _ALIAS_ORDER:
         if raw_key.startswith(alias):
             return name
     s = _PREFIX.sub("", s).strip()
@@ -33,7 +35,7 @@ def clean_merchant(raw: str) -> str:
     s = _STATE_CITY.sub("", s) if s.isupper() else s
     s = _TRAILING_ID.sub("", s).strip(" *#-.,")
     key = _alnum(s)
-    for alias, name in ALIASES.items():
+    for alias, name in _ALIAS_ORDER:
         if key.startswith(alias):
             return name
     words = s.split()
@@ -53,22 +55,26 @@ def similarity(a: str, b: str) -> float:
     ja, jb = "".join(ta), "".join(tb)
     if ja == jb:
         return 1.0
+    sa, sb = set(ta), set(tb)
+    small, large = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
+    # "Uber" is not "Uber Eats": a single-token name that is only a strict subset of a longer name is a different merchant.
+    if len(small) == 1 and small < large:
+        return 0.5
     if len(ja) >= 3 and len(jb) >= 3 and (ja in jb or jb in ja):
         return 0.9
     seq = SequenceMatcher(None, ja, jb).ratio()
-    sa, sb = set(ta), set(tb)
     jac = len(sa & sb) / len(sa | sb)
-    first = 0.85 if ta[0] == tb[0] and len(ta[0]) >= 3 else 0.0  # same first word ("uber" vs "uber eats" still low enough via jac)
-    return max(seq, jac, first * 0.9)
+    return max(seq, jac)
 
-TIPPABLE_KEYWORDS = ("restaurant", "cafe", "coffee", "bar", "grill", "pizza", "kitchen", "tavern", "pub", "bistro", "diner", "taco", "sushi", "thai",
-                     "uber", "lyft", "doordash", "grubhub", "salon", "spa", "barber", "cab", "taxi", "chipotle", "sweetgreen", "starbucks", "bottle")
+TIPPABLE_WORDS = ("restaurant", "cafe", "coffee", "bar", "grill", "pizza", "kitchen", "tavern", "pub", "bistro", "diner", "taco", "sushi", "thai",
+                  "uber", "lyft", "doordash", "grubhub", "salon", "spa", "barber", "cab", "taxi", "chipotle", "sweetgreen", "starbucks")
+_TIPPABLE_RE = re.compile(r"\b(?:" + "|".join(TIPPABLE_WORDS) + r")\b")
 
 def is_tippable(merchant: str, category_name: str | None = None) -> bool:
     m = (merchant or "").lower()
     if category_name and category_name.lower() in {"restaurants", "coffee", "rideshare"}:
         return True
-    return any(k in m for k in TIPPABLE_KEYWORDS)
+    return bool(_TIPPABLE_RE.search(re.sub(r"[^a-z0-9 ]", " ", m)))
 
 BUSINESS_KEYWORDS = ("claude", "anthropic", "openai", "cursor", "github", "vercel", "railway", "supabase", "aws", "amazon web", "google cloud", "cloudflare",
                      "namecheap", "godaddy", "porkbun", "apple developer", "figma", "notion", "linear", "sentry", "twilio", "stripe", "digitalocean", "heroku",

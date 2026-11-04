@@ -87,6 +87,8 @@ def parse_alert(text: str) -> ParsedAlert | None:
                     continue
                 gd = m.groupdict()
                 amt = _cents(gd["amount"])
+                if amt == 0:
+                    return None
                 direction = kinds[name]
                 merchant = (gd.get("merchant") or "").strip(" .")
                 last4 = gd.get("last4") or (re.search(LAST4, t, re.I).group("last4") if re.search(LAST4, t, re.I) else None)
