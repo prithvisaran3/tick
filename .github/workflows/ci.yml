@@ -16,13 +16,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install -r api/requirements.txt
-      - run: cd api && pytest -q
+      - run: cd api && python -m pytest -q
   app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with: { channel: stable }
+        with: { flutter-version: "3.47.9", channel: stable }
       - run: cd app && flutter pub get && flutter analyze && flutter test
   rls:
     # Needs repo secrets SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF; skipped when absent.
@@ -35,3 +35,21 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then echo "no secrets; skipping"; else python3 tools/run_rls_tests.py; fi
+  integration:
+    # Live checks (Supabase, Plaid sandbox, OpenRouter) run only when the secrets exist; otherwise this job is a no-op.
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      PLAID_SANDBOX_SECRET: ${{ secrets.PLAID_SANDBOX_SECRET }}
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          if [ -z "$SUPABASE_SECRET_KEY" ]; then echo "no secrets; skipping integration checks"; exit 0; fi
+          pip install -r api/requirements.txt
+          python3 tools/e2e_ingest.py
+          python3 tools/e2e_plaid_sandbox.py
