@@ -15,3 +15,5 @@ print("cd app && flutter run \\")
 for k in ("SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "GOOGLE_OAUTH_IOS_CLIENT_ID", "GOOGLE_OAUTH_WEB_CLIENT_ID"):
     print(f"  --dart-define={k}={env[k]} \\")
 print(f"  --dart-define=API_BASE_URL={api}")
+print()
+print("Note: OPENROUTER_API_KEY is a SERVER secret (already set on Railway). The app never receives it, so it is not in the command above.")

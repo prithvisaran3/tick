@@ -26,6 +26,10 @@ def test_rank_only_free_zero_priced_and_capability():
     assert "openai/gpt-5" not in tools and "sneaky/paid:free" not in tools and "no-tools/model:free" not in tools
     assert not any("safety" in m for m in tools) and "liquid/lfm-2.5-2.6b:free" not in tools[:2]
     assert tools[0] in ("google/gemma-4-31b-it:free", "nvidia/nemotron-3-ultra-550b-a55b:free")
+    private = rank_models(CATALOG, "tools", avoid=("nvidia/",))
+    assert not any(m.startswith("nvidia/") for m in private)
+    assert "google/gemma-4-31b-it:free" not in rank_models(CATALOG, "tools", cooling={"google/gemma-4-31b-it:free"})
+    assert rank_models(CATALOG + [{"id": "dots-studio/dots-3-note-preview:free", "context_length": 512000, "pricing": {"prompt": "0", "completion": "0"}, "supported_parameters": ["tools", "response_format"], "architecture": {"input_modalities": ["text"]}}], "json", avoid=("nvidia/",))[0] == "dots-studio/dots-3-note-preview:free"
     js = rank_models(CATALOG, "json")
     assert "no-tools/model:free" in js or True
     assert all(m.endswith(":free") for m in js)
@@ -58,7 +62,7 @@ def test_request_shape_free_models_privacy_policy():
     r = p.chat("json", [{"role": "user", "content": "x"}], json_out=True, max_tokens=64)
     assert r.text == '{"a":1}'
     assert all(m.endswith(":free") for m in seen["models"]) and len(seen["models"]) <= 3
-    assert seen["provider"]["data_collection"] == "deny" and seen["response_format"] == {"type": "json_object"} and seen["max_tokens"] == 64
+    assert seen["provider"]["data_collection"] == "deny" and seen["response_format"] == {"type": "json_object"} and seen["max_tokens"] == 64 + 600
     assert p.logged[0][-1] == "ok"
 
 def test_daily_limit_blocks_calls():
@@ -124,7 +128,7 @@ def test_batch_rejects_invalid_category_and_failure_is_silent(mem_cache):
 def test_parse_alert_ai_and_scrubbing(mem_cache):
     f = Fake([AIResult('{"amount": 12.5, "merchant": "Joes Pizza", "direction": "out", "confidence": 0.95}')]); ai.set_provider(f)
     p = ai.parse_alert_ai("u", "Your card ending in 4421 was charged $12.50 at JOES PIZZA, call 703-555-1212")
-    assert p.amount_cents == -1250 and p.merchant_raw == "Joes Pizza" and p.confidence <= 0.9
+    assert p.amount_cents == -1250 and p.merchant_raw == "Joes Pizza" and p.confidence <= 0.79
     sent = json.dumps(f.calls[0][1])
     assert "4421" not in sent and "703-555" not in sent
 
@@ -161,3 +165,23 @@ def test_null_provider_when_disabled(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "none"); ai.set_provider(None)
     assert ai.provider().available() is False and ai.generate("x", None, "hi", cache=False) is None
     ai.set_provider(None)
+
+
+def test_rate_limited_model_is_cooled_down(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    ai._cooldown.clear()
+    body = {"error": {"message": "Provider returned error", "metadata": {"raw": "google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortly"}}}
+    p = make_provider(lambda req: httpx.Response(429, json=body))
+    assert p.chat("text", [{"role": "user", "content": "x"}]) is None
+    assert "google/gemma-4-31b-it:free" in ai._cooldown
+    assert "google/gemma-4-31b-it:free" not in p.models_for("text")
+    ai._cooldown.clear()
+
+
+def test_batch_matches_models_that_recase_the_merchant(mem_cache):
+    ai.set_provider(Fake([AIResult(json.dumps({"results": [{"merchant": "bluebird espresso bar", "clean": "Bluebird Espresso Bar", "category": "Coffee"}]}))]))
+    assert ai.categorize_batch("u", ["BLUEBIRD ESPRESSO BAR"], ["Coffee", "Other"]) == {"BLUEBIRD ESPRESSO BAR": ("Bluebird Espresso Bar", "Coffee")}
+    ai.set_provider(Fake([AIResult(json.dumps({"results": [{"merchant": "totally different text", "clean": "Joe", "category": "Coffee"}]}))]))
+    assert ai.categorize_batch("u", ["ONE"], ["Coffee"]) == {"ONE": ("Joe", "Coffee")}      # single request, single answer
+    ai.set_provider(Fake([AIResult(json.dumps({"results": [{"merchant": "zzz", "clean": "Joe", "category": "Coffee"}]}))]))
+    assert ai.categorize_batch("u", ["A", "B"], ["Coffee"]) == {}                            # ambiguous: dropped, not guessed

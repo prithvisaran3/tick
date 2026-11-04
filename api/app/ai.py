@@ -80,12 +80,25 @@ _BAD = re.compile(r"safety|guard|tts|embed|image|code|coder|-vl-ocr|omni-flash",
 def _is_free(mid: str) -> bool:
     return isinstance(mid, str) and mid.endswith(":free")
 
-def rank_models(data: list[dict], task: str) -> list[str]:
+# Providers whose FREE endpoints train on prompts are filtered out by provider.data_collection="deny" (verified: nvidia/*), so never lead with them.
+AVOID_PREFIXES = tuple(x for x in os.environ.get("AI_AVOID_PREFIXES", "nvidia/").split(",") if x)
+# Free models verified to answer under data_collection="deny" (free models rotate; re-verify with tools/ai_smoke.py).
+PREFERRED = {"dots-studio/dots-3-note-preview:free": 3.0, "recursive/flint-v1.0:free": 2.5}
+_cooldown: dict[str, float] = {}
+
+def cool_down(model_id: str, seconds: int = 600) -> None:
+    _cooldown[model_id] = time.time() + seconds
+
+def rank_models(data: list[dict], task: str, *, avoid: tuple[str, ...] = (), cooling: set[str] | None = None) -> list[str]:
     """Pick up to 3 free model ids for a task: 'tools' | 'json' | 'text' | 'vision'. Pure; unit-tested."""
     cands = []
     for m in data:
         mid = m.get("id", "")
         if not _is_free(mid) or _BAD.search(mid.split("/")[-1]) and task != "vision":
+            continue
+        if mid.startswith(avoid) if avoid else False:
+            continue
+        if cooling and mid in cooling:
             continue
         p = m.get("pricing") or {}
         if str(p.get("prompt", "0")) not in ("0", "0.0") or str(p.get("completion", "0")) not in ("0", "0.0"):
@@ -96,7 +109,7 @@ def rank_models(data: list[dict], task: str) -> list[str]:
         if task == "json" and not ({"response_format", "structured_outputs"} & sp): continue
         if task == "vision" and "image" not in mods: continue
         if task == "vision" and re.search(r"safety|guard", mid, re.I): continue
-        score = 0
+        score = PREFERRED.get(mid, 0.0)
         score += 3 if "tools" in sp else 0
         score += 2 if ({"response_format", "structured_outputs"} & sp) else 0
         ctx = m.get("context_length") or 0
@@ -139,7 +152,9 @@ class OpenRouterProvider(AIProvider):
             return self._catalog[1] if self._catalog else []
 
     def models_for(self, task: str) -> list[str]:
-        return rank_models(self.catalog(), task)
+        now = time.time()
+        cooling = {m for m, t in _cooldown.items() if t > now}
+        return rank_models(self.catalog(), task, avoid=AVOID_PREFIXES if task != "vision" else AVOID_PREFIXES, cooling=cooling)
 
     # ---- limits ----
     def used_today(self) -> int:
@@ -177,7 +192,8 @@ class OpenRouterProvider(AIProvider):
         models = [m for m in models if _is_free(m)]            # hard guard: never a paid model
         if not models:
             return None
-        body: dict[str, Any] = {"models": models, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2,
+        # Reasoning models spend tokens thinking before they answer; leave headroom (completions stay tiny and free).
+        body: dict[str, Any] = {"models": models, "messages": messages, "max_tokens": max_tokens + 600, "temperature": 0.2,
                                 "provider": {"data_collection": "deny", "allow_fallbacks": True, "require_parameters": bool(tools or json_out)}}
         if tools:
             body["tools"] = tools
@@ -192,6 +208,9 @@ class OpenRouterProvider(AIProvider):
                 r = self.http.post(f"{BASE}/chat/completions", headers=headers, json=body)
                 ms = int((time.time() - t0) * 1000)
                 if r.status_code == 429 or r.status_code >= 500:
+                    m = re.search(r"([\w.\-/]+:free) is temporarily rate-limited", _err(r))
+                    if m:
+                        cool_down(m.group(1))                      # skip that model for 10 minutes
                     self._log(user_id, feature or task, models[0], None, 0, 0, ms, f"http_{r.status_code}:{_err(r)}")
                     if attempt == 0:
                         time.sleep(1.5)
@@ -310,7 +329,7 @@ def parse_alert_ai(user_id: str, text: str) -> ParsedAlert | None:
             return None
         cents = round(amt * 100)
         return ParsedAlert(-cents if d.get("direction", "out") == "out" else cents, str(d.get("merchant") or ""), None, None, None,
-                           min(float(d.get("confidence", 0.7)), 0.9), "ai")
+                           min(float(d.get("confidence", 0.7)), 0.79), "ai")   # model-parsed alerts always go to Caught for a human tick
     except Exception:
         return None
 
@@ -332,11 +351,13 @@ def categorize_batch(user_id: str | None, merchants: list[str], categories: list
         r = _chat("json", [{"role": "system", "content": CAT_SYSTEM}, {"role": "user", "content": payload}], user_id, "categorize", json_out=True, max_tokens=min(900, 40 + 30 * len(todo)))
         d = _json(r.text if r else None)
         items = (d or {}).get("results") if isinstance(d, dict) else d
-        by_scrub = {scrub(m): m for m in todo}
-        for it in items or []:
+        norm = lambda x: re.sub(r"[^a-z0-9]", "", str(x).lower())
+        by_norm = {norm(scrub(m)): m for m in todo}
+        items = list(items or [])
+        for it in items:
             try:
-                orig = by_scrub.get(it["merchant"]) or it["merchant"]
-                if it["category"] in categories and orig in todo:
+                orig = by_norm.get(norm(it["merchant"])) or (todo[0] if len(todo) == 1 and len(items) == 1 else None)   # models re-case or trim names
+                if orig and it["category"] in categories and orig in todo:
                     out[orig] = (str(it.get("clean") or orig)[:60], it["category"])
                     cache_put("categorize", scrub(orig).lower(), {"clean": out[orig][0], "category": it["category"]})
             except Exception:

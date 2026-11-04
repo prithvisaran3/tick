@@ -1,58 +1,54 @@
 # NEXT — resume here
-Fresh session? Read CLAUDE.md, docs/SPEC.md (sections 0, 7, 9) and this file, then continue from "Open work".
+Fresh session? Read CLAUDE.md, docs/FINAL_REPORT.md and this file, then continue unattended from "Open work".
 
-## Manual steps left (do these first)
-1. **Gemini credits are depleted** (API returns 402 RESOURCE_EXHAUSTED on every call). Top up at AI Studio. Until then everything degrades gracefully: alert parsing uses regex only (low confidence goes to Caught), categorisation uses keyword rules, Ask Tick answers the suggested questions with a deterministic fallback, receipt scan saves the photo and asks you to type the total, advice lines use local templates. After topping up, check `ai_usage` rows have `ok = true`. The model id is one constant: `api/app/config.py` `GEMINI_MODEL` (currently `gemini-3.7-flash`, the newest dated Flash the key listed and the newest I could name; `gemini-3.8-flash` was also listed but could not be tested). Override with the `GEMINI_MODEL` env var on Railway.
-2. **Run on your iPhone**: follow `docs/RUN_ON_MAC.md` (Xcode signing, App Group `group.com.prithvi.tick`, widget target, `tools/setup_local.py`). Swift (haptics plugin, widget, App Intent) is uncompiled and untested on a device.
-3. **Google sign-in**: the iOS OAuth client in Google Cloud must use the same bundle id as the Runner target (`com.prithvi.tick` unless you changed it).
-4. **Capture**: generate the token in Settings > Capture token, then follow `docs/SHORTCUTS_SETUP.md`.
-5. **Bank**: first real link uses 1 of your 10 lifetime Plaid Items (`PLAID_ENV=production`). Linking needs Hold to confirm in Settings > Banks. If an OAuth bank (Chase) refuses inside Hosted Link, register an HTTPS redirect in the Plaid dashboard and add `redirect_uri` to `create_link_token` (see `api/app/plaid.py`).
-6. **Plaid webhooks** point at `https://tick-api-production.up.railway.app/webhooks/plaid` (set per link token). Verified with the Plaid-Verification JWT; unit tested with a locally signed key, not yet exercised by Plaid.
-7. Merge `claude/gifted-cannon-lkg2x3` into `main` (the harness pushed to this branch, not main).
-8. Optional: add repo secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF` so the CI `rls` job runs.
-9. Paste masked bank alerts into `tools/samples/*.txt` so the regex parsers can be tuned to your real formats.
+## Do these by hand (in order of importance)
+1. **Plaid OAuth redirect (Chase and other OAuth banks).** Hosted Link works for OAuth banks without any redirect URI (current Plaid docs: Hosted Link does not need Link re-initialisation), so linking should work as is. To be safe, and required if you ever hit an OAuth error, register this exact URI:
+   `https://tick-api-production.up.railway.app/plaid/oauth-return`
+   Where: https://dashboard.plaid.com > Developers > API > **Allowed redirect URIs** > Add new URI > paste it > Save. Then on Railway (project `tick-api`, service `tick-api`, Variables) add `PLAID_REDIRECT_URI` with the same value and redeploy. Do NOT set the variable before registering the URI: Plaid rejects unregistered redirect URIs and linking would fail. Production OAuth institutions also need your Plaid application profile and (for some banks) questionnaire completed in the dashboard.
+2. **Run on your iPhone:** `docs/RUN_ON_MAC.md` (beginner steps). Swift (haptics plugin, widget, App Intent) is uncompiled and untested on a device.
+3. **Link ONE bank** (you have 10 Items for life; production Items are only created by the Hold-to-link flow, never by tests or code).
+4. **AI** runs on OpenRouter FREE models only, with data_collection=deny. Free capacity rotates; see "AI status" below. Check Settings > AI on the phone for "AI today: N of 40" and the models in use.
+5. Capture token + Shortcuts: `docs/SHORTCUTS_SETUP.md`.
+6. Optional: GitHub repo secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PLAID_CLIENT_ID`, `PLAID_SANDBOX_SECRET` so CI also runs the RLS and live integration jobs (they skip cleanly without them).
+7. Paste masked bank alerts into `tools/samples/*.txt` to tune the parsers.
+
+## AI status (read this)
+- Provider: OpenRouter, only model ids ending in `:free`, chosen at runtime from `GET /api/v1/models` (cached 24h), top 3 sent as the `models` fallback array. Gemini code stays behind the `AIProvider` interface (`AI_PROVIDER=gemini` to re-enable, currently a stub); `GEMINI_API_KEY` is no longer required.
+- Privacy: requests set `provider.data_collection = "deny"`. With that setting, free NVIDIA models are filtered out by OpenRouter ("Free model training"), and Google's free Gemma models were rate-limited upstream on 2026-11-04. Models verified working under `deny` that day: `dots-studio/dots-3-note-preview:free`, `recursive/flint-v1.0:free` (both reasoning models; the code leaves token headroom). `api/app/ai.py` has `PREFERRED` and `AVOID_PREFIXES` for this; re-verify with `python3 tools/ai_smoke.py` (max 3 calls) when models rotate.
+- Limits: 20 requests/min and 50/day are upstream; Tick enforces 15/min and `AI_DAILY_CALL_LIMIT=40` (counted from `ai_usage` where `ok = true`). 429 or error: one retry after 1.5s, then silent fallback to non-AI. A rate-limited model is skipped for 10 minutes.
+- Rule-first: regex parsers and learned rules first; AI only when confidence < 0.8; results cached in `ai_cache` by input hash; one batched call for all uncategorised merchants of a sync; Morning Receipt advice generated once a day by `/jobs/daily-advice` (pg_cron, noon UTC) and weekly insight once a week; the app never calls AI on open.
+- Privacy filter `ai.scrub()` strips card digits, long numbers, emails, phones and URLs. Ask Tick sends only tool results and the last 6 messages.
+- Not verified: the receipt-photo vision call (needs a free vision model that passes `deny`), and `parse_alert_ai` returned empty text once under a reasoning model (falls back to the regex result and Caught).
+- Smoke test results (2026-11-04): categorize and tool-call worked through `dots-studio/dots-3-note-preview:free`; live categorisation through the deployed API worked (`tools/e2e_ai_live.py`).
 
 ## Deployed
-- API: https://tick-api-production.up.railway.app (Railway project `tick-api`, service `tick-api`; redeploy: `cd api && RAILWAY_TOKEN=... railway up --service tick-api --ci`)
-- Supabase project (ref in env): schema + RLS + realtime + private `receipts` bucket + Google provider + vault wrappers + pg_cron jobs (`tick-sync-all` every 6h, `tick-weekly-insights` Sundays 22:00 UTC) calling the API with `X-Cron-Secret` from Vault.
+- API: https://tick-api-production.up.railway.app (Railway project `tick-api`; redeploy: `cd api && railway up --service tick-api --ci` with `RAILWAY_TOKEN`). Env: Supabase, Plaid, `OPENROUTER_API_KEY`, `CRON_SECRET`, `AI_PROVIDER`, `AI_DAILY_CALL_LIMIT`.
+- Supabase: 22 tables with forced owner-only RLS (+ server-only tables), vault wrappers, pg_cron: `tick-sync-all` (6h), `tick-weekly-insights` (Sun 22:00 UTC), `tick-daily-advice` (12:00 UTC), calling the API with `X-Cron-Secret` from Vault.
 
 ## Phase status
-- [x] P0 Foundations (design files, tokens, haptics, sounds, icons, logo, mockups + Opus review, Supabase, Railway /health, CI)
-- [x] P1 Shell (Google sign-in code, Face ID lock + privacy blur, tab bar, sheets, number pad, gallery, onboarding)
-- [x] P2 Ledger (schema, RLS + tests, categories, quick add + natural input, Activity, Today math, Demo mode, goldens)
-- [x] P3 Capture (/ingest, tokens, parsers, Gemini fallback, reconcile + property tests, Opus review applied, Caught, Shortcuts doc)
-- [x] P4 Banks (link token, Hosted Link flow, Vault, sync, webhook verification, 6h backstop, balances, relink, N of 10) — sandbox-tested only
-- [x] P5 Intelligence (rules, recurring + price hikes, Landed matching, nudges, local notifications, Morning Receipt + share, Payday plan notification, Flows)
-- [x] P6 Ask Tick (SSE, tools, fallback, mini charts, tappable transactions, ai_usage)
-- [x] P7 Native + polish (widget, App Intent, receipt scan, haptic sync tests, final Opus review)
-- [x] P8 Handoff (README, RUN_ON_MAC, SHORTCUTS_SETUP, DECISIONS, this file, FINAL_REPORT)
+All phases P0-P8 done, plus the finishing session: AI on OpenRouter, Plaid hardening, Payday plan, budgets and goals editors, categories and rules editor, torn receipt edge, Pick date, short account labels, CI green without secrets.
 
-## Open work (known gaps)
-- Not verified on a device: Core Haptics patterns, WidgetKit, App Intent, Google sign-in, ASWebAuthenticationSession Plaid flow, local notifications, Face ID.
-- Landed screen (stamp + heavy haptic + chime) exists (`IncomingScreen(landed:)`) but is not yet triggered from realtime: subscribe to `expected` updates where `status = landed` and push it. Server already marks expected rows landed when a matching deposit syncs.
-- Payday plan screen: the notification is scheduled; there is no dedicated Payday plan sheet yet (move-to-savings action).
-- Budgets and goals UI: tables, safe-to-spend use goals; no editor screens yet. Onboarding saves paycheck and rent (and demo data) only.
-- Settings > Categories shows a list; no add/rename/rules editor yet. Learned rules are created on recategorise.
-- `payday_rule` lives in local settings only (not synced to `settings.payday_rule`), so server-side Ask Tick fallback cannot use it for "can I afford".
-- Dynamic Type to XXL, VoiceOver pass: labels are on controls, but no XXL golden run yet.
-- Plaid `LINK`/`SESSION_FINISHED` webhook cannot map to a user (no client_user_id in body); the app calls `/plaid/complete` after the redirect instead.
-- Ingest serialises per user with an in-process lock (one Railway replica). Scaling out needs a Postgres advisory lock RPC.
-
-- From the final design review, not yet done: receipt torn zigzag edge, "Pick date" chip in onboarding, short account labels ("Chase ••1180") in row subtitles, move the "3 to check" card into a chip on the Today section label, `Sign out` row hidden when signed out.
+## Open work (known gaps, all need a device or are low priority)
+- Nothing has run on a device: Core Haptics patterns, WidgetKit, App Intent, Google sign-in, ASWebAuthenticationSession Plaid flow, local notifications and their tap routing, Face ID.
+- Plaid has only been exercised in sandbox; real webhook delivery to `/webhooks/plaid` (signature verification is unit-tested with a locally signed key, key rotation and rate limiting tested) is unverified until the first real link.
+- Receipt photo scanning needs a free vision model that passes `data_collection=deny`; until then the photo is saved and you type the total.
+- Ingest serialises per user with an in-process lock (one Railway replica). Scaling out needs a Postgres advisory-lock RPC.
+- Goal editor `Add` label should read `Tick` for edits (copy polish); widget extension uses the system rounded font (bundle Cabinet Grotesk into the extension for exact type).
+- Budgets are not part of Safe to spend (only goals and bills are).
 
 ## Splitwise plan (not in v1)
-Data model is ready: `people`, `transactions.splits jsonb`, `transactions.participants jsonb`, `expected(kind=iou)`. Steps: (1) people + groups tables and a people picker on a purchase; (2) split editor (equal, exact, percent) writing `splits`; (3) running balances per person derived from splits and settlements; (4) settle-up flow: Hold to confirm, creates an `expected iou` or a settlement transaction; (5) HEARTBEAT haptic (already compiled) fires once per person on settle-up; (6) share a settle link by text.
+Data model is ready: `people`, `transactions.splits jsonb`, `transactions.participants jsonb`, `expected(kind=iou)`. Steps: (1) people + groups tables and a people picker on a purchase; (2) split editor (equal, exact, percent) writing `splits`; (3) running balances per person; (4) settle-up flow with Hold to confirm; (5) HEARTBEAT haptic (already compiled) once per person on settle-up; (6) share a settle link by text.
 
 ## APNs push plan (not in v1)
-Local notifications cover v1. For server push: add an Apple Push key (p8) in the Apple developer account, store the key id/team id in Railway env and the p8 in Vault, add `device_tokens(user_id, token, env)` with RLS, register in the app (`UIApplication.registerForRemoteNotifications` via a small plugin), send from FastAPI with HTTP/2 to APNs on: Landed deposits (Plaid webhook), price hikes, urgent overspend. Keep the 8:00 morning summary local.
+Local notifications cover v1. For server push: Apple Push key (p8), key id/team id in Railway env, p8 in Vault, `device_tokens(user_id, token, env)` with RLS, register via a small iOS plugin, send from FastAPI over HTTP/2 on Landed deposits (Plaid webhook), price hikes and urgent overspend. Keep the 8:00 morning summary local.
 
 ## Sign in with Apple
-Required by App Store review once Google sign-in exists. Enable the capability, use `sign_in_with_apple` + `signInWithIdToken(provider: apple)`, enable the Apple provider via the Management API, and link accounts by email.
+Required by App Store review once Google sign-in exists: enable the capability, `sign_in_with_apple` + `signInWithIdToken(provider: apple)`, enable the Apple provider via the Management API, link accounts by email.
 
 ## Path to opening Tick to others
-1. Replace the single-user assumptions: per-user Plaid item cap (the 10-Item Trial cap is for the whole Plaid client, so move to a paid Plaid plan first), per-user rate limits, abuse limits on `/ingest`.
-2. Sign in with Apple, privacy policy and data deletion (Delete all data exists; add account deletion), App Store privacy labels.
-3. Move Gemini calls behind per-user quotas using `ai_usage`.
-4. Multi-replica safety: advisory locks around reconcile, a queue for Plaid sync.
-5. Plaid production review (Trial to Pay-as-you-go), security questionnaire, encryption at rest is covered by Vault.
+1. The 10-Item Plaid Trial cap is per client: move to a paid Plaid plan first; add per-user rate limits and abuse limits on `/ingest`.
+2. Sign in with Apple, privacy policy, account deletion, App Store privacy labels.
+3. Per-user AI quotas from `ai_usage` (the free pool is shared across users and tiny; a paid model behind the same interface is the real answer).
+4. Multi-replica safety (advisory locks around reconcile, a queue for Plaid sync).
+5. Plaid production review and security questionnaire; Vault already encrypts tokens at rest.
 6. TestFlight, crash reporting, analytics that never contain merchant text.
