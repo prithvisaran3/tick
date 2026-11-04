@@ -37,15 +37,15 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
       else ...[
         Padding(padding: const EdgeInsets.only(top: 8), child: Text(showLast ? (f.netCents >= 0 ? 'Left over in ${DateFormat('MMMM').format(now)}' : 'Over in ${DateFormat('MMMM').format(now)}') : (f.netCents >= 0 ? 'Left this month' : 'Over this month'), style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),
         Semantics(label: '${formatCents(f.netCents.abs())} ${f.netCents >= 0 ? 'left' : 'over'} this month', child: Text(formatCents(f.netCents, sign: true, whole: true), style: context.ts(TickType.hero, color: f.netCents >= 0 ? c.text : c.alert))),
-        Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [
-          Text('In ', style: context.ts(TickType.mono)), Money(f.inCents, sign: false, kind: MoneyKind.income, whole: true, style: context.ts(TickType.mono)),
-          const SizedBox(width: 16), Text('Out ${formatDollars(f.outCents)}', style: context.ts(TickType.mono)),
+        Padding(padding: const EdgeInsets.only(top: 4), child: Wrap(spacing: 16, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [Text('In ', style: context.ts(TickType.mono)), Money(f.inCents, sign: false, kind: MoneyKind.income, whole: true, style: context.ts(TickType.mono))]),
+          Text('Out ${formatDollars(f.outCents)}', style: context.ts(TickType.mono)),
         ])),
         const SizedBox(height: 16),
         TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text('Where it went', style: context.ts(TickType.title, size: 16)),
-            if (vs != null) Text('vs last month: ${vs <= 0 ? '−' : '+'}${(vs.abs() * 100).round()}%', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+            Flexible(child: Text('Where it went', style: context.ts(TickType.title, size: 16))),
+            if (vs != null) Padding(padding: const EdgeInsets.only(left: 8), child: Text('vs last month: ${vs <= 0 ? '−' : '+'}${(vs.abs() * 100).round()}%', style: context.ts(TickType.bodyS, color: c.textSecondary))),
           ]),
           if (cats.isEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text('No spending yet this month.', style: context.ts(TickType.body, color: c.textSecondary))),
           for (final e in cats.take(5)) Padding(padding: const EdgeInsets.only(top: 12), child: _CatBar(name: l.category(e.key)?.name ?? 'Other', cents: e.value, frac: e.value / maxCat)),
@@ -54,7 +54,7 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
         TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: _Heatmap(flows: f, now: now)),
         const SizedBox(height: 8),
         TickCard(raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Row(children: [TickIcon('briefcase', size: 22, color: c.text), const SizedBox(width: 8), Text('Business', style: context.ts(TickType.title, size: 16))]),
+          Flexible(child: Row(children: [TickIcon('briefcase', size: 22, color: c.text), const SizedBox(width: 8), Flexible(child: Text('Business', style: context.ts(TickType.title, size: 16)))])),
           Text(formatCents(f.businessCents), style: context.ts(TickType.monoL)),
         ])),
       ],
