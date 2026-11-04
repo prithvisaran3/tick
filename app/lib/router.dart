@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'domain/models.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -45,6 +46,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen())),
         GoRoute(path: '/caught', pageBuilder: (c, s) => _page(s, const CaughtScreen())),
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
+        GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
         GoRoute(path: '/categories', pageBuilder: (c, s) => _page(s, const CategoriesScreen())),
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),

@@ -11,7 +11,7 @@ import 'settings.dart';
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 class LedgerState {
-  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const []});
+  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const [], this.justLanded});
   final List<Category> categories;
   final List<Account> accounts;
   final List<Txn> txns;
@@ -22,15 +22,16 @@ class LedgerState {
   final bool offline;
   final int linksUsed;
   final List<Connection> connections;
+  final Expected? justLanded; // money that just arrived: the Landed moment plays once
 
   Category? category(String? id) => categories.where((c) => c.id == id).firstOrNull;
   Category? categoryByName(String name) => categories.where((c) => c.name.toLowerCase() == name.toLowerCase()).firstOrNull;
   Account? account(String? id) => accounts.where((a) => a.id == id).firstOrNull;
   List<Txn> get needsReview => txns.where((t) => t.needsReview).toList();
 
-  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed, List<Connection>? connections}) => LedgerState(
+  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed, List<Connection>? connections, Expected? justLanded, bool clearLanded = false}) => LedgerState(
       categories: categories ?? this.categories, accounts: accounts ?? this.accounts, txns: txns ?? this.txns, recurring: recurring ?? this.recurring,
-      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections);
+      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections, justLanded: clearLanded ? null : (justLanded ?? this.justLanded));
 }
 
 class LedgerNotifier extends Notifier<LedgerState> {
@@ -46,6 +47,8 @@ class LedgerNotifier extends Notifier<LedgerState> {
     final remote = ref.read(remoteProvider);
     if (remote != null) {
       Future.microtask(refresh);
+      final ch = remote.listen(() => Future.microtask(refresh));
+      ref.onDispose(() => ch.unsubscribe());
       return LedgerState(categories: defaultCategories, loading: true);
     }
     return const LedgerState(categories: []);
@@ -56,11 +59,23 @@ class LedgerNotifier extends Notifier<LedgerState> {
     if (remote == null || ref.read(settingsProvider).demoMode) return;
     try {
       final l = await remote.loadAll();
-      state = l.copyWith(loading: false, offline: false);
+      Expected? landed;
+      try {
+        final prefs = ref.read(sharedPrefsProvider);
+        final seen = (prefs?.getStringList('tick.seenLanded') ?? <String>[]).toSet();
+        final fresh = (await remote.recentLanded()).where((e) => !seen.contains(e.id)).toList();
+        if (fresh.isNotEmpty) {
+          landed = fresh.first;
+          await prefs?.setStringList('tick.seenLanded', [...seen, ...fresh.map((e) => e.id)].take(50).toList());
+        }
+      } catch (_) {}
+      state = l.copyWith(loading: false, offline: false, justLanded: landed);
     } catch (_) {
       state = state.copyWith(loading: false, offline: true);
     }
   }
+
+  void landedShown() => state = state.copyWith(clearLanded: true);
 
   DateTime get _now => ref.read(clockProvider)();
 

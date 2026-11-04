@@ -39,6 +39,21 @@ class Remote {
       id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind']), label: j['label'] as String,
       amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String));
 
+  /// Expected money that landed in the last two days.
+  Future<List<Expected>> recentLanded() async {
+    final since = DateTime.now().subtract(const Duration(days: 2)).toIso8601String().substring(0, 10);
+    final rows = await db.from('expected').select().eq('status', 'landed').gte('expected_date', since);
+    return [for (final j in rows) _exp(j)];
+  }
+
+  RealtimeChannel listen(void Function() onChange) {
+    final ch = db.channel('tick-live');
+    for (final t in ['transactions', 'expected', 'connections']) {
+      ch.onPostgresChanges(event: PostgresChangeEvent.all, schema: 'public', table: t, callback: (_) => onChange());
+    }
+    return ch..subscribe();
+  }
+
   bool _isUuid(String? s) => s != null && RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-').hasMatch(s);
 
   Future<Txn> insertTxn(Txn t) async {
