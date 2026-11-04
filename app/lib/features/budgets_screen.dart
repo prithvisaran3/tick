@@ -24,6 +24,7 @@ class BudgetsScreen extends ConsumerWidget {
     return TickScreen(
       child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
         ScreenTitle('Budgets and goals', onBack: () => context.pop()),
+        if (l.loading && l.budgets.isEmpty && l.goals.isEmpty) const ListSkeleton(rows: 4),
         SectionLabel('Budgets', trailing: TickChip('Add', icon: 'plus', onTap: () => _editBudget(context, ref, null))),
         if (l.budgets.isEmpty)
           const EmptyState('No budgets yet', 'Set a monthly cap on food or rideshare and Tick draws the pace line.', icon: 'goal')

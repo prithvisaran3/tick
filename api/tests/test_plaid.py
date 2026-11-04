@@ -126,7 +126,7 @@ def test_session_finished_uses_stored_link_session(monkeypatch):
     monkeypatch.setattr(P, "provider", lambda: prov)
     finished = []
     monkeypatch.setattr(P, "_session_for_link_token", lambda lt: {"user_id": "user-1", "connection_id": None} if lt == "link-abc" else None)
-    monkeypatch.setattr(P, "finish_link", lambda uid, lt: finished.append((uid, lt)) or [])
+    monkeypatch.setattr(P, "finish_link", lambda uid, lt, **kw: finished.append((uid, lt)) or [])
     class R:
         def select(self, *a, **k): return []
     monkeypatch.setattr(P, "rest", lambda: R())

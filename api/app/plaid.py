@@ -352,8 +352,6 @@ def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, st
     except Exception:
         pass
 
-_pending_sync: list[dict] = []   # connections created in this request; the route syncs them in the background
-
 # ---------------- routes ----------------
 class LinkTokenBody(BaseModel):
     connection_id: str | None = None   # set for update mode (re-link)
@@ -385,10 +383,10 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
 class CompleteBody(BaseModel):
     link_token: str
 
-def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -> list[str]:
+def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -> list[dict]:
     prov = provider()
     publics = prov.link_token_result(link_token_value)
-    ids: list[str] = []
+    created: list[dict] = []
     for pt in publics:
         access, item_id = prov.exchange(pt)
         if rest().select("connections", item_id=f"eq.{item_id}", select="id"):
@@ -399,9 +397,8 @@ def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -
         conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id, "vault_secret_id": sid, "status": "active"})[0]
         if sync_now:
             sync_connection(conn, prov)
-        ids.append(conn["id"])
-        _pending_sync.append(conn)
-    return ids
+        created.append(conn)
+    return created
 
 @router.post("/plaid/complete")
 def complete(body: CompleteBody, background: BackgroundTasks, user_id: str = Depends(current_user)):
@@ -411,32 +408,33 @@ def complete(body: CompleteBody, background: BackgroundTasks, user_id: str = Dep
     sess = _session_for_link_token(body.link_token)
     if sess and sess["user_id"] != user_id:
         raise HTTPException(403, "not your link session")
-    _pending_sync.clear()
     try:
-        ids = finish_link(user_id, body.link_token, sync_now=False)
+        created = finish_link(user_id, body.link_token, sync_now=False)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
-    for conn in list(_pending_sync):
+    for conn in created:
         background.add_task(_safe_sync, conn)
-    _pending_sync.clear()
-    return {"connections": ids, "syncing": bool(ids), **links(user_id)}
+    return {"connections": [c["id"] for c in created], "syncing": bool(created), **links(user_id)}
 
 @router.post("/plaid/sync/{connection_id}")
-def sync_one(connection_id: str, user_id: str = Depends(current_user)):
+def sync_one(connection_id: str, background: BackgroundTasks, user_id: str = Depends(current_user)):
+    user_limiter.check(f"sync:{user_id}", 6, 60)
     rows = rest().select("connections", id=f"eq.{connection_id}", user_id=f"eq.{user_id}")
     if not rows:
         raise HTTPException(404, "connection not found")
-    return sync_connection(rows[0])
+    background.add_task(_safe_sync, rows[0])               # the app sees the result through Realtime
+    return {"syncing": True}
 
 @router.post("/webhooks/plaid")
-async def plaid_webhook(request: Request, plaid_verification: str = Header(default="")):
+async def plaid_webhook(request: Request, background: BackgroundTasks, plaid_verification: str = Header(default="")):
+    """Verify, then do the work in the background: Plaid expects an answer within seconds and retries slow ones."""
     body = await request.body()
     verify_webhook(body, plaid_verification)
     ev = json.loads(body)
     typ, code, item_id = ev.get("webhook_type"), ev.get("webhook_code"), ev.get("item_id")
     conns = rest().select("connections", item_id=f"eq.{item_id}") if item_id else []
     if typ == "TRANSACTIONS" and code in ("SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE") and conns:
-        sync_connection(conns[0])
+        background.add_task(_safe_sync, conns[0])
     elif typ == "ITEM" and conns:
         if code == "ERROR":
             err = (ev.get("error") or {}).get("error_code", "ERROR")
@@ -445,16 +443,17 @@ async def plaid_webhook(request: Request, plaid_verification: str = Header(defau
             rest().update("connections", {"id": conns[0]["id"]}, {"status": "login_required", "error_code": code})
         elif code == "LOGIN_REPAIRED":
             rest().update("connections", {"id": conns[0]["id"]}, {"status": "active", "error_code": None})
-            sync_connection(conns[0])
+            background.add_task(_safe_sync, conns[0])
     elif typ == "LINK" and code == "SESSION_FINISHED" and ev.get("status") == "success":
         lt = ev.get("link_token")
         sess = _session_for_link_token(lt)
         if sess and not sess.get("connection_id"):
-            finish_link(sess["user_id"], lt)
+            for conn in finish_link(sess["user_id"], lt, sync_now=False):
+                background.add_task(_safe_sync, conn)
         elif sess and sess.get("connection_id"):
             cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
             if cs:
-                sync_connection(cs[0])                                       # update mode finished: same Item, just sync
+                background.add_task(_safe_sync, cs[0])                       # update mode finished: same Item, just sync
     return {"ok": True}
 
 def _safe_sync(conn: dict) -> None:
@@ -476,14 +475,9 @@ def oauth_return():
     return "<!doctype html><meta charset=utf-8><title>tick</title><body style='background:#0E0E12;color:#F5F3EC;font-family:system-ui;display:grid;place-items:center;height:100vh'>Returning to Tick..."
 
 @router.post("/jobs/sync-all", dependencies=[Depends(require_cron)])
-def sync_all():
-    """pg_cron backstop every 6 hours."""
-    conns = rest().select("connections", provider="eq.plaid", status="neq.removed")
-    out = {}
+def sync_all(background: BackgroundTasks):
+    """pg_cron backstop every 6 hours. Returns at once; connections sync one after another in the background."""
+    conns = [c for c in rest().select("connections", provider="eq.plaid", status="neq.removed") if c.get("vault_secret_id")]
     for c in conns:
-        if c.get("vault_secret_id"):
-            try:
-                out[c["id"]] = sync_connection(c)
-            except Exception:
-                out[c["id"]] = {"error": "failed"}
-    return {"synced": len(out)}
+        background.add_task(_safe_sync, c)
+    return {"queued": len(conns)}

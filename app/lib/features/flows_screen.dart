@@ -35,7 +35,9 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
     return TickScrollView(onRefresh: ref.read(ledgerProvider.notifier).refresh, slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       ScreenTitle('Flows', trailing: TickChip(DateFormat('MMMM').format(now), onTap: () => setState(() => _last = !showLast))),
       if (l.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
-      if (l.loading && l.txns.isEmpty) ...[const Skeleton(height: 90, radius: 24), const SizedBox(height: 8), const ListSkeleton(rows: 3)] else if (l.txns.isEmpty)
+      if (l.loading && l.txns.isEmpty) ...[const Skeleton(height: 90, radius: 24), const SizedBox(height: 8), const ListSkeleton(rows: 3)] else if (l.offline && l.txns.isEmpty)
+        ErrorState(onRetry: ref.read(ledgerProvider.notifier).refresh)
+      else if (l.txns.isEmpty)
         const EmptyState('Not enough data for a trend yet', 'Give it a week.', icon: 'flows')
       else ...[
         Padding(padding: const EdgeInsets.only(top: 8), child: Text(showLast ? (f.netCents >= 0 ? 'Left over in ${DateFormat('MMMM').format(now)}' : 'Over in ${DateFormat('MMMM').format(now)}') : (f.netCents >= 0 ? 'Left this month' : 'Over this month'), style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),

@@ -98,6 +98,12 @@ class Remote {
 
   Future<void> deleteGoal(String id) => db.from('goals').delete().eq('id', id);
 
+  Future<Account> upsertManualAccount(Account a, int cents) async {
+    final row = {'name': a.name, 'type': 'checking', 'balance_cents': cents, 'available_cents': cents, 'is_manual': true, 'include_in_safe': true};
+    final j = _isUuid(a.id) ? await db.from('accounts').update(row).eq('id', a.id).select().single() : await db.from('accounts').insert(row).select().single();
+    return Account.fromJson(j);
+  }
+
   Future<Category> insertCategory(String name, String colorKey) async {
     final j = await db.from('categories').insert({'name': name, 'color_key': colorKey, 'icon': 'card', 'kind': 'spend', 'sort': 99}).select().single();
     return Category.fromJson(j);

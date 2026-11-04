@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/env.dart';
@@ -5,7 +6,7 @@ import '../data/env.dart';
 /// Supabase starts AFTER the first frame so a slow or offline network can never delay launch.
 final bootstrapProvider = FutureProvider<void>((ref) async {
   if (!Env.hasSupabase) return;
-  await Supabase.initialize(url: Env.supabaseUrl, publishableKey: Env.supabasePublishableKey).timeout(const Duration(seconds: 15), onTimeout: () => Supabase.instance);
+  await Supabase.initialize(url: Env.supabaseUrl, publishableKey: Env.supabasePublishableKey);
 });
 
 /// Current Supabase session; emits on sign-in, sign-out and token refresh. null while unresolved or signed out.
@@ -14,7 +15,13 @@ final authSessionProvider = StreamProvider<Session?>((ref) async* {
     yield null;
     return;
   }
-  await ref.watch(bootstrapProvider.future);
+  final init = ref.watch(bootstrapProvider.future);
+  try {
+    await init.timeout(const Duration(seconds: 8));
+  } on TimeoutException {
+    yield null;                                   // slow network: let the app show cached data now, keep waiting in the background
+    await init;
+  }
   final c = Supabase.instance.client;
   yield c.auth.currentSession;
   yield* c.auth.onAuthStateChange.map((e) => e.session);

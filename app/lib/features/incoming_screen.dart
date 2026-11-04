@@ -8,6 +8,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/refresh.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
@@ -29,8 +30,10 @@ class IncomingScreen extends ConsumerWidget {
     final inTotal = incoming.fold(0, (s, e) => s + e.amountCents);
     final billTotal = bills.fold(0, (s, r) => s + r.expectedCents);
     return TickScreen(
-      child: ListView(padding: const EdgeInsets.only(bottom: 40), children: [
+      child: TickScrollView(onRefresh: ref.read(ledgerProvider.notifier).refresh, slivers: [SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         ScreenTitle('Coming up', onBack: () => context.pop()),
+        if (l.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
+        if (l.loading && l.recurring.isEmpty && l.expected.isEmpty) const ListSkeleton(rows: 6) else ...[
         if (landed != null) PopIn(onLanded: () => TickHaptics.instance.landed(), fromScale: 1.15, spring: TickSprings.pop,
             child: TickCard(color: c.accent, child: Row(children: [
               Transform.rotate(angle: -0.1, child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: c.onAccent, width: 3), borderRadius: BorderRadius.circular(999)), child: Text('Landed.', style: context.ts(TickType.displayM, color: c.onAccent, size: 20)))),
@@ -60,7 +63,9 @@ class IncomingScreen extends ConsumerWidget {
               ),
             ],
           ])),
-      ]),
+        ],
+        const SizedBox(height: 40),
+      ]))]),
     );
   }
 }

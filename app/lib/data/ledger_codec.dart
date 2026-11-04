@@ -12,7 +12,7 @@ Map<String, dynamic> encodeLedger(LedgerState l, {String? userId}) {
     'savedAt': DateTime.now().toUtc().toIso8601String(),
     'linksUsed': l.linksUsed,
     'categories': [for (final c in l.categories) {'id': c.id, 'name': c.name, 'color_key': c.colorKey, 'icon': c.icon, 'kind': c.kind}],
-    'accounts': [for (final a in l.accounts) {'id': a.id, 'name': a.name, 'mask': a.mask, 'type': a.type, 'balance_cents': a.balanceCents, 'available_cents': a.availableCents, 'include_in_safe': a.includeInSafe}],
+    'accounts': [for (final a in l.accounts) {'id': a.id, 'name': a.name, 'mask': a.mask, 'type': a.type, 'balance_cents': a.balanceCents, 'available_cents': a.availableCents, 'include_in_safe': a.includeInSafe, 'is_manual': a.manual}],
     'txns': [
       for (final t in txns)
         {

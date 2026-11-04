@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/design/widgets/more.dart';
 import 'package:tick/features/caught_screen.dart';
+import 'package:tick/data/ledger.dart';
 import 'package:tick/features/today_screen.dart';
 import 'package:tick/services/haptics.dart';
 import 'golden_harness.dart';
@@ -10,8 +11,8 @@ import 'golden_harness.dart';
 void main() {
   setUpAll(loadFonts);
 
-  testWidgets('Today plays COUNT-UP and PRICE WEIGHT + capture pop sound for a fresh capture', (tester) async {
-    final c = await demoContainer();
+  testWidgets('Today plays COUNT-UP and PRICE WEIGHT + capture pop sound for a fresh capture (under 2 minutes old)', (tester) async {
+    final c = await demoContainer(overrides: [clockProvider.overrideWithValue(() => DateTime(2026, 11, 4, 9, 13))]);
     addTearDown(c.dispose);
     TickHaptics.instance.log.clear();
     await pumpGolden(tester, frame(c, const TodayScreen(), dark: true, tab: 0));
@@ -19,6 +20,15 @@ void main() {
     expect(log, contains('count_up'));
     expect(log.where((e) => e.startsWith('price_weight')), isNotEmpty);
     expect(log, contains('sound:capture_pop'));
+  });
+
+  testWidgets('Today does NOT replay the capture pop for an old capture on app open', (tester) async {
+    final c = await demoContainer();                       // 9:41: the newest capture is 29 minutes old
+    addTearDown(c.dispose);
+    TickHaptics.instance.log.clear();
+    await pumpGolden(tester, frame(c, const TodayScreen(), dark: true, tab: 0));
+    expect(TickHaptics.instance.log, contains('count_up'));
+    expect(TickHaptics.instance.log.where((e) => e.startsWith('price_weight') || e == 'sound:capture_pop'), isEmpty);
   });
 
   testWidgets('HoldToConfirm: ramp on press, click on completion, soft cancel when released early', (tester) async {

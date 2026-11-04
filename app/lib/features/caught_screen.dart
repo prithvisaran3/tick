@@ -85,8 +85,7 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
     if (!mounted) return;
     setState(() { _done.add(t.id); _drag = Offset.zero; _flying = false; });
     if (dir == 'left') {
-      await showCategorySheet(context, ref, t);
-      ref.read(ledgerProvider.notifier).patch(t.id, (x) => x.copyWith(needsReview: false));
+      await showCategorySheet(context, ref, t);                           // picking a category resolves it; dismissing leaves it in Caught
     }
   }
 
@@ -100,7 +99,9 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ScreenTitle('Caught', onBack: () => context.pop(), trailing: Text(queue.isEmpty ? '' : '${queue.length} to check', style: context.ts(TickType.body, color: c.textSecondary))),
         Expanded(
-          child: queue.isEmpty
+          child: l.loading && queue.isEmpty
+              ? const Padding(padding: EdgeInsets.only(top: 16), child: Skeleton(height: 410, radius: 24))
+              : queue.isEmpty
               ? const EmptyState('All clear', 'Nothing to check. Tick will flag the next odd one.')
               : Stack(children: [
                   for (var i = math.min(queue.length, 3) - 1; i >= 0; i--)

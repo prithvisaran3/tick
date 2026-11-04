@@ -9,6 +9,7 @@ import 'package:tick/data/demo_seed.dart';
 import 'package:tick/data/ledger.dart';
 import 'package:tick/data/ledger_codec.dart';
 import 'package:tick/data/settings.dart';
+import 'package:tick/domain/csv.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/services/api.dart';
 import 'package:tick/services/auth.dart';
@@ -168,6 +169,33 @@ void main() {
 
     test('without Supabase config sign-in reports notConfigured instead of hanging', () async {
       await expectLater(AuthService().signInWithGoogle(), throwsA(isA<AuthFailure>().having((f) => f.kind, 'kind', AuthFailureKind.notConfigured)));
+    });
+  });
+
+  group('manual balance and csv', () {
+    test('typing a balance creates one manual account and changes Safe to spend honestly', () async {
+      final c = await demoContainer(demo: false);
+      addTearDown(c.dispose);
+      c.read(settingsProvider.notifier).update((s) => s.copyWith(rule: PaydayRule(frequency: PayFrequency.biweekly, anchor: DateTime(2026, 11, 6), amountCents: 231000)));
+      expect(c.read(ledgerProvider).accounts, isEmpty);
+      await c.read(ledgerProvider.notifier).setManualBalance(120000);
+      await c.read(ledgerProvider.notifier).setManualBalance(150000); // editing replaces, never duplicates
+      final accts = c.read(ledgerProvider).accounts;
+      expect(accts.length, 1);
+      expect(accts.single.availableCents, 150000);
+      expect(c.read(safeToSpendProvider)!.cashCents, 150000);
+    });
+
+    test('csv cells are quoted and spreadsheet formulas neutralised', () {
+      expect(csvCell('Blue "Bottle"'), '"Blue ""Bottle"""');
+      expect(csvCell('=HYPERLINK("http://evil")'), startsWith("\"'="));
+      expect(csvCell('+1 555'), startsWith("\"'+"));
+      expect(csvCell('-5'), startsWith("\"'-"));
+      expect(csvCell('normal'), '"normal"');
+      final l = LedgerState(categories: defaultCategories, txns: [Txn(id: 'a', amountCents: -1840, occurredAt: now, merchant: '=cmd', categoryId: 'cat-coffee')]);
+      final csv = buildCsv(l);
+      expect(csv.split('\n')[1], contains('-18.40'));
+      expect(csv, contains("\"'=cmd\""));
     });
   });
 

@@ -32,6 +32,7 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
     final s = ref.watch(settingsProvider);
     final now = ref.watch(clockProvider)();
     final c = context.c;
+    if (l.loading && l.accounts.isEmpty) return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const ListSkeleton(rows: 4)]));
     final rule = s.demoMode ? ref.watch(safeToSpendProvider) == null ? null : buildRuleFor(ref) : s.rule;
     if (rule == null) {
       return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const EmptyState('Add your paycheck first', 'Tick plans payday once it knows when you get paid.', icon: 'calendar')]));

@@ -201,6 +201,19 @@ class LedgerNotifier extends Notifier<LedgerState> {
 
   bool get _live => ref.read(remoteProvider) != null && !ref.read(settingsProvider).demoMode;
 
+  /// Safe to spend needs to know what is in your account. Without a linked bank you type it once (and can change it any time).
+  Future<void> setManualBalance(int cents) async {
+    final existing = state.accounts.where((a) => a.manual).firstOrNull;
+    final local = Account(id: existing?.id ?? 'local-acc-manual', name: 'Checking', type: 'checking', balanceCents: cents, availableCents: cents, manual: true);
+    state = state.copyWith(accounts: [for (final a in state.accounts) if (!a.manual) a, local]);
+    if (_live) {
+      try {
+        final saved = await ref.read(remoteProvider)!.upsertManualAccount(local, cents);
+        state = state.copyWith(accounts: [for (final a in state.accounts) a.manual ? saved : a]);
+      } catch (_) { state = state.copyWith(offline: true); }
+    }
+  }
+
   Future<void> saveBudget(String categoryId, int capCents) async {
     final existing = state.budgets.where((b) => b.categoryId == categoryId).firstOrNull;
     final local = Budget(id: existing?.id ?? 'local-b-${_now.microsecondsSinceEpoch}', categoryId: categoryId, capCents: capCents);

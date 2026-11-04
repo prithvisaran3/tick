@@ -18,6 +18,7 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/pickers.dart';
+import '../domain/csv.dart';
 import '../services/ai_status.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
@@ -140,13 +141,9 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _exportCsv(WidgetRef ref) async {
     final l = ref.read(ledgerProvider);
-    String q(String s) => '"${s.replaceAll('"', '""')}"';
-    final b = StringBuffer('date,merchant,amount,category,account,business,note\n');
-    for (final t in l.txns) {
-      b.writeln([t.occurredAt.toIso8601String(), q(t.merchant), (t.amountCents / 100).toStringAsFixed(2), q(l.category(t.categoryId)?.name ?? ''), q(l.account(t.accountId)?.label ?? ''), t.isBusiness, q(t.note ?? '')].join(','));
-    }
+    final csv = buildCsv(l);
     final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/tick-export.csv')..writeAsStringSync(b.toString());
+    final f = File('${dir.path}/tick-export.csv')..writeAsStringSync(csv);
     await SharePlus.instance.share(ShareParams(files: [XFile(f.path)]));
   }
 

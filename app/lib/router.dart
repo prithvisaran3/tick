@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'domain/models.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
 import 'data/env.dart';
 import 'data/settings.dart';
@@ -44,6 +45,16 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       initialLocation: initial,
       errorBuilder: (context, state) => const _NotFound(),
       redirect: (context, state) {
+        // Custom-scheme deep links arrive here as tick://<host>?...: tick://add?amount=18&merchant=Uber opens quick add;
+        // anything else (OAuth and Plaid callbacks are consumed by their own sessions) just lands on Today.
+        if (state.uri.scheme == 'tick') {
+          if (state.uri.host == 'add') {
+            final q = state.uri.queryParameters;
+            final amt = double.tryParse(q['amount'] ?? '');
+            ref.read(pendingQuickAddProvider.notifier).state = PendingQuickAdd(amt == null ? null : (amt * 100).round(), q['merchant']);
+          }
+          return '/';
+        }
         final done = ref.read(settingsProvider).onboardingDone;
         if (!done && state.matchedLocation == '/') return '/onboarding';
         return null;
@@ -61,34 +72,18 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
-        GoRoute(path: '/add', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: _AddRedirect(amount: s.uri.queryParameters['amount'], merchant: s.uri.queryParameters['merchant']))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],
     );
 
-/// Deep link tick://add?amount=18&merchant=Uber (App Intent / Shortcuts) -> quick add prefilled.
-class _AddRedirect extends StatefulWidget {
-  const _AddRedirect({this.amount, this.merchant});
-  final String? amount;
+/// A quick-add request from a deep link (tick://add?amount=18&merchant=Uber); the Tab shell opens the sheet.
+class PendingQuickAdd {
+  const PendingQuickAdd(this.cents, this.merchant);
+  final int? cents;
   final String? merchant;
-  @override
-  State<_AddRedirect> createState() => _AddRedirectState();
 }
 
-class _AddRedirectState extends State<_AddRedirect> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      context.go('/');
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      final cents = widget.amount == null ? null : (double.tryParse(widget.amount!) == null ? null : (double.parse(widget.amount!) * 100).round());
-      if (mounted) showQuickAdd(context, prefillCents: cents, prefillMerchant: widget.merchant);
-    });
-  }
-  @override
-  Widget build(BuildContext context) => const SizedBox();
-}
+final pendingQuickAddProvider = StateProvider<PendingQuickAdd?>((ref) => null);
 
 /// Tab shell: Today · Activity · Flows · Ask Tick with the floating bar and the Add button.
 /// Tabs build lazily on first visit and then stay alive; reminders and the widget snapshot re-plan on a debounce, never per state change.
@@ -186,6 +181,11 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final l = ref.watch(ledgerProvider);
+    ref.listen(pendingQuickAddProvider, (prev, next) {
+      if (next == null) return;
+      ref.read(pendingQuickAddProvider.notifier).state = null;
+      showQuickAdd(context, prefillCents: next.cents, prefillMerchant: next.merchant);
+    });
     ref.listen(ledgerProvider, (prev, next) {
       _scheduleSync();
       _maybeReceipt(next);
