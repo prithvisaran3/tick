@@ -11,7 +11,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   if (Env.hasSupabase) {
-    await Supabase.initialize(url: Env.supabaseUrl, anonKey: Env.supabasePublishableKey);
+    await Supabase.initialize(url: Env.supabaseUrl, publishableKey: Env.supabasePublishableKey);
   }
   TickHaptics.instance.prepare();
   runApp(ProviderScope(overrides: [sharedPrefsProvider.overrideWithValue(prefs)], child: const TickApp()));
