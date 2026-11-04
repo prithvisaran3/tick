@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from . import ai
 from .auth import current_user
 from .db import rest
-from .config import GEMINI_MODEL, settings
 from .intel import detect_recurring
 
 router = APIRouter()
@@ -181,37 +180,57 @@ def load_ledger(user_id: str) -> Ledger:
         payday = date.fromisoformat(st[0]["payday_rule"]["next_date"])
     return Ledger(txns, rec, exp, acc, bud, payday, today)
 
+TOOL_SPECS = [
+    {"name": "query_transactions", "description": "Find transactions. Dates are YYYY-MM-DD. Returns up to `limit` newest matches plus count and total (cents).",
+     "parameters": {"type": "object", "properties": {"merchant": {"type": "string"}, "category": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "business_only": {"type": "boolean"}, "limit": {"type": "integer"}}}},
+    {"name": "spend_by_category", "description": "Spending by category between two dates (default this month). Amounts in cents.",
+     "parameters": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}}},
+    {"name": "compare_periods", "description": "Compare spending in period A vs period B, optionally one category. Amounts in cents.",
+     "parameters": {"type": "object", "properties": {"a_start": {"type": "string"}, "a_end": {"type": "string"}, "b_start": {"type": "string"}, "b_end": {"type": "string"}, "category": {"type": "string"}}, "required": ["a_start", "a_end", "b_start", "b_end"]}},
+    {"name": "list_upcoming", "description": "Bills and subscriptions due in the next N days.", "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}}},
+    {"name": "list_incoming", "description": "Expected paychecks, refunds and money owed in the next N days.", "parameters": {"type": "object", "properties": {"days": {"type": "integer"}}}},
+    {"name": "get_balances", "description": "Account balances (cents).", "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_budgets", "description": "Monthly category caps with spend so far.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "find_subscriptions", "description": "Recurring subscriptions and bills, flagging price increases.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "business_total", "description": "Business-tagged spending for a month (YYYY-MM, default this month).", "parameters": {"type": "object", "properties": {"month": {"type": "string"}}}},
+]
+OR_TOOLS = [{"type": "function", "function": t} for t in TOOL_SPECS]
+MAX_AI_CALLS = 3
+
 SYSTEM = ("You are Tick, a friend who is great with money, inside a personal finance app. Answer in plain sentences. LEAD WITH THE NUMBER (for example "
-          "'$412 on food this month.'). Use the tools for facts; never invent figures. Money amounts come back in cents: convert to dollars. Keep answers under 60 words. "
+          "'$412 on food this month.'). Use the tools for facts; never invent figures. Tool money amounts are in cents: convert to dollars. Keep answers under 60 words. "
           "No emoji. If something looks wrong with money, stay calm and practical. Today is {today}.")
 
-def gemini_answer(user_id: str, q: str, l: Ledger) -> tuple[str, list[dict]] | None:
-    if not settings().gemini_api_key:
+def llm_answer(user_id: str, q: str, history: list[dict], l: Ledger) -> tuple[str, list[dict]] | None:
+    """Tool-calling chat on free OpenRouter models. Sends only tool results and the last 6 messages. None -> deterministic fallback."""
+    prov = ai.provider()
+    if not prov.available():
         return None
-    import time
-    t0 = time.time()
     tools = Tools(l)
     blocks: list[dict] = []
-    def wrap(fn):
-        def inner(*a, **k):
-            r = fn(*a, **k)
-            if isinstance(r, dict) and r.get("items") and r["items"] and "id" in r["items"][0]:
-                blocks.append({"kind": "txns", "ids": [i["id"] for i in r["items"][:4]]})
-            return r
-        inner.__name__, inner.__doc__ = fn.__name__, fn.__doc__
-        return inner
-    try:
-        from google.genai import types
-        fns = [wrap(getattr(tools, n)) for n in ("query_transactions", "spend_by_category", "compare_periods", "list_upcoming", "list_incoming", "get_balances", "get_budgets", "find_subscriptions", "business_total")]
-        cfg = types.GenerateContentConfig(system_instruction=SYSTEM.format(today=l.today.isoformat()), tools=fns, temperature=0.2, max_output_tokens=300)
-        r = ai.client().models.generate_content(model=GEMINI_MODEL, contents=q, config=cfg)
-        u = r.usage_metadata
-        ai.log_usage(None, "ask", getattr(u, "prompt_token_count", 0) or 0, getattr(u, "candidates_token_count", 0) or 0, int((time.time() - t0) * 1000), True)
-        text = (r.text or "").strip()
-        return (text, blocks[:2]) if text else None
-    except Exception:
-        ai.log_usage(None, "ask", 0, 0, int((time.time() - t0) * 1000), False)
-        return None
+    msgs: list[dict] = [{"role": "system", "content": SYSTEM.format(today=l.today.isoformat())}]
+    for h in history[-6:]:
+        if h.get("role") in ("user", "assistant") and h.get("text"):
+            msgs.append({"role": h["role"], "content": ai.scrub(str(h["text"]))})
+    msgs.append({"role": "user", "content": ai.scrub(q)})
+    for _ in range(MAX_AI_CALLS):
+        r = ai._chat("tools", msgs, user_id, "ask", tools=OR_TOOLS, max_tokens=300)
+        if r is None:
+            return None
+        if not r.tool_calls:
+            text = (r.text or "").strip()
+            return (text, blocks[:2]) if text else None
+        msgs.append(r.raw_message or {"role": "assistant", "content": r.text or "", "tool_calls": []})
+        for tc in r.tool_calls:
+            fn = getattr(tools, tc["name"], None) if tc["name"] in {t["name"] for t in TOOL_SPECS} else None
+            try:
+                res = fn(**{k: v for k, v in tc["arguments"].items()}) if fn else {"error": "unknown tool"}
+            except Exception:
+                res = {"error": "bad arguments"}
+            if isinstance(res, dict) and res.get("items") and isinstance(res["items"][0], dict) and "id" in res["items"][0]:
+                blocks.append({"kind": "txns", "ids": [i["id"] for i in res["items"][:4]]})
+            msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(res)[:3000]})
+    return None
 
 def sse(events: Iterator[dict]) -> Iterator[str]:
     for e in events:
@@ -222,7 +241,7 @@ def ask(body: AskBody, user_id: str = Depends(current_user)):
     q = body.question.strip()[:500]
     def gen() -> Iterator[dict]:
         l = load_ledger(user_id)
-        res = gemini_answer(user_id, q, l) or fallback_answer(q, l)
+        res = llm_answer(user_id, q, body.history, l) or fallback_answer(q, l)
         text, blocks = res
         words = re.findall(r"\S+\s*", text)
         for i in range(0, len(words), 3):

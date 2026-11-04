@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumbers, SECP256R1
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import store
@@ -22,6 +24,7 @@ from .auth import current_user, require_cron
 from .config import settings
 from .db import rest
 from .merchants import categorize, clean_merchant, looks_business
+from . import ai
 from .reconcile import Candidate, apply_plaid_removed, plan
 
 ITEM_CAP = 10
@@ -62,6 +65,9 @@ class PlaidProvider(BankProvider):
     def create_link_token(self, user_id: str, *, access_token: str | None = None) -> dict:
         body: dict[str, Any] = {"client_name": "Tick", "language": "en", "country_codes": ["US"], "user": {"client_user_id": user_id},
                                 "webhook": self.webhook, "hosted_link": {"completion_redirect_uri": "tick://plaid-complete"}}
+        redirect = os.environ.get("PLAID_REDIRECT_URI", "")
+        if redirect:
+            body["redirect_uri"] = redirect          # only after it is registered under Allowed redirect URIs in the Plaid dashboard
         if access_token:
             body["access_token"] = access_token          # update mode: re-authenticate the SAME Item, never a new one
         else:
@@ -119,7 +125,10 @@ def provider() -> BankProvider:
 
 # ---------------- webhook verification ----------------
 _keys: dict[str, tuple[float, dict]] = {}
+_bad_kids: dict[str, float] = {}
+_key_fetches: list[float] = []
 MAX_AGE = 300
+KEY_FETCHES_PER_MIN = 6
 
 def verify_webhook(body: bytes, token: str, prov: PlaidProvider | None = None, now: float | None = None) -> dict:
     """Verify Plaid's Plaid-Verification JWT: ES256, key by kid from /webhook_verification_key/get (cached), iat <= 5 min old, body hash matches."""
@@ -133,11 +142,19 @@ def verify_webhook(body: bytes, token: str, prov: PlaidProvider | None = None, n
     prov = prov or provider()  # type: ignore[assignment]
     cached = _keys.get(kid)
     if not cached or cached[0] < time.time():
+        now_t = time.time()
+        if _bad_kids.get(kid, 0) > now_t:
+            raise HTTPException(401, "unknown key")
+        _key_fetches[:] = [t for t in _key_fetches if t > now_t - 60]
+        if len(_key_fetches) >= KEY_FETCHES_PER_MIN:             # garbage kids must not make us hammer Plaid
+            raise HTTPException(429, "too many key lookups")
+        _key_fetches.append(now_t)
         try:
             key = prov.webhook_key(kid)  # type: ignore[union-attr]
         except PlaidError:
+            _bad_kids[kid] = now_t + 60
             raise HTTPException(401, "unknown key")
-        _keys[kid] = (time.time() + 3600, key)
+        _keys[kid] = (now_t + 3600, key)
     jwk = _keys[kid][1]
     if jwk.get("expired_at") is not None:
         raise HTTPException(401, "key expired")
@@ -237,6 +254,7 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
+    uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
         accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token))
         by_pid = {k: v for k, v in accts.items()}
@@ -251,6 +269,8 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
                     tid = None
                     for a in actions:
                         tid = store.persist(user_id, a, {"tags": tags} if a.kind == "insert" and tags else None) or tid
+                    if action.kind == "insert" and tid and cand.category_id == name_to_id.get("Other") and cand.amount_cents < 0:
+                        uncategorised[cand.merchant_clean or cand.merchant_raw] = tid
                 counts["merged" if action.kind == "update" and action.reason == "heuristic" else ("added" if action.kind == "insert" else "modified")] += 1
                 if action.kind == "insert" and tid:
                     _landed(user_id, tid, cand.amount_cents, cand.occurred_at)
@@ -263,12 +283,29 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             cursor = page["next_cursor"]
             if not page.get("has_more"):
                 break
+        _ai_categorise(user_id, uncategorised, name_to_id)
         rest().update("connections", {"id": conn["id"]}, {"cursor": cursor, "last_synced_at": datetime.now(timezone.utc).isoformat(), "status": "active", "error_code": None})
     except PlaidError as e:
         status = "login_required" if e.code in ("ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION") else "error"
         rest().update("connections", {"id": conn["id"]}, {"status": status, "error_code": e.code})
         counts["error"] = e.code
     return counts
+
+def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, str]) -> None:
+    """Rules first; whatever is left from this sync goes to the model in ONE batched call (free models, cached per merchant)."""
+    if not items:
+        return
+    try:
+        res = ai.categorize_batch(user_id, list(items), [n for n in name_to_id if n not in ("Income", "Transfer", "Other")])
+        for m, (clean, cat) in res.items():
+            tid = items.get(m)
+            cid = name_to_id.get(cat)
+            if tid and cid:
+                row = rest().select("transactions", id=f"eq.{tid}", select="user_edited")
+                if row and "category" not in (row[0].get("user_edited") or []):
+                    rest().update("transactions", {"id": tid}, {"category_id": cid, "merchant_clean": clean})
+    except Exception:
+        pass
 
 # ---------------- routes ----------------
 class LinkTokenBody(BaseModel):
@@ -293,6 +330,8 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         r = provider().create_link_token(user_id, access_token=token)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
+    # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
+    rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id}, upsert_on="link_token")
     return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - slots_used(user_id)}
 
 class CompleteBody(BaseModel):
@@ -316,6 +355,9 @@ def finish_link(user_id: str, link_token_value: str) -> list[str]:
 
 @router.post("/plaid/complete")
 def complete(body: CompleteBody, user_id: str = Depends(current_user)):
+    sess = _session_for_link_token(body.link_token)
+    if sess and sess["user_id"] != user_id:
+        raise HTTPException(403, "not your link session")
     try:
         ids = finish_link(user_id, body.link_token)
     except PlaidError as e:
@@ -349,14 +391,26 @@ async def plaid_webhook(request: Request, plaid_verification: str = Header(defau
             sync_connection(conns[0])
     elif typ == "LINK" and code == "SESSION_FINISHED" and ev.get("status") == "success":
         lt = ev.get("link_token")
-        uid = _user_for_link_token(ev)
-        if lt and uid:
-            finish_link(uid, lt)
+        sess = _session_for_link_token(lt)
+        if sess and not sess.get("connection_id"):
+            finish_link(sess["user_id"], lt)
+        elif sess and sess.get("connection_id"):
+            cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
+            if cs:
+                sync_connection(cs[0])                                       # update mode finished: same Item, just sync
     return {"ok": True}
 
-def _user_for_link_token(ev: dict) -> str | None:
-    # client_user_id is not in the webhook body; look up by recently created link sessions is not possible, so the app calls /plaid/complete.
-    return None
+def _session_for_link_token(lt: str | None) -> dict | None:
+    """SESSION_FINISHED carries only the link_token, so the owner is looked up from the session stored when the token was created."""
+    if not lt:
+        return None
+    rows = rest().select("plaid_link_sessions", link_token=f"eq.{lt}")
+    return rows[0] if rows else None
+
+@router.get("/plaid/oauth-return", response_class=HTMLResponse)
+def oauth_return():
+    """Blank page to register under Allowed redirect URIs in the Plaid dashboard (only needed if PLAID_REDIRECT_URI is set)."""
+    return "<!doctype html><meta charset=utf-8><title>tick</title><body style='background:#0E0E12;color:#F5F3EC;font-family:system-ui;display:grid;place-items:center;height:100vh'>Returning to Tick..."
 
 @router.post("/jobs/sync-all", dependencies=[Depends(require_cron)])
 def sync_all():

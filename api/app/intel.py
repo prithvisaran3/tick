@@ -4,6 +4,7 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -119,14 +120,54 @@ def advice_fallback(b: AdviceBody) -> str:
         return f"A bigger day than your pace. About {fmt(per)} a day keeps you on track."
     return f"You are on pace. About {fmt(per)} a day keeps it that way."
 
+ET = ZoneInfo("America/New_York")
+
+def et_today() -> date:
+    return datetime.now(ET).date()
+
 @router.post("/intel/advice")
 def advice(body: AdviceBody, user_id: str = Depends(current_user)):
-    ctx = (f"Yesterday's spending ${body.total_cents/100:.0f} across {body.captures} purchases (top: {body.top_merchant or 'n/a'}). "
-           f"Safe to spend ${body.safe_cents/100:.0f} with {body.days_to_payday} days to payday.")
-    text = ai.generate("advice", user_id, ctx, system="You are Tick, a friend who is great with money. Write ONE plain sentence of advice, under 22 words, "
-                       "lead with a number or action, no emoji, no jokes about money problems.", max_tokens=80)
-    text = (text or "").strip().split("\n")[0]
-    return {"text": text if text else advice_fallback(body), "source": "gemini" if text else "fallback"}
+    """Never calls AI on app open: returns the line the daily job stored, else a local template."""
+    rows = rest().select("insights", user_id=f"eq.{user_id}", kind="eq.morning_advice", period=f"eq.{et_today().isoformat()}", select="body", order="created_at.desc", limit="1")
+    if rows:
+        return {"text": rows[0]["body"], "source": "stored"}
+    return {"text": advice_fallback(body), "source": "fallback"}
+
+ADVICE_SYSTEM = ("You are Tick, a friend who is great with money. Write ONE plain sentence of advice, under 22 words, lead with a number or action, "
+                 "no emoji, no jokes about money problems.")
+
+@router.post("/jobs/daily-advice", dependencies=[Depends(require_cron)])
+def daily_advice_job():
+    """Once a day (about 7-8am Eastern): one AI call per user, stored; the app reads it, never calls AI on open."""
+    n = 0
+    today = et_today()
+    for u in rest().select("settings", select="user_id"):
+        uid = u["user_id"]
+        try:
+            if rest().select("insights", user_id=f"eq.{uid}", kind="eq.morning_advice", period=f"eq.{today.isoformat()}", select="id"):
+                continue
+            tx = _txns_for(uid, 9)
+            y = today - timedelta(days=1)
+            ys = [t for t in tx if t["date"] == y and t["amount_cents"] < 0]
+            total = -sum(t["amount_cents"] for t in ys)
+            week = [t for t in tx if y - timedelta(days=7) <= t["date"] < y and t["amount_cents"] < 0]
+            avg = -sum(t["amount_cents"] for t in week) // 7
+            top = max(ys, key=lambda t: -t["amount_cents"])["merchant"] if ys else None
+            b = AdviceBody(total_cents=total, safe_cents=0, days_to_payday=1, captures=len(ys), top_merchant=top)
+            text = None
+            if ys:
+                ctx = f"Yesterday spending {fmt(total)} over {len(ys)} purchases (largest merchant: {top}). Daily average last week {fmt(avg)}."
+                text = ai.generate("advice", uid, ctx, system=ADVICE_SYSTEM, max_tokens=60)
+                text = (text or "").strip().split("\n")[0] or None
+            rest().insert("insights", {"user_id": uid, "kind": "morning_advice", "body": text or advice_fallback(b), "payload": {"ai": bool(text)}, "period": today.isoformat()})
+            n += 1
+        except Exception:
+            continue
+    return {"users": n}
+
+@router.get("/ai/status")
+def ai_status(user_id: str = Depends(current_user)):
+    return ai.provider().status()
 
 def _txns_for(user_id: str, days: int) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -158,9 +199,12 @@ def weekly_job():
     for u in users:
         uid = u["user_id"]
         try:
+            wk = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+            if rest().select("insights", user_id=f"eq.{uid}", kind="eq.weekly", period=f"gte.{wk}", select="id"):
+                continue
             s = weekly_summary(_txns_for(uid, 16), datetime.now(timezone.utc).date())
             ctx = f"This week: spent {fmt(s['spent_cents'])} over {s['count']} purchases; last week {fmt(s['prev_cents'])}; top: " + ", ".join(f"{m} {fmt(c)}" for m, c in s["top"])
-            text = ai.generate("weekly_insight", uid, ctx, system="You are Tick. Write the weekly review in at most 2 short plain sentences. Lead with the number. No emoji.", max_tokens=120)
+            text = ai.generate("weekly_insight", uid, ctx, system="You are Tick. Write the weekly review in at most 2 short plain sentences. Lead with the number. No emoji.", max_tokens=100)
             rest().insert("insights", {"user_id": uid, "kind": "weekly", "body": (text or weekly_text_fallback(s)).strip(), "payload": s, "period": datetime.now(timezone.utc).date().isoformat()})
             refresh_recurring(uid)
             n += 1

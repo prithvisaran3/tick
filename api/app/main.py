@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from .config import settings, GEMINI_MODEL
+from .config import settings
+from .ai import provider as ai_provider
 from .ingest import router as ingest_router
 from .plaid import router as plaid_router
 from .intel import router as intel_router
@@ -19,6 +20,6 @@ def health():
     # Only booleans about configuration; never values.
     return {"ok": True, "service": "tick-api", "version": s.git_sha,
             "configured": {"supabase": bool(s.supabase_url and s.supabase_secret_key),
-                           "gemini": bool(s.gemini_api_key), "plaid": bool(s.plaid_client_id and s.plaid_secret),
+                           "ai": ai_provider().available(), "plaid": bool(s.plaid_client_id and s.plaid_secret),
                            "cron": bool(s.cron_secret)},
-            "gemini_model": GEMINI_MODEL}
+            "ai_provider": ai_provider().name}

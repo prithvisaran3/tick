@@ -2,8 +2,6 @@
 import os
 from functools import lru_cache
 
-# ONE constant for the Gemini model; update per Google's current "Flash" model docs.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 
 class Settings:
     def __init__(self) -> None:
@@ -12,7 +10,8 @@ class Settings:
         self.supabase_secret_key = e("SUPABASE_SECRET_KEY", "")
         self.supabase_publishable_key = e("SUPABASE_PUBLISHABLE_KEY", "")
         self.cron_secret = e("CRON_SECRET", "")
-        self.gemini_api_key = e("GEMINI_API_KEY", "")
+        self.gemini_api_key = e("GEMINI_API_KEY", "")          # optional; Gemini provider is disabled by default
+        self.openrouter_api_key = e("OPENROUTER_API_KEY", "")
         self.plaid_client_id = e("PLAID_CLIENT_ID", "")
         self.plaid_secret = e("PLAID_SECRET", "")
         self.plaid_env = e("PLAID_ENV", "sandbox")

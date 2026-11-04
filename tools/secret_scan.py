@@ -10,7 +10,7 @@ import os, re, subprocess, sys
 
 ENV_NAMES = """SUPABASE_ACCESS_TOKEN SUPABASE_SECRET_KEY SUPABASE_DB_PASSWORD
 GOOGLE_OAUTH_WEB_CLIENT_SECRET GEMINI_API_KEY PLAID_SECRET PLAID_SANDBOX_SECRET
-RAILWAY_TOKEN CRON_SECRET SUPABASE_PUBLISHABLE_KEY PLAID_CLIENT_ID
+RAILWAY_TOKEN OPENROUTER_API_KEY CRON_SECRET SUPABASE_PUBLISHABLE_KEY PLAID_CLIENT_ID
 GOOGLE_OAUTH_WEB_CLIENT_ID GOOGLE_OAUTH_IOS_CLIENT_ID""".split()
 PATTERNS = {
     "supabase_pat": r"sbp_[0-9a-f]{20,}",
@@ -19,6 +19,7 @@ PATTERNS = {
     "google_client_secret": r"GOCSPX-[0-9A-Za-z_\-]{10,}",
     "private_key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "jwt": r"eyJ[A-Za-z0-9_\-]{15,}\.eyJ[A-Za-z0-9_\-]{15,}\.[A-Za-z0-9_\-]{10,}",
+    "openrouter_key": r"sk-or-v1-[0-9a-f]{20,}",
     "plaid_access": r"access-(sandbox|production|development)-[0-9a-f\-]{20,}",
 }
 
