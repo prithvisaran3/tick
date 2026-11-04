@@ -1,0 +1,41 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "The Pop / pop"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.6
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.9
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.12,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.9
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.2
+     }
+    ]
+   }
+  }
+ ]
+}

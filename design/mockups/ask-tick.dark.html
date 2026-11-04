@@ -1,0 +1,74 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><title>ask-tick</title>
+<link rel="stylesheet" href="../tokens.css"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+html,body{width:393px;height:852px;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:'Satoshi';font-weight:500;font-size:15px;-webkit-font-smoothing:antialiased;position:relative}
+.display{font-family:'CabinetGrotesk';font-weight:800;letter-spacing:-.8px}
+.mono{font-family:'GeistMono';font-variant-numeric:tabular-nums}
+.sec{color:var(--textSecondary)}
+.status{height:54px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 8px;font-weight:700;font-size:15px}
+.status .r{display:flex;gap:6px;align-items:center}
+.status i{display:block;width:17px;height:11px;border-radius:3px;background:currentColor;opacity:.9}
+.screen{padding:0 20px;position:absolute;top:54px;left:0;right:0;bottom:0}
+.card{background:var(--surface1);border-radius:24px;padding:16px}
+.card2{background:var(--surface2);border-radius:24px;padding:16px}
+.pill{border-radius:999px}
+.sticker{display:inline-flex;align-items:center;justify-content:center;background:var(--accent);color:var(--onAccent);border-radius:999px;transform:rotate(-2.5deg);position:relative;box-shadow:0 10px 30px -10px rgba(200,255,46,.45)}
+[data-theme=light] .sticker{box-shadow:0 10px 24px -10px rgba(14,14,18,.35);outline:2px solid var(--ink)}
+.sticker.hole::before{content:'';position:absolute;left:22px;top:50%;width:10px;height:10px;margin-top:-5px;border-radius:50%;background:var(--bg)}
+.label{font-weight:700;font-size:13px;letter-spacing:.2px;color:var(--textSecondary)}
+.row{display:flex;align-items:center}
+.tab{position:absolute;left:16px;right:16px;bottom:24px;height:72px;border-radius:999px;background:var(--surface2);display:flex;align-items:center;justify-content:space-around;padding:0 10px;box-shadow:0 12px 30px -12px rgba(0,0,0,.5)}
+.tab .t{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;color:var(--textSecondary);width:58px}
+.tab .t.on{color:var(--text)}
+.tab .t.on::after{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent);margin-top:1px}
+[data-theme=light] .tab .t.on::after{background:var(--ink)}
+.tab .t.off::after{display:none}
+.fab{width:56px;height:56px;border-radius:50%;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;transform:translateY(-8px)}
+.av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'CabinetGrotesk';font-weight:800;font-size:17px;flex:none}
+.c-food{background:rgba(255,184,77,.18);color:#FFB84D}.c-ride{background:rgba(122,167,255,.18);color:#7AA7FF}
+.c-sub{background:rgba(200,160,255,.18);color:#C8A0FF}.c-home{background:rgba(255,107,74,.16);color:#FF8A6E}
+.c-biz{background:rgba(163,163,175,.16);color:#A3A3AF}.c-inc{background:rgba(122,167,255,.16);color:#7AA7FF}.c-shop{background:rgba(255,140,200,.16);color:#FF8CC8}
+[data-theme=light] .c-food{background:#F7E3C4;color:#8A5200}[data-theme=light] .c-ride{background:#D9E3FA;color:#2A57C0}
+[data-theme=light] .c-sub{background:#E8DDF8;color:#6A3DB8}[data-theme=light] .c-home{background:#F6DCD3;color:#B8381A}
+[data-theme=light] .c-biz{background:#E6E4DC;color:#3A3A44}[data-theme=light] .c-inc{background:#D9E3FA;color:#2A57C0}[data-theme=light] .c-shop{background:#F6D8E8;color:#9A2F68}
+.tx{display:flex;align-items:center;gap:12px;padding:10px 0}
+.tx .m{flex:1;min-width:0}.tx .n{font-weight:700;font-size:16px}.tx .s{font-size:13px;color:var(--textSecondary)}
+.amt{font-family:'GeistMono';font-weight:500;font-size:16px}
+.in{color:var(--moneyIn)}
+[data-theme=light] .in{color:var(--ink);font-weight:700}
+.exp{color:var(--incoming)}
+.chip{white-space:nowrap;flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border-radius:999px;background:var(--surface1);font-weight:700;font-size:13.5px;color:var(--text);border:1px solid var(--hairline)}
+.chip.on{background:var(--text);color:var(--bg);border-color:transparent}
+.scroll{margin:0 -20px;padding:0 20px;overflow:hidden;white-space:nowrap}
+.btn{height:56px;border-radius:999px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;gap:10px}
+.btn.ghost{background:transparent;border:1.5px solid var(--hairline);color:var(--text)}
+.h1{font-family:'CabinetGrotesk';font-weight:800;font-size:36px;letter-spacing:-.8px;line-height:1.05}
+.sky{color:var(--incoming)}.clay{color:var(--alert)}
+.hair{height:1px;background:var(--hairline)}
+.seg{display:flex;background:var(--surface2);border-radius:999px;padding:4px;gap:2px}
+.seg span{flex:1;text-align:center;height:34px;line-height:34px;border-radius:999px;font-weight:700;font-size:13.5px;color:var(--textSecondary)}
+.seg span.on{background:var(--text);color:var(--bg)}
+.tog{width:50px;height:30px;border-radius:999px;background:var(--surface2);border:1px solid var(--hairline);position:relative;flex:none}
+.tog::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--textSecondary)}
+.tog.on{background:var(--accent);border-color:transparent}.tog.on::after{left:23px;background:var(--onAccent)}
+.ic{display:inline-flex}
+[data-theme=dark]{--rbg:var(--paper)}[data-theme=light]{--rbg:var(--paper2)}</style></head><body data-theme="dark"><div class="status"><span>9:41</span><span class="r"><i></i><i style="width:22px"></i></span></div><div class="screen">
+<div class="row" style="justify-content:space-between;height:48px"><div class="h1">Ask Tick</div></div>
+<div style="display:flex;justify-content:flex-end;margin-top:8px"><div style="background:var(--surface2);padding:12px 16px;max-width:270px;border-radius:22px 22px 8px 22px">How much did I spend on food this month?</div></div>
+<div style="margin-top:16px">
+ <div class="display" style="font-size:52px;letter-spacing:-1.5px">$412</div>
+ <div style="font-size:16.5px;margin-top:2px">on food so far this month. That's $58 over last month at this point.</div>
+ <div class="card" style="margin-top:16px"><div class="row" style="align-items:flex-end;gap:8px;height:80px"><div style="flex:1;height:22px;border-radius:8px;background:var(--text);opacity:0.25"></div><div style="flex:1;height:40px;border-radius:8px;background:var(--text);opacity:0.25"></div><div style="flex:1;height:30px;border-radius:8px;background:var(--text);opacity:0.25"></div><div style="flex:1;height:56px;border-radius:8px;background:var(--text);opacity:0.25"></div><div style="flex:1;height:70px;border-radius:8px;background:var(--text);opacity:0.25"></div><div style="flex:1;height:44px;border-radius:8px;background:var(--text);opacity:1"></div></div><div class="row mono sec" style="justify-content:space-between;font-size:11.5px;margin-top:8px"><span>Wk 1</span><span>Wk 2</span><span>Wk 3</span><span>Wk 4</span><span>Wk 5</span><span>Now</span></div></div>
+ <div class="card" style="margin-top:8px;padding:0 16px"><div class="tx"><div class="av c-food">W</div><div class="m"><div class="n">Whole Foods</div><div class="s">Biggest · Tue</div></div><div class="amt ">−$42.18</div></div><div class="hair"></div><div class="tx"><div class="av c-food">C</div><div class="m"><div class="n">Chipotle</div><div class="s">Tue</div></div><div class="amt ">−$13.85</div></div></div>
+</div>
+<div class="scroll" style="margin-top:16px"><div class="row" style="gap:8px"><span class="chip">What's due this week?</span><span class="chip">Business total</span><span class="chip">Subscriptions</span></div></div>
+<div class="row pill" style="position:absolute;left:20px;right:20px;bottom:112px;height:52px;background:var(--surface2);padding:0 8px 0 16px;color:var(--textSecondary)"><span style="flex:1">Ask anything about your money</span><div class="av" style="width:40px;height:40px;background:var(--accent);color:var(--onAccent)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>
+</div></div>
+</div><div class="tab"><div class="t "><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17H21"/><path d="M7 17a5 5 0 0 1 10 0"/><path d="M12 8v2"/><path d="M5.64 10.64L7.05 12.05"/><path d="M18.36 10.64L16.95 12.05"/></svg>
+<span>Today</span></div><div class="t "><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h0"/><path d="M8 6H20"/><path d="M4 12h0"/><path d="M8 12H20"/><path d="M4 18h0"/><path d="M8 18H20"/></svg>
+<span>Activity</span></div><div class="fab"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+</div><div class="t "><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21H21"/><path d="M4 17l7-5 3 2.5 6-6.5"/></svg>
+<span>Flows</span></div><div class="t on"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 17v4l4.5-4"/><path d="M8 10.5h0"/><path d="M12 10.5h0"/><path d="M16 10.5h0"/></svg>
+<span>Ask Tick</span></div></div></body></html>

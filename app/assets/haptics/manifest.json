@@ -1,0 +1,33 @@
+{
+ "modes": {
+  "full": {
+   "intensity_scale": 1.0,
+   "continuous": true
+  },
+  "subtle": {
+   "intensity_scale": 0.5,
+   "continuous": false
+  },
+  "off": {
+   "intensity_scale": 0.0,
+   "continuous": false
+  }
+ },
+ "patterns": {
+  "pop": "haptics/pop.ahap",
+  "price_weight_low": "haptics/price_weight_low.ahap",
+  "price_weight_mid": "haptics/price_weight_mid.ahap",
+  "price_weight_high": "haptics/price_weight_high.ahap",
+  "count_up": "haptics/count_up.ahap",
+  "hold_ramp": "haptics/hold_ramp.ahap",
+  "hold_click": "haptics/hold_click.ahap",
+  "hold_cancel": "haptics/hold_cancel.ahap",
+  "sort_right": "haptics/sort_right.ahap",
+  "sort_left": "haptics/sort_left.ahap",
+  "sort_up": "haptics/sort_up.ahap",
+  "landed": "haptics/landed.ahap",
+  "tear_tick": "haptics/tear_tick.ahap",
+  "tear_rip": "haptics/tear_rip.ahap",
+  "heartbeat": "haptics/heartbeat.ahap"
+ }
+}

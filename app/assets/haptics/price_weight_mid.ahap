@@ -1,0 +1,25 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "Price weight / price_weight_mid"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.7
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.45
+     }
+    ]
+   }
+  }
+ ]
+}

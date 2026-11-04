@@ -1,0 +1,22 @@
+{
+  "$comment": "Source of truth for motion. Springs with a small overshoot; no slideshow easing.",
+  "springs": {
+    "standard": {"stiffness": 380, "damping": 28, "mass": 1},
+    "pop":      {"stiffness": 520, "damping": 18, "mass": 1},
+    "sheet":    {"stiffness": 300, "damping": 30, "mass": 1}
+  },
+  "reduceMotion": {"fadeMs": 150},
+  "moments": {
+    "sticker_slap": {"spring": "pop", "tiltDeg": 2.5, "fromScale": 0.6, "fromTiltDeg": -8},
+    "stamp":        {"spring": "pop", "fromScale": 1.15, "toScale": 1.0, "tiltDeg": -6},
+    "capture_pop":  {"spring": "pop", "fromOffsetY": 120, "fromScale": 0.9},
+    "count_up":     {"durationMs": 1100, "curve": "easeOutCubic", "startDelayMs": 150, "note": "number counts; the sticker lands on the final value with a pop spring"},
+    "receipt_print": {"lineIntervalMs": 140, "firstLineDelayMs": 400, "stampDelayMs": 350, "tearDragThresholdPx": 120},
+    "caught_swipe": {"spring": "standard", "commitDistancePx": 110, "rotateDegAtCommit": 12},
+    "shared_element": {"spring": "standard"},
+    "tab_switch": {"spring": "standard"},
+    "sheet": {"spring": "sheet"},
+    "skeleton_shimmerMs": 1400
+  },
+  "performance": ["const widgets", "RepaintBoundary around animated pieces", "precache fonts and images", "skeletons, never spinners"]
+}

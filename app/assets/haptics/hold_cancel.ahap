@@ -1,0 +1,25 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "Hold to confirm / hold_cancel"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.2
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.1
+     }
+    ]
+   }
+  }
+ ]
+}

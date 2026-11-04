@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tick icon sheet</title>
+<style>
+  html, body { margin: 0; background: #0E0E12; }
+  body { width: 960px; padding: 32px; box-sizing: border-box; font-family: system-ui, sans-serif; color: #F5F3EC; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 28px 16px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .cell img { width: 48px; height: 48px; filter: url(#tint); }
+  .cell span { font-size: 13px; color: #F5F3EC; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="tint" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="0 0 0 0 0.9608  0 0 0 0 0.9529  0 0 0 0 0.9255  0 0 0 1 0"/>
+  </filter>
+</svg>
+<div class="grid">
+  <div class="cell"><img src="today.svg" alt=""><span>today</span></div>
+  <div class="cell"><img src="activity.svg" alt=""><span>activity</span></div>
+  <div class="cell"><img src="caught.svg" alt=""><span>caught</span></div>
+  <div class="cell"><img src="flows.svg" alt=""><span>flows</span></div>
+  <div class="cell"><img src="ask.svg" alt=""><span>ask</span></div>
+  <div class="cell"><img src="plus.svg" alt=""><span>plus</span></div>
+  <div class="cell"><img src="search.svg" alt=""><span>search</span></div>
+  <div class="cell"><img src="filter.svg" alt=""><span>filter</span></div>
+  <div class="cell"><img src="arrow-in.svg" alt=""><span>arrow-in</span></div>
+  <div class="cell"><img src="arrow-out.svg" alt=""><span>arrow-out</span></div>
+  <div class="cell"><img src="calendar.svg" alt=""><span>calendar</span></div>
+  <div class="cell"><img src="bank.svg" alt=""><span>bank</span></div>
+  <div class="cell"><img src="card.svg" alt=""><span>card</span></div>
+  <div class="cell"><img src="receipt.svg" alt=""><span>receipt</span></div>
+  <div class="cell"><img src="camera.svg" alt=""><span>camera</span></div>
+  <div class="cell"><img src="briefcase.svg" alt=""><span>briefcase</span></div>
+  <div class="cell"><img src="repeat.svg" alt=""><span>repeat</span></div>
+  <div class="cell"><img src="goal.svg" alt=""><span>goal</span></div>
+  <div class="cell"><img src="bell.svg" alt=""><span>bell</span></div>
+  <div class="cell"><img src="lock.svg" alt=""><span>lock</span></div>
+  <div class="cell"><img src="share.svg" alt=""><span>share</span></div>
+  <div class="cell"><img src="trash.svg" alt=""><span>trash</span></div>
+  <div class="cell"><img src="check.svg" alt=""><span>check</span></div>
+  <div class="cell"><img src="settings.svg" alt=""><span>settings</span></div>
+</div>
+</body>
+</html>
