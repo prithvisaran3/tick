@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from .config import settings, GEMINI_MODEL
+from .ingest import router as ingest_router
 
 app = FastAPI(title="Tick API", version="0.1.0", docs_url=None, redoc_url=None)
+app.include_router(ingest_router)
 
 @app.get("/health")
 def health():

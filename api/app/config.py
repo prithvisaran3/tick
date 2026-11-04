@@ -3,7 +3,7 @@ import os
 from functools import lru_cache
 
 # ONE constant for the Gemini model; update per Google's current "Flash" model docs.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 
 class Settings:
     def __init__(self) -> None:
