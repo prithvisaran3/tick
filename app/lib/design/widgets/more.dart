@@ -51,7 +51,7 @@ class _HoldToConfirmState extends State<HoldToConfirm> with SingleTickerProvider
         onTapDown: (_) => _down(), onTapUp: (_) => _up(), onTapCancel: _up,
         child: AnimatedBuilder(
           animation: _c,
-          builder: (_, __) => Container(
+          builder: (_, _) => Container(
             height: 56, clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(999), border: Border.all(color: c.hairline)),
             child: Stack(alignment: Alignment.center, children: [
@@ -213,7 +213,7 @@ class ScreenTitle extends StatelessWidget {
         child: Row(children: [
           if (onBack != null) Pressable(onTap: onBack, semanticLabel: 'Back', child: Padding(padding: const EdgeInsets.only(right: 8), child: Text('‹', style: context.ts(TickType.displayL)))),
           Expanded(child: Semantics(header: true, child: Text(title, style: context.ts(TickType.displayL)))),
-          if (trailing != null) trailing!,
+          ?trailing,
         ]),
       );
 }
@@ -228,7 +228,7 @@ class SectionLabel extends StatelessWidget {
         padding: const EdgeInsets.only(top: 16, bottom: 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Semantics(header: true, child: Text(text, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13, letterSpacing: 0.2, color: color ?? context.c.textSecondary, decoration: TextDecoration.none))),
-          if (trailing != null) trailing!,
+          ?trailing,
         ]),
       );
 }

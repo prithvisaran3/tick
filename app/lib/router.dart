@@ -20,6 +20,9 @@ import 'design/theme.dart';
 import 'data/ledger.dart';
 import 'package:intl/intl.dart';
 import 'features/banks_screen.dart';
+import 'domain/notification_plan.dart';
+import 'services/notifications.dart';
+import 'services/widget_sync.dart';
 
 CustomTransitionPage<void> _page(GoRouterState s, Widget child) => CustomTransitionPage<void>(
       key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: 380), reverseTransitionDuration: const Duration(milliseconds: 260),
@@ -83,14 +86,44 @@ class Shell extends ConsumerStatefulWidget {
   ConsumerState<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends ConsumerState<Shell> {
+class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   int _i = 0;
   bool _receiptChecked = false;
+
+  void _sync() {
+    final l = ref.read(ledgerProvider);
+    final s = ref.read(settingsProvider);
+    final sts = ref.read(safeToSpendProvider);
+    final now = ref.read(clockProvider)();
+    writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
+    {
+      ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals));
+    }
+  }
+
+  Future<void> _checkPendingAdd() async {
+    final p = await takePendingAdd();
+    if (p != null && mounted) {
+      final amt = (p['amount'] as num?)?.toDouble();
+      showQuickAdd(context, prefillCents: amt == null ? null : (amt * 100).round(), prefillMerchant: p['merchant'] as String?);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkPendingAdd();
+  }
+
+  @override
+  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(notificationServiceProvider).requestPermission().then((_) => _sync());
+      _checkPendingAdd();
       // First open of the day plays the Morning Receipt first.
       if (_receiptChecked) return;
       _receiptChecked = true;
@@ -103,6 +136,7 @@ class _ShellState extends ConsumerState<Shell> {
   @override
   Widget build(BuildContext context) {
     final l = ref.watch(ledgerProvider);
+    ref.listen(ledgerProvider, (_, _) => _sync());
     final pages = [const TodayScreen(), const ActivityScreen(), const FlowsScreen(), const AskScreen()];
     return TickScreen(
       child: Stack(children: [

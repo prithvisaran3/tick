@@ -121,3 +121,13 @@ class PaydayRule {
   final DateTime anchor; // any known payday
   final int amountCents;
 }
+
+@immutable
+class Connection {
+  const Connection({required this.id, required this.institution, required this.status});
+  final String id;
+  final String institution;
+  final String status; // active | login_required | error | removed
+  bool get needsRelink => status == 'login_required';
+  factory Connection.fromJson(Map<String, dynamic> j) => Connection(id: j['id'] as String, institution: (j['institution'] ?? 'Bank') as String, status: (j['status'] ?? 'active') as String);
+}

@@ -42,7 +42,7 @@ Widget frame(ProviderContainer c, Widget child, {required bool dark, int? tab}) 
       dark: dark,
       child: WidgetsApp(
         color: const Color(0xFF000000), debugShowCheckedModeBanner: false,
-        pageRouteBuilder: <T>(settings, builder) => PageRouteBuilder<T>(settings: settings, pageBuilder: (ctx, _, __) => builder(ctx)),
+        pageRouteBuilder: <T>(settings, builder) => PageRouteBuilder<T>(settings: settings, pageBuilder: (ctx, _, _) => builder(ctx)),
         builder: (context, _) => MediaQuery(
           data: MediaQuery.of(context).copyWith(padding: const EdgeInsets.only(top: 54, bottom: 34)),
           child: DefaultTextStyle(

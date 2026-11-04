@@ -15,6 +15,11 @@ class Nudge {
 /// Exactly ONE nudge: highest priority wins. Pure; unit-tested.
 Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now) {
   final today = dayOnly(now);
+  // 0. A bank link that needs a quick sign-in (calm, urgent).
+  final broken = l.connections.where((c) => c.needsRelink).toList();
+  if (broken.isNotEmpty) {
+    return Nudge('relink', 'Your ${broken.first.institution} link needs a quick sign-in to keep syncing.', 'Takes under a minute. Nothing was lost.', urgent: true);
+  }
   // 1. Overspend (urgent): safe to spend is negative.
   if (sts != null && sts.overspent) {
     return Nudge('pace', 'You are ${formatDollars(-sts.cents)} past safe to spend', 'Bills and goals before payday are bigger than your cash. Check what can wait.', urgent: true);

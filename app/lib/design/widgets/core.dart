@@ -298,7 +298,7 @@ class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: _c,
-        builder: (_, __) => Container(
+        builder: (_, _) => Container(
           width: widget.width, height: widget.height,
           decoration: BoxDecoration(color: Color.lerp(context.c.surface1, context.c.surface2, _c.value), borderRadius: BorderRadius.circular(widget.radius)),
         ),
@@ -336,7 +336,7 @@ class _CountUpTextState extends State<CountUpText> with SingleTickerProviderStat
     final f = widget.format ?? (v) => '\$${(v.abs() ~/ 100).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',')}';
     return AnimatedBuilder(
       animation: _c,
-      builder: (_, __) {
+      builder: (_, _) {
         final v = (widget.cents * _c.value).round();
         return Text((widget.cents < 0 ? '−' : '') + f(v), style: widget.style, semanticsLabel: f(widget.cents));
       },

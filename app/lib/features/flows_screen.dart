@@ -76,7 +76,7 @@ class _CatBar extends StatelessWidget {
           LayoutBuilder(builder: (_, cs) => Stack(children: [
             Container(height: 8, decoration: BoxDecoration(color: context.c.surface2, borderRadius: BorderRadius.circular(8))),
             TweenAnimationBuilder<double>(tween: Tween(begin: 0, end: frac), duration: const Duration(milliseconds: 500), curve: Curves.easeOutBack,
-                builder: (_, v, __) => Container(width: cs.maxWidth * v.clamp(0.0, 1.0), height: 8, decoration: BoxDecoration(color: context.c.text.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)))),
+                builder: (_, v, _) => Container(width: cs.maxWidth * v.clamp(0.0, 1.0), height: 8, decoration: BoxDecoration(color: context.c.text.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(8)))),
           ])),
         ]),
       );

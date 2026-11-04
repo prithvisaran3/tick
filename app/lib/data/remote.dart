@@ -17,7 +17,7 @@ class Remote {
       db.from('recurring').select().eq('status', 'active'),
       db.from('expected').select().eq('status', 'expected'),
       db.from('goals').select(),
-      db.from('connections').select('id').neq('status', 'removed'),
+      db.from('connections').select('id,institution,status'),
     ]);
     return LedgerState(
       categories: [for (final j in r[0]) Category.fromJson(j)],
@@ -27,6 +27,7 @@ class Remote {
       expected: [for (final j in r[4]) _exp(j)],
       goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
       linksUsed: (r[6] as List).length,
+      connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
     );
   }
 
@@ -52,6 +53,14 @@ class Remote {
   Future<void> updateTxn(Txn t) => db.from('transactions').update({
         'category_id': _isUuid(t.categoryId) ? t.categoryId : null, 'tags': t.tags, 'needs_review': t.needsReview, 'confidence': t.confidence, 'note': t.note, 'merchant_clean': t.merchant,
       }).eq('id', t.id);
+
+  /// Learned rule: the next purchase at this merchant gets this category (rules win over AI).
+  Future<void> learnRule(String merchant, String categoryId) async {
+    if (!_isUuid(categoryId)) return;
+    await db.from('rules').upsert({'pattern': merchant.toLowerCase(), 'category_id': categoryId, 'source': 'learned'}, onConflict: 'user_id,pattern');
+  }
+
+  Future<void> markUserEdited(String id, List<String> fields) => db.from('transactions').update({'user_edited': fields}).eq('id', id);
 
   Future<void> insertRecurring(Recurring r) => db.from('recurring').insert({
         'merchant': r.merchant, 'cadence': r.cadence.name, 'expected_cents': r.expectedCents, 'next_date': r.nextDate.toIso8601String().substring(0, 10),

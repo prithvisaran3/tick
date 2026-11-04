@@ -8,6 +8,8 @@ import '../design/widgets/more.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/natural_input.dart';
+import 'package:image_picker/image_picker.dart';
+import '../services/api.dart';
 import '../services/haptics.dart';
 
 /// Quick add: custom number pad (amount, merchant, Add = 3 taps) plus one-line natural input.
@@ -28,6 +30,29 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
   late final TextEditingController _line = TextEditingController(text: widget.prefillMerchant ?? '');
   final _focus = FocusNode();
   ParsedEntry? _parsed;
+  String? _receiptPath;
+  String? _scanMsg;
+
+  Future<void> _scan() async {
+    try {
+      final x = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 1800, imageQuality: 80);
+      if (x == null) return;
+      setState(() => _scanMsg = 'Reading receipt…');
+      final j = await ref.read(apiProvider).postFile('/receipts/scan', 'file', await x.readAsBytes(), 'receipt.jpg');
+      _receiptPath = j['path'] as String?;
+      final e = j['extracted'] as Map<String, dynamic>?;
+      setState(() {
+        _scanMsg = e == null ? 'Saved the photo. Type the total to finish.' : null;
+        if (e != null) {
+          final t = (e['total'] as num?)?.toDouble();
+          if (t != null) _amount = t.toStringAsFixed(2).replaceAll(RegExp(r'\.00$'), '');
+          _line.text = (e['merchant'] ?? '').toString();
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _scanMsg = 'That didn\'t go through. Try again, nothing was lost.');
+    }
+  }
 
   @override
   void initState() {
@@ -60,7 +85,7 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
       if (p.isRecurring) {
         await n.addRecurring(Recurring(id: 'local-r-${now.microsecondsSinceEpoch}', merchant: p.merchant, cadence: Cadence.monthly, expectedCents: p.amountCents.abs(), nextDate: nextDayOfMonth(p.recurringDayOfMonth!, now), categoryId: cat, priceHistory: [p.amountCents.abs()]));
       } else {
-        await n.add(amountCents: p.amountCents, merchant: p.merchant, at: p.date == null ? null : p.date!.add(const Duration(hours: 12)), categoryId: cat);
+        await n.add(amountCents: p.amountCents, merchant: p.merchant, at: p.date?.add(const Duration(hours: 12)), categoryId: cat);
       }
       TickHaptics.instance.capturePop(p.amountCents);
       if (mounted) Navigator.of(context).pop();
@@ -68,6 +93,15 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
     }
     if (_cents == 0) return;
     final merchant = text.isEmpty ? (_income ? 'Income' : 'Expense') : text;
+    if (_receiptPath != null && !_income) {
+      try {
+        await ref.read(apiProvider).post('/receipts/confirm', {'path': _receiptPath, 'merchant': merchant, 'total': _cents / 100});
+        await n.refresh();
+        TickHaptics.instance.capturePop(_cents);
+        if (mounted) Navigator.of(context).pop();
+        return;
+      } catch (_) {/* fall through to a plain add */}
+    }
     await n.add(amountCents: _income ? _cents : -_cents, merchant: merchant);
     TickHaptics.instance.capturePop(_cents);
     if (mounted) Navigator.of(context).pop();
@@ -80,6 +114,7 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         Text('Add', style: context.ts(TickType.displayM)),
+        Pressable(onTap: _scan, semanticLabel: 'Scan receipt', child: TickIcon('camera', color: c.text)),
         SizedBox(width: 180, child: Segmented(options: const ['Spent', 'Got'], index: _income ? 1 : 0, onChanged: (i) => setState(() => _income = i == 1))),
       ]),
       const SizedBox(height: 16),
@@ -94,6 +129,7 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
           ])),
         ]),
       ),
+      if (_scanMsg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_scanMsg!, style: context.ts(TickType.bodyS, color: c.textSecondary))),
       if (_cents == 0 && _parsed != null)
         Padding(padding: const EdgeInsets.only(top: 8), child: Text('${_parsed!.isRecurring ? 'Monthly bill' : _parsed!.isIncome ? 'Money in' : 'Spent'}: ${_parsed!.merchant}, ${formatCents(_parsed!.amountCents.abs())}', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 8),

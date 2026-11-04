@@ -17,7 +17,9 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../domain/money.dart';
 import '../domain/receipt.dart';
+import '../services/api.dart';
 import '../services/haptics.dart';
+import '../data/env.dart';
 
 /// The Morning Receipt: yesterday, printed. Lines tick in, total, safe to spend, one advice line, a "Ticked." stamp. Drag up to tear off and share.
 class ReceiptScreen extends ConsumerStatefulWidget {
@@ -35,6 +37,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
   double _tear = 0;
   bool _torn = false;
   Timer? _t;
+  String? _serverAdvice;
 
   @override
   void initState() {
@@ -42,8 +45,18 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _print());
   }
 
+  Future<void> _fetchAdvice(ReceiptData r) async {
+    if (!Env.hasSupabase || ref.read(settingsProvider).demoMode) return;
+    try {
+      final sts = ref.read(safeToSpendProvider);
+      final j = await ref.read(apiProvider).post('/intel/advice', {'total_cents': r.totalCents, 'safe_cents': sts?.cents ?? 0, 'days_to_payday': sts?.daysToPayday ?? 1, 'captures': r.captures, 'top_merchant': r.lines.isEmpty ? null : r.lines.first.merchant});
+      if (mounted) setState(() => _serverAdvice = j['text'] as String?);
+    } catch (_) {/* local advice stays */}
+  }
+
   Future<void> _print() async {
     final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)());
+    _fetchAdvice(r);
     final n = r.lines.length + (r.moreCount > 0 ? 1 : 0);
     if (!widget.animate || context.reduceMotion) { setState(() { _shown = n; _stamped = true; }); return; }
     await Future<void>.delayed(const Duration(milliseconds: TickMotion.receiptLineIntervalMs * 3));
@@ -86,7 +99,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
     final c = context.c;
     final r = buildReceipt(l.txns, now);
     final paper = context.isDark ? TickPalette.paper : TickPalette.paper2;
-    final advice = widget.advice ?? fallbackAdvice(r, sts?.cents ?? 0, sts?.daysToPayday ?? 1);
+    final advice = widget.advice ?? _serverAdvice ?? fallbackAdvice(r, sts?.cents ?? 0, sts?.daysToPayday ?? 1);
     final lines = <Widget>[
       for (var i = 0; i < r.lines.length; i++)
         _Line(visible: i < _shown, left: r.lines[i].merchant, right: '−${formatCents(r.lines[i].cents)}'),

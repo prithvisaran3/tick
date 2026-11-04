@@ -11,7 +11,7 @@ import 'settings.dart';
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 class LedgerState {
-  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0});
+  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const []});
   final List<Category> categories;
   final List<Account> accounts;
   final List<Txn> txns;
@@ -21,15 +21,16 @@ class LedgerState {
   final bool loading;
   final bool offline;
   final int linksUsed;
+  final List<Connection> connections;
 
   Category? category(String? id) => categories.where((c) => c.id == id).firstOrNull;
   Category? categoryByName(String name) => categories.where((c) => c.name.toLowerCase() == name.toLowerCase()).firstOrNull;
   Account? account(String? id) => accounts.where((a) => a.id == id).firstOrNull;
   List<Txn> get needsReview => txns.where((t) => t.needsReview).toList();
 
-  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed}) => LedgerState(
+  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed, List<Connection>? connections}) => LedgerState(
       categories: categories ?? this.categories, accounts: accounts ?? this.accounts, txns: txns ?? this.txns, recurring: recurring ?? this.recurring,
-      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed);
+      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections);
 }
 
 class LedgerNotifier extends Notifier<LedgerState> {
@@ -99,7 +100,14 @@ class LedgerNotifier extends Notifier<LedgerState> {
 
   Future<void> markLooksRight(String id) => patch(id, (t) => t.copyWith(needsReview: false, confidence: 1.0));
   Future<void> toggleBusiness(String id) => patch(id, (t) => t.copyWith(tags: t.isBusiness ? t.tags.where((x) => x != 'business').toList() : [...t.tags, 'business'], needsReview: false));
-  Future<void> recategorize(String id, String categoryId) => patch(id, (t) => t.copyWith(categoryId: categoryId, needsReview: false));
+  Future<void> recategorize(String id, String categoryId) async {
+    final t = state.txns.firstWhere((x) => x.id == id);
+    await patch(id, (t) => t.copyWith(categoryId: categoryId, needsReview: false));
+    final remote = ref.read(remoteProvider);
+    if (remote != null && !ref.read(settingsProvider).demoMode && !id.startsWith('local-')) {
+      try { await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
+    }
+  }
 
   Future<void> addRecurring(Recurring r) async {
     state = state.copyWith(recurring: [...state.recurring, r]);
