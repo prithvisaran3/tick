@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../data/env.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
@@ -28,6 +27,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   late int _step = widget.initialStep;
   String? _error;
+  AuthFailureKind? _failure;
   bool _busy = false;
   // paycheck
   int _freq = 1;
@@ -47,16 +47,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _google() async {
-    setState(() { _busy = true; _error = null; });
+    if (_busy) return;                                                  // block double taps
+    setState(() { _busy = true; _error = null; _failure = null; });
     try {
-      if (!Env.hasSupabase) throw StateError('no config');
       await ref.read(authServiceProvider).signInWithGoogle();
       final name = ref.read(authServiceProvider).displayName;
       ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
-      await ref.read(ledgerProvider.notifier).refresh();
       if (mounted) setState(() { _step = 1; _busy = false; });
+    } on AuthFailure catch (f) {
+      if (mounted) setState(() { _failure = f.kind; _error = f.message; _busy = false; });
     } catch (_) {
-      if (mounted) setState(() { _error = 'That didn\'t go through. Try again, nothing was lost.'; _busy = false; });
+      if (mounted) setState(() { _failure = AuthFailureKind.failed; _error = const AuthFailure(AuthFailureKind.failed).message; _busy = false; });
     }
   }
 
@@ -112,8 +113,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const Spacer(),
         if (_error == null) Center(child: Text('Your data stays yours. Only you can read it.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
         const SizedBox(height: 8),
-        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!, style: context.ts(TickType.body, color: c.alert))),
-        PillButton(_busy ? 'Signing in…' : 'Continue with Google', style: PillStyle.inverse, onTap: _busy ? null : _google),
+        if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Semantics(liveRegion: true, child: Text(_error!, textAlign: TextAlign.center, style: context.ts(TickType.body, color: _failure == AuthFailureKind.cancelled ? c.textSecondary : c.alert)))),
+        PillButton(_failure == null || _failure == AuthFailureKind.cancelled ? 'Continue with Google' : 'Try again', style: PillStyle.inverse, busy: _busy, onTap: _google),
         const SizedBox(height: 8),
         Center(child: Pressable(onTap: () => setState(() => _step = 1), semanticLabel: 'Skip sign in', child: Padding(padding: const EdgeInsets.all(8), child: Text('Look around first', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
         const SizedBox(height: 28),
@@ -178,9 +179,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 8),
         NumberPad(onKey: (k) => _field == 0 ? _key(k, () => _rent, (v) => _rent = v) : _key(k, () => _savings, (v) => _savings = v)),
         const Spacer(),
-        PillButton('Add', onTap: () => _finish()),
+        ActionButton('Add', onPressed: () => _finish()),
         const SizedBox(height: 8),
-        PillButton('Start with demo data', style: PillStyle.ghost, height: 52, onTap: () => _finish(demo: true)),
+        ActionButton('Start with demo data', style: PillStyle.ghost, height: 52, onPressed: () => _finish(demo: true)),
         Center(child: Pressable(onTap: () => _finish(), child: Padding(padding: const EdgeInsets.all(12), child: Text('Skip for now', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
       ]);
     }

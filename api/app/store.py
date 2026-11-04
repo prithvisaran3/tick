@@ -26,19 +26,26 @@ def window(user_id: str, around: datetime) -> list[Txn]:
     rows = r.json()
     return [row_to_txn(r) for r in rows]
 
+def window_range(user_id: str, lo: datetime, hi: datetime) -> list[Txn]:
+    """One query covering every candidate of a sync page (candidate time +/- the 72h match window)."""
+    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h,
+                     params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{(lo - WINDOW).isoformat()}"), ("occurred_at", f"lte.{(hi + WINDOW).isoformat()}"), ("select", "*"), ("limit", "5000")])
+    r.raise_for_status()
+    return [row_to_txn(x) for x in r.json()]
+
 def by_plaid_ids(user_id: str, ids: list[str]) -> list[Txn]:
     if not ids:
         return []
     rows = rest().select("transactions", user_id=f"eq.{user_id}", plaid_transaction_id=f"in.({','.join(ids)})", select="*")
     return [row_to_txn(r) for r in rows]
 
-def _ser(v):
+def ser(v):
     return v.isoformat() if isinstance(v, datetime) else v
 
 def persist(user_id: str, a: Action, extra: dict | None = None) -> str | None:
     if a.kind == "noop":
         return a.txn_id
-    fields = {k: _ser(v) for k, v in a.fields.items()}
+    fields = {k: ser(v) for k, v in a.fields.items()}
     if extra:
         fields.update(extra)
     if a.kind == "insert":

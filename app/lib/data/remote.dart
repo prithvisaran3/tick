@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
+import '../services/session.dart';
 import 'env.dart';
 import 'ledger.dart';
 
@@ -113,11 +114,13 @@ class Remote {
         'price_history': [{'date': DateTime.now().toIso8601String().substring(0, 10), 'cents': r.expectedCents}]});
 }
 
+/// Rebuilds only when the signed-in user changes (sign-in, sign-out), never on hourly token refresh.
 final remoteProvider = Provider<Remote?>((ref) {
   if (!Env.hasSupabase) return null;
+  final uid = ref.watch(userIdProvider);
+  if (uid == null) return null;
   try {
-    final c = Supabase.instance.client;
-    return c.auth.currentSession == null ? null : Remote(c);
+    return Remote(Supabase.instance.client);
   } catch (_) {
     return null;
   }

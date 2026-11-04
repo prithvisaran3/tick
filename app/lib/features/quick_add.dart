@@ -134,7 +134,7 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
         Padding(padding: const EdgeInsets.only(top: 8), child: Text('${_parsed!.isRecurring ? 'Monthly bill' : _parsed!.isIncome ? 'Money in' : 'Spent'}: ${_parsed!.merchant}, ${formatCents(_parsed!.amountCents.abs())}', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 8),
       NumberPad(onKey: _key),
-      PillButton('Add', onTap: _submit),
+      ActionButton('Add', onPressed: _submit),
     ]);
   }
 }

@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai, store
-from .auth import current_user
+from .auth import current_user, user_limiter
 from .config import settings
 from .db import rest
 from .merchants import categorize, clean_merchant, looks_business
@@ -19,6 +19,7 @@ router = APIRouter()
 
 @router.post("/receipts/scan")
 async def scan(file: UploadFile = File(...), user_id: str = Depends(current_user)):
+    user_limiter.check(f"scan:{user_id}", 10, 60)
     data = await file.read()
     if len(data) > 8_000_000:
         raise HTTPException(413, "Photo too large")
@@ -32,10 +33,10 @@ async def scan(file: UploadFile = File(...), user_id: str = Depends(current_user
     return {"path": path, "extracted": ext}
 
 class ConfirmBody(BaseModel):
-    path: str | None = None
-    merchant: str
-    total: float
-    date: str | None = None
+    path: str | None = Field(default=None, max_length=200)
+    merchant: str = Field(min_length=1, max_length=200)
+    total: float = Field(gt=0, lt=1_000_000)
+    date: str | None = Field(default=None, max_length=10)
 
 @router.post("/receipts/confirm")
 def confirm(b: ConfirmBody, user_id: str = Depends(current_user)):

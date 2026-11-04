@@ -291,6 +291,17 @@ def plan(cand: Candidate, txns: list[Txn], *, category_names: dict[str, str] | N
                     return [first] + plan(_candidate_from_entry(e), txns, category_names=category_names, depth=depth + 1)
     return [decide(cand, txns, category_names=category_names)]
 
+def plan_and_apply(txns: list[Txn], cand: Candidate, new_id: str, *, category_names: dict[str, str] | None = None) -> list[Action]:
+    """Plan the actions for [cand] and apply them to the in-memory ledger [txns]. Inserts carry [new_id] in `txn_id`.
+    Used by the batched Plaid sync so later candidates in the same page see earlier ones."""
+    acts = plan(cand, txns, category_names=category_names)
+    last = acts[-1]
+    if last.reason != "steal":
+        apply_action(txns, last, new_id)
+    if last.kind == "insert":
+        last.txn_id = new_id
+    return acts
+
 def ingest(txns: list[Txn], cand: Candidate, new_id: str, *, category_names: dict[str, str] | None = None) -> Action:
     acts = plan(cand, txns, category_names=category_names)
     last = acts[-1]

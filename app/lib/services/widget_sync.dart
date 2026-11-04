@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:home_widget/home_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../domain/models.dart';
 import '../domain/payday.dart';
@@ -33,13 +34,15 @@ Future<void> writeWidgetSnapshot(Map<String, dynamic> snap) async {
   } catch (_) {/* widgets are optional */}
 }
 
-/// "Log expense" App Intent drops {amount, merchant, category} into the App Group; the app opens quick add with it.
+/// "Log expense" App Intent drops {amount, merchant, category} into the app's own UserDefaults (key "flutter.pendingAdd", the same
+/// store shared_preferences uses), so it needs no App Group and works with a free Apple account. The app opens quick add with it.
 Future<Map<String, dynamic>?> takePendingAdd() async {
   try {
-    await HomeWidget.setAppGroupId(appGroupId);
-    final raw = await HomeWidget.getWidgetData<String>('pendingAdd');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();                                            // pick up what native code wrote
+    final raw = prefs.getString('pendingAdd');
     if (raw == null || raw.isEmpty) return null;
-    await HomeWidget.saveWidgetData<String>('pendingAdd', '');
+    await prefs.remove('pendingAdd');
     return jsonDecode(raw) as Map<String, dynamic>;
   } catch (_) {
     return null;

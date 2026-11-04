@@ -9,6 +9,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/refresh.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
@@ -37,9 +38,9 @@ class TodayScreen extends ConsumerWidget {
     final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(today.add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
     final nextIn = ledger.expected.where((e) => e.kind == ExpectedKind.paycheck).toList()..sort((a, b) => a.date.compareTo(b.date));
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 130),
-      children: [
+    return TickScrollView(
+      onRefresh: ref.read(ledgerProvider.notifier).refresh,
+      slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SizedBox(
           height: 52,
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -49,6 +50,7 @@ class TodayScreen extends ConsumerWidget {
         ),
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),
         const SizedBox(height: 16),
+        if (ledger.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
         _Hero(sts: sts, loading: ledger.loading),
         const SizedBox(height: 12),
         if (sts != null)
@@ -106,6 +108,7 @@ class TodayScreen extends ConsumerWidget {
             ]),
           ),
         ],
+      ]))),
       ],
     );
   }
@@ -123,6 +126,9 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    if (loading && sts == null) {
+      return const Center(child: Skeleton(width: 300, height: 128, radius: 64));
+    }
     if (sts == null) {
       return Column(children: [
         Sticker(hole: true, padding: const EdgeInsets.fromLTRB(44, 20, 36, 20), child: Text('Add paycheck', style: context.ts(TickType.displayM, color: c.onAccent))),

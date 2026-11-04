@@ -5,23 +5,29 @@ import UIKit
 
 /// Tick's haptic language, played through Core Haptics.
 ///
-/// Dart sends `play(pattern, tier)`; patterns are the AHAP files compiled from
-/// design/haptics.json (tools/compile_ahap.py) and bundled as Flutter assets.
-/// Modes: full | subtle (x0.5 intensity, no continuous events) | off.
-/// Low Power Mode forces subtle. Sounds use an ambient audio session so the
-/// silent switch mutes them.
+/// Dart sends `play(asset)`; assets are the AHAP files compiled from design/haptics.json (tools/compile_ahap.py) bundled as Flutter assets.
+/// Modes: full | subtle (x0.5 intensity, no continuous events) | off. Low Power Mode forces subtle.
+/// Sounds use an ambient audio session so the silent switch mutes them.
+///
+/// Threading: every Core Haptics and AVFoundation call runs on one private serial queue. Starting the haptic engine
+/// or an audio session can block for a long time on the first call; doing that on the main thread froze the whole UI
+/// (iOS logged "System gesture gate timed out"). Method calls therefore return to Dart immediately.
+/// Everything fails soft: a missing file, an unsupported device or an engine error means "no haptic", never a crash.
 public final class TickHapticsPlugin: NSObject, FlutterPlugin {
+  private let queue = DispatchQueue(label: "app.tick.haptics", qos: .userInitiated)
   private var engine: CHHapticEngine?
   private var mode = "full"
   private var soundOn = true
   private var cache: [String: URL] = [:]
   private var players: [String: AVAudioPlayer] = [:]
+  private var audioReady = false
   private let registrar: FlutterPluginRegistrar
+  private let supportsHaptics: Bool
 
   init(registrar: FlutterPluginRegistrar) {
     self.registrar = registrar
+    self.supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
     super.init()
-    try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
   }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -33,48 +39,62 @@ public final class TickHapticsPlugin: NSObject, FlutterPlugin {
     let args = call.arguments as? [String: Any] ?? [:]
     switch call.method {
     case "prepare":
-      startEngine()
+      queue.async { self.startEngine() }
       result(nil)
     case "setMode":
-      mode = (args["mode"] as? String) ?? "full"
+      let m = (args["mode"] as? String) ?? "full"
+      queue.async { self.mode = m }
       result(nil)
     case "setSound":
-      soundOn = (args["on"] as? Bool) ?? true
+      let on = (args["on"] as? Bool) ?? true
+      queue.async { self.soundOn = on }
       result(nil)
     case "play":
-      play(asset: args["asset"] as? String ?? "")
+      let asset = args["asset"] as? String ?? ""
+      queue.async { self.play(asset: asset) }
       result(nil)
     case "playSound":
-      playSound(asset: args["asset"] as? String ?? "")
+      let asset = args["asset"] as? String ?? ""
+      queue.async { self.playSound(asset: asset) }
       result(nil)
     case "supportsHaptics":
-      result(CHHapticEngine.capabilitiesForHardware().supportsHaptics)
+      result(supportsHaptics)
     default:
       result(FlutterMethodNotImplemented)
     }
   }
+
+  // MARK: - queue-only helpers
 
   private var effectiveMode: String {
     ProcessInfo.processInfo.isLowPowerModeEnabled && mode == "full" ? "subtle" : mode
   }
 
   private func startEngine() {
-    guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+    guard supportsHaptics else { return }
     if engine == nil {
-      engine = try? CHHapticEngine()
-      engine?.isAutoShutdownEnabled = true
-      engine?.resetHandler = { [weak self] in try? self?.engine?.start() }
-      engine?.stoppedHandler = { _ in }
+      do {
+        let e = try CHHapticEngine()
+        e.isAutoShutdownEnabled = true
+        e.resetHandler = { [weak self] in self?.queue.async { try? self?.engine?.start() } }
+        e.stoppedHandler = { [weak self] _ in self?.queue.async { self?.engine = nil } }   // re-created on the next play
+        engine = e
+      } catch {
+        engine = nil
+        return
+      }
     }
     try? engine?.start()
   }
 
+  /// Absolute path of a Flutter asset inside the app bundle, or nil if it is not there.
   private func assetPath(_ asset: String) -> String? {
     let key = registrar.lookupKey(forAsset: asset)
-    return Bundle.main.path(forResource: key, ofType: nil)
+    guard let path = Bundle.main.path(forResource: key, ofType: nil), FileManager.default.fileExists(atPath: path) else { return nil }
+    return path
   }
 
-  /// Returns the AHAP file to play for the current mode, writing a softened copy for subtle.
+  /// The AHAP file to play for the current mode; writes a softened copy for subtle.
   private func ahapURL(asset: String) -> URL? {
     let m = effectiveMode
     let cacheKey = "\(m)|\(asset)"
@@ -90,8 +110,8 @@ public final class TickHapticsPlugin: NSObject, FlutterPlugin {
           let pattern = root["Pattern"] as? [[String: Any]] else { return nil }
     var out: [[String: Any]] = []
     for item in pattern {
-      guard var event = item["Event"] as? [String: Any] else { continue }  // drop parameter curves in subtle
-      if (event["EventType"] as? String) == "HapticContinuous" { continue }  // no continuous events in subtle
+      guard var event = item["Event"] as? [String: Any] else { continue }            // drop parameter curves in subtle
+      if (event["EventType"] as? String) == "HapticContinuous" { continue }          // no continuous events in subtle
       if var params = event["EventParameters"] as? [[String: Any]] {
         for i in params.indices where (params[i]["ParameterID"] as? String) == "HapticIntensity" {
           params[i]["ParameterValue"] = ((params[i]["ParameterValue"] as? Double) ?? 1.0) * 0.5
@@ -100,28 +120,40 @@ public final class TickHapticsPlugin: NSObject, FlutterPlugin {
       }
       out.append(["Event": event])
     }
-    if out.isEmpty {  // e.g. the hold ramp is continuous-only: keep a single light tick so the press still answers
+    if out.isEmpty {                                                                  // continuous-only patterns keep one light tick
       out = [["Event": ["Time": 0.0, "EventType": "HapticTransient", "EventParameters": [
         ["ParameterID": "HapticIntensity", "ParameterValue": 0.2], ["ParameterID": "HapticSharpness", "ParameterValue": 0.3]]]]]
     }
     root["Pattern"] = out
     guard let bytes = try? JSONSerialization.data(withJSONObject: root) else { return nil }
-    let u = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(m)-\(asset.hashValue).ahap")
-    try? bytes.write(to: u)
+    let name = asset.replacingOccurrences(of: "/", with: "_")
+    let u = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(m)-\(name)")
+    do { try bytes.write(to: u) } catch { return nil }
     cache[cacheKey] = u
     return u
   }
 
   private func play(asset: String) {
-    guard effectiveMode != "off", CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-    startEngine()
+    guard effectiveMode != "off", supportsHaptics else { return }
+    if engine == nil { startEngine() }
     guard let url = ahapURL(asset: asset) else { return }
-    try? engine?.playPattern(from: url)
+    do { try engine?.playPattern(from: url) } catch {
+      engine = nil                                                                    // engine died (backgrounded): rebuild on the next call
+    }
   }
 
   private func playSound(asset: String) {
-    guard soundOn, let path = assetPath(asset) else { return }
-    if players[asset] == nil { players[asset] = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path)) }
+    guard soundOn else { return }
+    if !audioReady {
+      try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+      audioReady = true
+    }
+    if players[asset] == nil {
+      guard let path = assetPath(asset) else { return }
+      let p = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: path))
+      p?.prepareToPlay()
+      players[asset] = p
+    }
     players[asset]?.currentTime = 0
     players[asset]?.play()
   }

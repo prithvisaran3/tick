@@ -163,7 +163,8 @@ class Hairline extends StatelessWidget {
 enum PillStyle { primary, ghost, inverse, quiet }
 
 class PillButton extends StatelessWidget {
-  const PillButton(this.label, {super.key, this.onTap, this.style = PillStyle.primary, this.icon, this.height = 56, this.expand = true});
+  const PillButton(this.label, {super.key, this.onTap, this.style = PillStyle.primary, this.icon, this.height = 56, this.expand = true, this.busy = false});
+  final bool busy; // in-progress: shows the Tick loader and ignores taps
   final String label;
   final VoidCallback? onTap;
   final PillStyle style;
@@ -179,18 +180,20 @@ class PillButton extends StatelessWidget {
       PillStyle.ghost => (const Color(0x00000000), c.text, c.hairline),
       PillStyle.quiet => (c.surface2, c.text, null),
     };
-    final disabled = onTap == null;
+    final disabled = onTap == null && !busy;
     final bg = disabled ? c.surface2 : bg0;
     final fg = disabled ? c.textSecondary : fg0;
     return Pressable(
-      onTap: onTap, semanticLabel: label,
+      onTap: busy ? null : onTap, semanticLabel: busy ? '$label, working' : label,
       child: Container(
         height: height, width: expand ? double.infinity : null, padding: expand ? null : const EdgeInsets.symmetric(horizontal: 24),
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(TickRadius.pill), border: border == null ? null : Border.all(color: border, width: 1.5)),
-        child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-          if (icon != null) ...[TickIcon(icon!, size: 22, color: fg), const SizedBox(width: 8)],
-          Text(label, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none)),
-        ]),
+        child: busy
+            ? Center(child: TickLoader(color: fg))
+            : Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (icon != null) ...[TickIcon(icon!, size: 22, color: fg), const SizedBox(width: 8)],
+                Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none))),
+              ]),
       ),
     );
   }
@@ -363,4 +366,77 @@ class Wordmark extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Three dots that spring up in turn: Tick's in-progress indicator (never a default spinner). Static under Reduce Motion.
+class TickLoader extends StatefulWidget {
+  const TickLoader({super.key, this.color, this.size = 8});
+  final Color? color;
+  final double size;
+  @override
+  State<TickLoader> createState() => _TickLoaderState();
+}
+
+class _TickLoaderState extends State<TickLoader> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  bool _started = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started && !context.reduceMotion) { _started = true; _c.repeat(); }
+    if (context.reduceMotion && _c.isAnimating) _c.stop();
+  }
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color ?? context.c.text;
+    return Semantics(
+      label: 'Loading', liveRegion: true,
+      child: ExcludeSemantics(
+        child: RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: _c,
+            builder: (_, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+              for (var i = 0; i < 3; i++)
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: widget.size * 0.4),
+                  child: Transform.translate(
+                    offset: Offset(0, context.reduceMotion ? 0 : -widget.size * 0.9 * math.max(0, math.sin((_c.value * 2 * math.pi) - i * 0.9))),
+                    child: Container(width: widget.size, height: widget.size, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A button that runs an async action: shows progress, blocks double taps, and never throws into the UI.
+class ActionButton extends StatefulWidget {
+  const ActionButton(this.label, {super.key, required this.onPressed, this.style = PillStyle.primary, this.icon, this.height = 56, this.enabled = true});
+  final String label;
+  final Future<void> Function() onPressed;
+  final PillStyle style;
+  final String? icon;
+  final double height;
+  final bool enabled;
+  @override
+  State<ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<ActionButton> {
+  bool _busy = false;
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onPressed();
+    } catch (_) {/* the action reports its own failure; a thrown error must never reach the UI */}
+    if (mounted) setState(() => _busy = false);
+  }
+  @override
+  Widget build(BuildContext context) => PillButton(widget.label, style: widget.style, icon: widget.icon, height: widget.height, busy: _busy, onTap: widget.enabled ? _run : null);
 }

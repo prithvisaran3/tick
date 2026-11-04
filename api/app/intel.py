@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai, store
 from .auth import current_user, require_cron
@@ -104,11 +104,11 @@ def weekly_text_fallback(s: dict) -> str:
     return f"{fmt(s['spent_cents'])} out this week, {cmp}. Biggest: {top}."
 
 class AdviceBody(BaseModel):
-    total_cents: int
-    safe_cents: int
-    days_to_payday: int
-    captures: int
-    top_merchant: str | None = None
+    total_cents: int = Field(ge=0, le=10**10)
+    safe_cents: int = Field(ge=-(10**10), le=10**10)
+    days_to_payday: int = Field(ge=0, le=400)
+    captures: int = Field(ge=0, le=10000)
+    top_merchant: str | None = Field(default=None, max_length=80)
 
 def advice_fallback(b: AdviceBody) -> str:
     if b.captures == 0:
@@ -173,7 +173,7 @@ def _txns_for(user_id: str, days: int) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
     r.raise_for_status()
-    return [{"merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).date()} for x in r.json()]
+    return [{"merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date()} for x in r.json()]
 
 def refresh_recurring(user_id: str) -> int:
     today = datetime.now(timezone.utc).date()

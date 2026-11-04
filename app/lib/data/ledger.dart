@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models.dart';
 import '../domain/natural_input.dart';
@@ -5,6 +6,8 @@ import '../domain/payday.dart';
 import '../domain/safe_to_spend.dart';
 import 'categorizer.dart';
 import 'demo_seed.dart';
+import '../services/session.dart';
+import 'ledger_cache.dart';
 import 'remote.dart';
 import 'settings.dart';
 
@@ -36,31 +39,76 @@ class LedgerState {
       expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections, justLanded: clearLanded ? null : (justLanded ?? this.justLanded), budgets: budgets ?? this.budgets, rules: rules ?? this.rules);
 }
 
+/// Snapshot read from disk before the first frame (see main.dart). userId null = guest data.
+class CachedLedger {
+  const CachedLedger(this.userId, this.state);
+  final String? userId;
+  final LedgerState state;
+}
+
+final initialLedgerProvider = Provider<CachedLedger?>((ref) => null);
+
 class LedgerNotifier extends Notifier<LedgerState> {
   int _seq = 0;
+  bool _refreshing = false;
+  bool _refreshQueued = false;
+  Timer? _persistTimer;
+  Timer? _liveTimer;
+  Future<void>? _retrying;
+
   @override
   LedgerState build() {
-    final s = ref.watch(settingsProvider);
+    // Only these inputs rebuild the ledger. (Watching all of settings used to wipe local data on every unrelated settings change.)
+    final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
+    final remote = ref.watch(remoteProvider);
+    final uid = ref.watch(userIdProvider);
+    final resolving = ref.watch(sessionResolvingProvider);
     final now = ref.read(clockProvider)();
-    if (s.demoMode) {
+    ref.onDispose(() { _persistTimer?.cancel(); _liveTimer?.cancel(); });
+
+    if (demo) {
       final d = buildDemo(now);
       return LedgerState(categories: d.categories, accounts: d.accounts, txns: d.txns, recurring: d.recurring, expected: d.expected, goals: d.goals, linksUsed: 3, budgets: d.budgets);
     }
-    final remote = ref.read(remoteProvider);
+    final cached = ref.read(initialLedgerProvider);
+    final usable = cached != null && (cached.userId == uid || (resolving && cached.userId != null) || (uid == null && cached.userId == null)) ? cached.state : null;
+    final base = usable ?? const LedgerState(categories: defaultCategories);
+
+    listenSelf((prev, next) => _schedulePersist(next, uid));
+
     if (remote != null) {
       Future.microtask(refresh);
-      final ch = remote.listen(() => Future.microtask(refresh));
+      final ch = remote.listen(_liveChanged);
       ref.onDispose(() => ch.unsubscribe());
-      return LedgerState(categories: defaultCategories, loading: true);
+      return base.copyWith(loading: usable == null);
     }
-    return const LedgerState(categories: []);
+    if (resolving) return base.copyWith(loading: usable == null);
+    return base;
+  }
+
+  void _schedulePersist(LedgerState s, String? uid) {
+    if (s.loading || ref.read(settingsProvider).demoMode) return;
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 900), () => LedgerCache.write(s, userId: uid));
+  }
+
+  /// Realtime pushes can arrive in bursts (a sync inserts hundreds of rows): coalesce into one refresh.
+  void _liveChanged() {
+    _liveTimer?.cancel();
+    _liveTimer = Timer(const Duration(milliseconds: 1500), refresh);
   }
 
   Future<void> refresh() async {
     final remote = ref.read(remoteProvider);
     if (remote == null || ref.read(settingsProvider).demoMode) return;
+    if (_refreshing) { _refreshQueued = true; return; }                  // single flight, never a refresh storm
+    _refreshing = true;
     try {
-      final l = await remote.loadAll();
+      final loaded = await remote.loadAll();
+      // Keep purchases that were saved locally while offline and push them up again.
+      final localOnly = state.txns.where((t) => t.id.startsWith('local-')).toList();
+      var l = loaded;
+      if (localOnly.isNotEmpty) l = loaded.copyWith(txns: [...localOnly, ...loaded.txns]..sort((a, b) => b.occurredAt.compareTo(a.occurredAt)));
       Expected? landed;
       try {
         final prefs = ref.read(sharedPrefsProvider);
@@ -72,9 +120,32 @@ class LedgerNotifier extends Notifier<LedgerState> {
         }
       } catch (_) {}
       state = l.copyWith(loading: false, offline: false, justLanded: landed);
+      if (localOnly.isNotEmpty) _retrying ??= _pushLocal(localOnly).whenComplete(() => _retrying = null);
     } catch (_) {
       state = state.copyWith(loading: false, offline: true);
+    } finally {
+      _refreshing = false;
+      if (_refreshQueued) { _refreshQueued = false; Future.microtask(refresh); }
     }
+  }
+
+  Future<void> _pushLocal(List<Txn> pending) async {
+    final remote = ref.read(remoteProvider);
+    if (remote == null) return;
+    for (final t in pending) {
+      try {
+        final saved = await remote.insertTxn(t);
+        state = state.copyWith(txns: [for (final x in state.txns) x.id == t.id ? saved : x]);
+      } catch (_) {
+        return;                                                          // still offline: keep them, try again next refresh
+      }
+    }
+  }
+
+  /// Sign-out and "delete all data": forget everything held on this device.
+  Future<void> wipeLocal() async {
+    await LedgerCache.clear();
+    state = const LedgerState(categories: defaultCategories);
   }
 
   void landedShown() => state = state.copyWith(clearLanded: true);
@@ -194,11 +265,11 @@ final ledgerProvider = NotifierProvider<LedgerNotifier, LedgerState>(LedgerNotif
 
 /// Safe to spend until the next payday, or null if no payday rule is known yet.
 final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
-  final s = ref.watch(settingsProvider);
+  final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
+  var rule = ref.watch(settingsProvider.select((s) => s.rule));
   final l = ref.watch(ledgerProvider);
   final now = ref.watch(clockProvider)();
-  var rule = s.rule;
-  if (s.demoMode) rule = buildDemo(now).rule;
+  if (demo) rule = buildDemo(now).rule;
   if (rule == null) return null;
   return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected);
 });

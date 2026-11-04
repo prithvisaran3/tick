@@ -82,7 +82,12 @@ class SettingsScreen extends ConsumerWidget {
           row('play', 'Demo mode', TickToggle(on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
           if (Env.hasSupabase && ref.read(authServiceProvider).session != null) ...[
             const Hairline(),
-            row('arrow-out', 'Sign out', const SizedBox(), onTap: () async { await ref.read(authServiceProvider).signOut(); if (context.mounted) context.go('/onboarding'); }),
+            row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
+              await ref.read(authServiceProvider).signOut();
+              await ref.read(ledgerProvider.notifier).wipeLocal();           // nothing of a signed-out account stays on the phone
+              ref.read(settingsProvider.notifier).update((x) => x.copyWith(onboardingDone: false));
+              if (context.mounted) context.go('/onboarding');
+            }),
           ],
         ])),
         const SizedBox(height: 16),
@@ -124,7 +129,9 @@ class SettingsScreen extends ConsumerWidget {
       }
     }
     ref.read(settingsProvider.notifier).update((x) => const AppSettings());
+    await ref.read(ledgerProvider.notifier).wipeLocal();
     await ref.read(ledgerProvider.notifier).refresh();
+    if (context.mounted) context.go('/onboarding');
   }
 
   Future<void> _tokenSheet(BuildContext context, WidgetRef ref) {
@@ -172,7 +179,7 @@ class _TokenSheetState extends State<_TokenSheet> {
         const SizedBox(height: 8),
         Text('Shown once. Ingest URL: ${Env.apiBaseUrl}/ingest', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       ] else ...[
-        PillButton('Make new token', onTap: _make),
+        ActionButton('Make new token', onPressed: _make),
         if (_err != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_err!, style: context.ts(TickType.body, color: c.alert))),
       ],
     ]);
