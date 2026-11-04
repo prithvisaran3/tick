@@ -1,0 +1,2 @@
+-- No seed data on purpose: default categories are created per user by the on_auth_user_created trigger (seed_default_categories),
+-- and Demo mode lives entirely in the app (app/lib/data/demo_seed.dart). Never put real or fake financial rows in here.

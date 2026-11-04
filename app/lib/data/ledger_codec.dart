@@ -54,7 +54,7 @@ LedgerState? decodeLedger(Map<String, dynamic> j) {
             priceHistory: ((r['h'] as List?) ?? const []).map((e) => (e as num).toInt()).toList(),
           ),
       ],
-      expected: [for (final e in list('expected')) Expected(id: e['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == e['k']), label: e['l'] as String, amountCents: (e['a'] as num).toInt(), date: DateTime.parse(e['d'] as String))],
+      expected: [for (final e in list('expected')) Expected(id: e['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == e['k'], orElse: () => ExpectedKind.refund), label: e['l'] as String, amountCents: (e['a'] as num).toInt(), date: DateTime.parse(e['d'] as String))],
       goals: [for (final g in list('goals')) Goal(id: g['id'] as String, name: g['n'] as String, targetCents: (g['t'] as num).toInt(), savedCents: (g['s'] as num).toInt(), perPaydayCents: (g['p'] as num).toInt())],
       budgets: [for (final b in list('budgets')) Budget(id: b['id'] as String, categoryId: b['c'] as String, capCents: (b['cap'] as num).toInt())],
       connections: [for (final c in list('connections')) Connection(id: c['id'] as String, institution: c['i'] as String, status: c['s'] as String)],

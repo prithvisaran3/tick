@@ -14,7 +14,7 @@ class Remote {
     final r = await Future.wait([
       db.from('categories').select().order('sort'),
       db.from('accounts').select(),
-      db.from('transactions').select().order('occurred_at', ascending: false).limit(1500),
+      db.from('transactions').select().gte('occurred_at', DateTime.now().subtract(const Duration(days: 130)).toUtc().toIso8601String()).order('occurred_at', ascending: false).limit(1200),
       db.from('recurring').select().eq('status', 'active'),
       db.from('expected').select().eq('status', 'expected'),
       db.from('goals').select(),
@@ -23,11 +23,12 @@ class Remote {
       db.from('rules').select(),
     ]);
     return LedgerState(
-      categories: [for (final j in r[0]) Category.fromJson(j)],
-      accounts: [for (final j in r[1]) Account.fromJson(j)],
-      txns: [for (final j in r[2]) Txn.fromJson(j)],
-      recurring: [for (final j in r[3]) _rec(j)],
-      expected: [for (final j in r[4]) _exp(j)],
+      // Each row is parsed on its own: one malformed row is skipped, it can never fail the whole refresh.
+      categories: _each(r[0], Category.fromJson),
+      accounts: _each(r[1], Account.fromJson),
+      txns: _each(r[2], Txn.fromJson),
+      recurring: _each(r[3], _rec),
+      expected: _each(r[4], _exp),
       goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
       linksUsed: (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
@@ -36,12 +37,20 @@ class Remote {
     );
   }
 
+  List<T> _each<T>(List<dynamic> rows, T Function(Map<String, dynamic>) f) {
+    final out = <T>[];
+    for (final j in rows) {
+      try { out.add(f(j as Map<String, dynamic>)); } catch (_) {/* skip bad row */}
+    }
+    return out;
+  }
+
   Recurring _rec(Map<String, dynamic> j) => Recurring(
-      id: j['id'] as String, merchant: j['merchant'] as String, cadence: Cadence.values.firstWhere((c) => c.name == j['cadence']),
+      id: j['id'] as String, merchant: j['merchant'] as String, cadence: Cadence.values.firstWhere((c) => c.name == j['cadence'], orElse: () => Cadence.monthly),
       expectedCents: (j['expected_cents'] as num).toInt(), nextDate: DateTime.parse(j['next_date'] as String), categoryId: j['category_id'] as String?,
       priceHistory: [for (final p in (j['price_history'] as List? ?? const [])) ((p as Map)['cents'] as num).toInt()]);
   Expected _exp(Map<String, dynamic> j) => Expected(
-      id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind']), label: j['label'] as String,
+      id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind'], orElse: () => ExpectedKind.refund), label: j['label'] as String,
       amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String));
 
   /// Expected money that landed in the last two days.

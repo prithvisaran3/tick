@@ -24,11 +24,17 @@ class CaughtScreen extends ConsumerStatefulWidget {
 }
 
 class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerProviderStateMixin {
-  late final AnimationController _fly = AnimationController.unbounded(vsync: this);
+  late final AnimationController _fly;
   Offset _drag = Offset.zero;
   Offset _target = Offset.zero;
   bool _flying = false;
   final Set<String> _done = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fly = AnimationController.unbounded(vsync: this);
+  }
 
   @override
   void dispose() { _fly.dispose(); super.dispose(); }

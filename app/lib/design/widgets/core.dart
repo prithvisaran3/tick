@@ -67,11 +67,12 @@ class PopIn extends StatefulWidget {
 }
 
 class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController.unbounded(vsync: this, value: 0);
+  late final AnimationController _c;
   bool _started = false;
   @override
   void initState() {
     super.initState();
+    _c = AnimationController.unbounded(vsync: this, value: 0);      // created here, never lazily in dispose()
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.delay > Duration.zero) await Future<void>.delayed(widget.delay);
       if (!mounted) return;
@@ -266,14 +267,15 @@ class Segmented extends StatelessWidget {
 }
 
 class TickToggle extends StatelessWidget {
-  const TickToggle({super.key, required this.on, required this.onChanged});
+  const TickToggle({super.key, required this.on, required this.onChanged, this.label});
   final bool on;
+  final String? label;
   final ValueChanged<bool> onChanged;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     return Semantics(
-      toggled: on, container: true,
+      toggled: on, container: true, label: label, button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => onChanged(!on),
@@ -299,15 +301,29 @@ class Skeleton extends StatefulWidget {
 }
 
 class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.skeletonShimmerMs))..repeat(reverse: true);
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.skeletonShimmerMs));
+  bool _started = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (context.reduceMotion) { _c.stop(); _c.value = 0.5; }
+    else if (!_started) { _started = true; _c.repeat(reverse: true); }
+  }
   @override
   void dispose() { _c.dispose(); super.dispose(); }
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (_, _) => Container(
-          width: widget.width, height: widget.height,
-          decoration: BoxDecoration(color: Color.lerp(context.c.surface1, context.c.surface2, _c.value), borderRadius: BorderRadius.circular(widget.radius)),
+  Widget build(BuildContext context) => Semantics(
+        label: 'Loading',
+        child: ExcludeSemantics(
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (_, _) => Container(
+                width: widget.width, height: widget.height,
+                decoration: BoxDecoration(color: Color.lerp(context.c.surface1, context.c.surface2, _c.value), borderRadius: BorderRadius.circular(widget.radius)),
+              ),
+            ),
+          ),
         ),
       );
 }
@@ -325,10 +341,11 @@ class CountUpText extends StatefulWidget {
 }
 
 class _CountUpTextState extends State<CountUpText> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: widget.duration);
+  late final AnimationController _c;
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: widget.duration);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (context.reduceMotion) { _c.value = 1; return; }

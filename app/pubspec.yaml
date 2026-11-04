@@ -1,5 +1,5 @@
 name: tick
-description: "A new Flutter project."
+description: "Tick: a personal finance app. Know in three seconds what is safe to spend until payday."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

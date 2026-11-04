@@ -177,7 +177,8 @@ class LedgerNotifier extends Notifier<LedgerState> {
   Map<String, String> _rules() => const {};
 
   Future<void> patch(String id, Txn Function(Txn) f) async {
-    final old = state.txns.firstWhere((t) => t.id == id);
+    final old = state.txns.where((t) => t.id == id).firstOrNull;
+    if (old == null) return;                                         // it was removed by a refresh while the sheet was open
     final n = f(old);
     state = state.copyWith(txns: [for (final t in state.txns) t.id == id ? n : t]);
     final remote = ref.read(remoteProvider);
@@ -189,7 +190,8 @@ class LedgerNotifier extends Notifier<LedgerState> {
   Future<void> markLooksRight(String id) => patch(id, (t) => t.copyWith(needsReview: false, confidence: 1.0));
   Future<void> toggleBusiness(String id) => patch(id, (t) => t.copyWith(tags: t.isBusiness ? t.tags.where((x) => x != 'business').toList() : [...t.tags, 'business'], needsReview: false));
   Future<void> recategorize(String id, String categoryId) async {
-    final t = state.txns.firstWhere((x) => x.id == id);
+    final t = state.txns.where((x) => x.id == id).firstOrNull;
+    if (t == null) return;
     await patch(id, (t) => t.copyWith(categoryId: categoryId, needsReview: false));
     final remote = ref.read(remoteProvider);
     if (remote != null && !ref.read(settingsProvider).demoMode && !id.startsWith('local-')) {

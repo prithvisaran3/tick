@@ -54,6 +54,10 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
       }
       await ref.read(ledgerProvider.notifier).refresh();
       await _loadLinks();
+      // The first sync of a new link runs on the server (up to 12 months of history). Realtime pushes rows in; poll a few times as a backstop.
+      for (final s in const [6, 15, 40]) {
+        Future<void>.delayed(Duration(seconds: s), () { if (mounted) ref.read(ledgerProvider.notifier).refresh(); });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e is ApiException && e.status == 409 ? 'You have used all 10 bank links.' : 'That didn\'t go through. Try again, nothing was lost.');
     }

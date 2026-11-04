@@ -20,6 +20,7 @@ import '../design/widgets/more.dart';
 import '../design/widgets/pickers.dart';
 import '../services/ai_status.dart';
 import '../services/auth.dart';
+import '../services/session.dart';
 import '../services/haptics.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -31,7 +32,7 @@ class SettingsScreen extends ConsumerWidget {
     final l = ref.watch(ledgerProvider);
     final c = context.c;
     Widget row(String icon, String title, Widget right, {VoidCallback? onTap}) => Pressable(
-          onTap: onTap, scale: 1,
+          onTap: onTap, scale: 1, semanticLabel: title,
           child: SizedBox(height: 52, child: Row(children: [TickIcon(icon, size: 22, color: c.text), const SizedBox(width: 12), Expanded(child: Text(title, style: context.ts(TickType.title, size: 16))), right])),
         );
     Widget val(String t) => Text(t, style: context.ts(TickType.bodyS, color: c.textSecondary));
@@ -42,14 +43,18 @@ class SettingsScreen extends ConsumerWidget {
           Avatar(s.name ?? 'P', 'biz', size: 48), const SizedBox(width: 16),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(s.name ?? 'Prithvi', style: context.ts(TickType.title, size: 18)),
-            Text(Env.hasSupabase && ref.read(authServiceProvider).session != null ? 'Signed in with Google' : 'Not signed in', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+            Text(ref.watch(userIdProvider) != null ? 'Signed in with Google' : 'Not signed in', style: context.ts(TickType.bodyS, color: c.textSecondary)),
           ])),
         ])),
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
-          row('lock', 'Face ID lock', TickToggle(on: s.faceIdLock, onChanged: (v) => n.update((x) => x.copyWith(faceIdLock: v)))),
+          row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {
+            // Only turn the lock on if Face ID actually works, so you can never lock yourself out.
+            if (v && !await ref.read(authServiceProvider).unlock()) return;
+            n.update((x) => x.copyWith(faceIdLock: v));
+          })),
           const Hairline(),
-          row('eye-off', 'Privacy blur', TickToggle(on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v)))),
+          row('eye-off', 'Privacy blur', TickToggle(label: 'Privacy blur', on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v)))),
         ])),
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -57,7 +62,7 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 8),
           Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
           const SizedBox(height: 8),
-          SizedBox(height: 44, child: Row(children: [Expanded(child: Text('Sound', style: context.ts(TickType.title, size: 16))), TickToggle(on: s.sound, onChanged: (v) { n.update((x) => x.copyWith(sound: v)); if (v) TickHaptics.instance.sound('capture_pop'); })])),
+          SizedBox(height: 44, child: Row(children: [Expanded(child: Text('Sound', style: context.ts(TickType.title, size: 16))), TickToggle(label: 'Sound', on: s.sound, onChanged: (v) { n.update((x) => x.copyWith(sound: v)); if (v) TickHaptics.instance.sound('capture_pop'); })])),
           const SizedBox(height: 4),
           Text('Theme', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
@@ -79,8 +84,12 @@ class SettingsScreen extends ConsumerWidget {
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
           row('share', 'Export CSV', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _exportCsv(ref)),
           const Hairline(),
-          row('play', 'Demo mode', TickToggle(on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
-          if (Env.hasSupabase && ref.read(authServiceProvider).session != null) ...[
+          row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
+          if (Env.hasSupabase && ref.watch(userIdProvider) == null) ...[
+            const Hairline(),
+            row('check', 'Sign in with Google', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _signIn(context, ref)),
+          ],
+          if (Env.hasSupabase && ref.watch(userIdProvider) != null) ...[
             const Hairline(),
             row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
               await ref.read(authServiceProvider).signOut();
@@ -95,6 +104,26 @@ class SettingsScreen extends ConsumerWidget {
         Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick, including bank links. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
       ]),
     );
+  }
+
+  Future<void> _signIn(BuildContext context, WidgetRef ref) async {
+    String? message;
+    try {
+      await ref.read(authServiceProvider).signInWithGoogle();
+      final name = ref.read(authServiceProvider).displayName;
+      ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
+    } on AuthFailure catch (f) {
+      message = f.message;
+    } catch (_) {
+      message = const AuthFailure(AuthFailureKind.failed).message;
+    }
+    if (message != null && context.mounted) {
+      await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Sign-in', style: ctx.ts(TickType.displayM)), const SizedBox(height: 8),
+        Text(message!, style: ctx.ts(TickType.body, color: ctx.c.textSecondary)), const SizedBox(height: 16),
+        ActionButton('Try again', onPressed: () async { Navigator.of(ctx).pop(); await _signIn(context, ref); }),
+      ]));
+    }
   }
 
   Future<void> _aiSheet(BuildContext context, WidgetRef ref) {

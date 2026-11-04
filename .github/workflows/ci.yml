@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with: { flutter-version: "3.47.9", channel: stable }
+        with: { flutter-version: "3.44.9", channel: stable }
       - run: cd app && flutter pub get && flutter analyze && flutter test
   rls:
     # Needs repo secrets SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF; skipped when absent.
