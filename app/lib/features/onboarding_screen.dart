@@ -38,6 +38,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String _rent = '';
   String _savings = '';
   int _field = 0; // 0 = rent, 1 = savings
+  final List<ParsedEntry> _bills = [];
 
   List<DateTime> _dateOptions(DateTime now) {
     var d = dayOnly(now);
@@ -77,6 +78,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
       n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
       final led = ref.read(ledgerProvider.notifier);
+      for (final b in _bills) {
+        await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
+      }
       final save = parseCents(_savings);
       if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
       final rent = parseCents(_rent);
@@ -151,6 +155,23 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 16),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
           _amountRow(context, 'Rent', 'Monthly · the 1st', _rent, _field == 0, () => setState(() => _field = 0), 'home'),
+          const Hairline(),
+          for (final b in _bills) ...[
+            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [Avatar(b.merchant, 'sub'), const SizedBox(width: 12), Expanded(child: Text(b.merchant, style: context.ts(TickType.title, size: 16))), Text(formatCents(b.amountCents), style: context.ts(TickType.mono))])),
+            const Hairline(),
+          ],
+          Pressable(
+            onTap: () async {
+              final t = await showTextSheet(context, title: 'Add a bill', hint: 'netflix 15 on the 5th');
+              final p = t == null ? null : parseNatural(t, ref.read(clockProvider)());
+              if (p != null) setState(() => _bills.add(p));
+            },
+            scale: 1,
+            child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+              Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c.hairline, width: 1.5)), child: TickIcon('plus', size: 20, color: c.text)),
+              const SizedBox(width: 12), Text('Add a bill or subscription', style: context.ts(TickType.title, size: 16, color: c.textSecondary)),
+            ])),
+          ),
           const Hairline(),
           _amountRow(context, 'Savings', 'Each payday', _savings, _field == 1, () => setState(() => _field = 1), 'biz'),
         ])),

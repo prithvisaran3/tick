@@ -22,6 +22,7 @@ void main() {
     'activity': (() => const ActivityScreen(), 1),
     'flows': (() => const FlowsScreen(), 2),
     'ask-tick': (() => const AskScreen(), 3),
+    'ask-tick-answer': (() => const AskScreen(), 3),
     'caught': (() => const CaughtScreen(), null),
     'morning-receipt': (() => const ReceiptScreen(animate: false), null),
     'incoming-upcoming': (() => const IncomingScreen(), null),
@@ -38,7 +39,7 @@ void main() {
   for (final e in screens.entries) {
     for (final dark in [true, false]) {
       testWidgets('golden ${e.key} ${dark ? 'dark' : 'light'}', (tester) async {
-        final c = await demoContainer();
+        final c = await demoContainer(overrides: e.key == 'ask-tick-answer' ? [askProvider.overrideWith(_SeededAsk.new)] : const []);
         addTearDown(c.dispose);
         debugDisableShadows = false; // real shadows in goldens
         await pumpGolden(tester, frame(c, e.value.$1(), dark: dark, tab: e.value.$2));
@@ -47,4 +48,15 @@ void main() {
       });
     }
   }
+}
+
+class _SeededAsk extends AskNotifier {
+  @override
+  List<AskMessage> build() => [
+        AskMessage(true, 'How much did I spend on food this month?'),
+        AskMessage(false, '\$412 on food so far this month. That\'s \$58 over last month at this point.', blocks: [
+          {'kind': 'bars', 'values': [for (final e in [('Wk 1', 5200), ('Wk 2', 9100), ('Wk 3', 7400), ('Now', 11800)]) {'label': e.$1, 'cents': e.$2}]},
+          {'kind': 'txns', 'ids': ['demo-2', 'demo-4']},
+        ]),
+      ];
 }
