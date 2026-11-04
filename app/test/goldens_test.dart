@@ -33,8 +33,10 @@ void main() {
       testWidgets('golden ${e.key} ${dark ? 'dark' : 'light'}', (tester) async {
         final c = await demoContainer();
         addTearDown(c.dispose);
+        debugDisableShadows = false; // real shadows in goldens
         await pumpGolden(tester, frame(c, e.value.$1(), dark: dark, tab: e.value.$2));
         await expectLater(find.byType(WidgetsApp), matchesGoldenFile('goldens/${e.key}.${dark ? 'dark' : 'light'}.png'));
+        debugDisableShadows = true;
       });
     }
   }

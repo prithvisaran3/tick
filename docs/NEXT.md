@@ -38,6 +38,8 @@ Fresh session? Read CLAUDE.md, docs/SPEC.md (sections 0, 7, 9) and this file, th
 - Plaid `LINK`/`SESSION_FINISHED` webhook cannot map to a user (no client_user_id in body); the app calls `/plaid/complete` after the redirect instead.
 - Ingest serialises per user with an in-process lock (one Railway replica). Scaling out needs a Postgres advisory lock RPC.
 
+- From the final design review, not yet done: receipt torn zigzag edge, "Pick date" chip in onboarding, short account labels ("Chase ••1180") in row subtitles, move the "3 to check" card into a chip on the Today section label, `Sign out` row hidden when signed out.
+
 ## Splitwise plan (not in v1)
 Data model is ready: `people`, `transactions.splits jsonb`, `transactions.participants jsonb`, `expected(kind=iou)`. Steps: (1) people + groups tables and a people picker on a purchase; (2) split editor (equal, exact, percent) writing `splits`; (3) running balances per person derived from splits and settlements; (4) settle-up flow: Hold to confirm, creates an `expected iou` or a settlement transaction; (5) HEARTBEAT haptic (already compiled) fires once per person on settle-up; (6) share a settle link by text.
 

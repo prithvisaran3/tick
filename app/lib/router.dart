@@ -141,7 +141,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     ref.listen(ledgerProvider, (_, _) => _sync());
     final pages = [const TodayScreen(), const ActivityScreen(), const FlowsScreen(), const AskScreen()];
     return TickScreen(
-      child: Stack(children: [
+      child: Stack(clipBehavior: Clip.none, children: [
         Positioned.fill(child: IndexedStack(index: _i, children: pages)),
         Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: _i, badge: l.needsReview.length, onTap: (i) => setState(() => _i = i), onAdd: () => showQuickAdd(context))),
       ]),

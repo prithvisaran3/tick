@@ -32,7 +32,7 @@ class SettingsScreen extends ConsumerWidget {
           onTap: onTap, scale: 1,
           child: SizedBox(height: 52, child: Row(children: [TickIcon(icon, size: 22, color: c.text), const SizedBox(width: 12), Expanded(child: Text(title, style: context.ts(TickType.title, size: 16))), right])),
         );
-    Widget val(String t) => Text(t, style: context.ts(TickType.monoS, color: c.textSecondary));
+    Widget val(String t) => Text(t, style: context.ts(TickType.bodyS, color: c.textSecondary));
     return TickScreen(
       child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
         ScreenTitle('Settings', onBack: () => context.pop()),
@@ -67,11 +67,11 @@ class SettingsScreen extends ConsumerWidget {
           const Hairline(),
           row('receipt', 'Capture token', val('Shortcuts'), onTap: () => _tokenSheet(context, ref)),
           const Hairline(),
-          row('settings', 'Categories and rules', Text('›', style: context.ts(TickType.displayM, color: c.textSecondary)), onTap: () => context.push('/categories')),
+          row('settings', 'Categories and rules', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => context.push('/categories')),
         ])),
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
-          row('share', 'Export CSV', Text('›', style: context.ts(TickType.displayM, color: c.textSecondary)), onTap: () => _exportCsv(ref)),
+          row('share', 'Export CSV', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _exportCsv(ref)),
           const Hairline(),
           row('play', 'Demo mode', TickToggle(on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
           const Hairline(),

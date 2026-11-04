@@ -93,7 +93,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       Expanded(
         child: msgs.isEmpty
             ? ListView(children: [
-                const EmptyState('Ask me anything about your money', 'Answers lead with the number.', icon: 'ask'),
+                const EmptyState('Ask me anything about your money.', 'Answers lead with the number.', icon: 'ask'),
+                Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [for (final q in suggestedQuestions.take(4)) TickChip(q, onTap: () => _send(q))]),
               ])
             : ListView(controller: _scroll, padding: const EdgeInsets.only(bottom: 16), children: [
                 for (final m in msgs) m.fromUser ? _UserBubble(m.text) : _Answer(m: m, ledger: l),
@@ -113,7 +114,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
               if (_ctl.text.isEmpty) IgnorePointer(child: Text('Ask anything about your money', style: context.ts(TickType.body, color: c.textSecondary))),
               EditableText(controller: _ctl, focusNode: _focus, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline, onChanged: (_) => setState(() {}), onSubmitted: (v) => _send()),
             ])),
-            Pressable(onTap: _send, semanticLabel: 'Send', child: Container(width: 40, height: 40, decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle), alignment: Alignment.center, child: TickIcon('arrow-up', size: 20, color: c.onAccent))),
+            Pressable(onTap: _send, semanticLabel: 'Send', child: Container(width: 40, height: 40, decoration: BoxDecoration(color: _ctl.text.isEmpty ? c.surface1 : c.accent, shape: BoxShape.circle), alignment: Alignment.center, child: TickIcon('arrow-up', size: 20, color: _ctl.text.isEmpty ? c.textSecondary : c.onAccent))),
           ]),
         ),
       ),

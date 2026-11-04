@@ -172,7 +172,7 @@ class _CardBody extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Why check', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            Text('Not fully sure about this one: ${(t.confidence * 100).round()}% match.', style: context.ts(TickType.body, size: 14.5)),
+            Text('${(t.confidence * 100).round()}% sure it\'s ${t.merchant}. The merchant text was messy.', style: context.ts(TickType.body, size: 14.5)),
           ]),
         ),
       ]),

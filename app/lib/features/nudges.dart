@@ -13,7 +13,7 @@ class Nudge {
 }
 
 /// Exactly ONE nudge: highest priority wins. Pure; unit-tested.
-Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now) {
+Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now, {String? skipBillFor}) {
   final today = dayOnly(now);
   // 0. A bank link that needs a quick sign-in (calm, urgent).
   final broken = l.connections.where((c) => c.needsRelink).toList();
@@ -27,9 +27,9 @@ Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now) {
   // 2. Bill due tomorrow.
   final tomorrow = today.add(const Duration(days: 1));
   final due = l.recurring.where((r) => dayOnly(r.nextDate) == tomorrow).toList();
-  if (due.isNotEmpty) {
+  if (due.isNotEmpty && due.first.merchant != skipBillFor) {
     final r = due.first;
-    return Nudge('bill', 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.');
+    return Nudge('bill', 'Bill due tomorrow: ${r.merchant}, ${formatDollars(r.expectedCents)}.', 'It comes out tomorrow.');
   }
   // 3. Duplicate charge: same merchant + amount within 3 days, both outgoing and not marked reviewed.
   final recent = l.txns.where((t) => t.amountCents < 0 && today.difference(dayOnly(t.occurredAt)).inDays <= 3).toList();

@@ -123,7 +123,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                 key: _key,
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
-                  decoration: BoxDecoration(color: paper, borderRadius: const BorderRadius.vertical(top: Radius.circular(6)), boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 24), spreadRadius: -20)]),
+                  decoration: BoxDecoration(color: paper, borderRadius: const BorderRadius.vertical(top: Radius.circular(6), bottom: Radius.circular(3)), boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 24), spreadRadius: -20)]),
                   child: DefaultTextStyle(
                     style: TextStyle(color: ink, decoration: TextDecoration.none),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -159,7 +159,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Drag up to tear off and share', style: context.ts(TickType.body, color: c.textSecondary))]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary))]),
         const Spacer(),
         Padding(padding: const EdgeInsets.only(bottom: 44), child: PillButton('Show me today', onTap: () => context.go('/'))),
       ]),
@@ -175,7 +175,7 @@ class _Line extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedOpacity(
         duration: const Duration(milliseconds: 120), opacity: visible ? 1 : 0,
         child: Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(left, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink)), Text(right, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink)),
+          Expanded(child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink))), const SizedBox(width: 12), Text(right, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink)),
         ])),
       );
 }

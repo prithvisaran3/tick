@@ -55,7 +55,7 @@ class IncomingScreen extends ConsumerWidget {
               if (i > 0) const Hairline(),
               _Row(
                 letter: bills[i].merchant, key2: l.category(bills[i].categoryId)?.colorKey ?? 'home', title: bills[i].merchant,
-                sub: bills[i].priceWentUp ? 'Price went up · was ${formatDollars(bills[i].previousPrice!)}' : DateFormat('EEE MMM d').format(bills[i].nextDate), subAlert: bills[i].priceWentUp,
+                sub: bills[i].priceWentUp ? '${DateFormat('EEE MMM d').format(bills[i].nextDate)} · was ${formatDollars(bills[i].previousPrice!)}' : DateFormat('EEE MMM d').format(bills[i].nextDate), subAlert: bills[i].priceWentUp,
                 cents: -bills[i].expectedCents, kind: MoneyKind.out,
               ),
             ],
@@ -77,10 +77,10 @@ class _Row extends StatelessWidget {
         child: Row(children: [
           Avatar(letter, key2), const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: context.ts(TickType.title, size: 16)),
-            Text(sub, style: context.ts(TickType.bodyS, color: subAlert ? context.c.alert : context.c.textSecondary)),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 16)),
+            Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS, color: subAlert ? context.c.alert : context.c.textSecondary)),
           ])),
-          Money(cents, kind: kind),
+          const SizedBox(width: 8), Money(cents, kind: kind),
         ]),
       );
 }

@@ -74,12 +74,12 @@ class NumberPad extends StatelessWidget {
   Widget build(BuildContext context) {
     const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '<'];
     return GridView.count(
-      crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), childAspectRatio: 393 / 3 / 52, padding: EdgeInsets.zero,
+      crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), childAspectRatio: 393 / 3 / 56, padding: EdgeInsets.zero,
       children: [
         for (final k in keys)
           Pressable(
             onTap: () => onKey(k), scale: 0.9, semanticLabel: k == '<' ? 'Delete' : (k == '.' ? 'Decimal point' : k),
-            child: Center(child: k == '<' ? TickIcon('arrow-in', size: 24, color: context.c.text) : Text(k, style: context.ts(TickType.monoL, size: 26))),
+            child: Center(child: k == '<' ? TickIcon('backspace', size: 26, color: context.c.text) : Text(k, style: context.ts(TickType.monoL, size: 26))),
           ),
       ],
     );
@@ -118,7 +118,7 @@ class TickTabBar extends StatelessWidget {
         ),
       );
     }
-    return Container(
+    return MediaQuery.withClampedTextScaling(maxScaleFactor: 1.3, child: Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 24), height: 72,
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(999), boxShadow: const [BoxShadow(color: Color(0x4D000000), blurRadius: 30, offset: Offset(0, 12), spreadRadius: -12)]),
       child: Row(children: [
@@ -129,7 +129,7 @@ class TickTabBar extends StatelessWidget {
         ),
         tab(2), tab(3),
       ]),
-    );
+    ));
   }
 }
 
@@ -211,7 +211,7 @@ class ScreenTitle extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
         height: 52,
         child: Row(children: [
-          if (onBack != null) Pressable(onTap: onBack, semanticLabel: 'Back', child: Padding(padding: const EdgeInsets.only(right: 8), child: Text('‹', style: context.ts(TickType.displayL)))),
+          if (onBack != null) Pressable(onTap: onBack, semanticLabel: 'Back', child: SizedBox(width: 44, height: 44, child: Center(child: TickIcon('chevron-left', size: 28, color: context.c.text)))),
           Expanded(child: Semantics(header: true, child: Text(title, style: context.ts(TickType.displayL)))),
           ?trailing,
         ]),

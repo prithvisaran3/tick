@@ -29,7 +29,8 @@ class TodayScreen extends ConsumerWidget {
     final todays = ledger.txns.where((t) => dayOnly(t.occurredAt) == today).toList();
     final greeting = now.hour < 12 ? 'Good morning' : now.hour < 18 ? 'Good afternoon' : 'Good evening';
     final first = (settings.name ?? '').split(' ').first;
-    final nudge = pickNudge(ledger, sts, now);
+    final billShown = ledger.recurring.where((r) => !r.nextDate.isAfter(dayOnly(now).add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
+    final nudge = pickNudge(ledger, sts, now, skipBillFor: billShown.isEmpty ? null : billShown.first.merchant);
 
     final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(today.add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
     final nextIn = ledger.expected.where((e) => e.kind == ExpectedKind.paycheck).toList()..sort((a, b) => a.date.compareTo(b.date));
@@ -40,7 +41,7 @@ class TodayScreen extends ConsumerWidget {
         SizedBox(
           height: 52,
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Semantics(label: 'Tick', child: Text('tick', style: context.ts(TickType.displayM, size: 26))),
+            const Wordmark(),
             Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
           ]),
         ),
@@ -61,7 +62,7 @@ class TodayScreen extends ConsumerWidget {
             child: Row(children: [
               TickIcon('caught', size: 22, color: c.text), const SizedBox(width: 12),
               Expanded(child: Text('${ledger.needsReview.length} to check', style: context.ts(TickType.title, size: 16))),
-              Text('›', style: context.ts(TickType.displayM, color: c.textSecondary)),
+              TickIcon('chevron-right', size: 20, color: c.textSecondary),
             ]),
           ),
         ],
@@ -90,7 +91,7 @@ class TodayScreen extends ConsumerWidget {
         if (nudge != null) ...[
           const SizedBox(height: 8),
           TickCard(
-            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => context.push(nudge.kind == 'relink' ? '/banks' : '/incoming'),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(nudge.title, style: context.ts(TickType.title, size: 15.5)),
@@ -130,7 +131,7 @@ class _Hero extends StatelessWidget {
           child: Sticker(
             hole: true, padding: const EdgeInsets.fromLTRB(60, 14, 52, 14),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              CountUpText(cents: cents, style: context.ts(TickType.heroXL, color: c.onAccent, size: 72)),
+              FittedBox(fit: BoxFit.scaleDown, child: CountUpText(cents: cents, style: context.ts(TickType.heroXL, color: c.onAccent, size: 72))),
               Text('Safe to spend until $day', style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 14.5, color: c.onAccent, decoration: TextDecoration.none)),
             ]),
           ),

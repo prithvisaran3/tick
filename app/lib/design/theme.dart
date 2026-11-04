@@ -32,7 +32,7 @@ TextStyle tickTextStyle(TickTypeSpec s, Color color, {double? size}) {
     height: s.height,
     letterSpacing: s.tracking,
     color: color,
-    fontFeatures: const [FontFeature.tabularFigures()],
+    fontFeatures: mono ? const [FontFeature.tabularFigures()] : null,
     decoration: TextDecoration.none,
   );
 }

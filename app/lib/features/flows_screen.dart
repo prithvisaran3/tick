@@ -45,13 +45,13 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
         TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             Flexible(child: Text('Where it went', style: context.ts(TickType.title, size: 16))),
-            if (vs != null) Padding(padding: const EdgeInsets.only(left: 8), child: Text('vs last month: ${vs <= 0 ? '−' : '+'}${(vs.abs() * 100).round()}%', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+            if (vs != null) Padding(padding: const EdgeInsets.only(left: 8), child: Text('vs ${showLast ? DateFormat('MMM').format(DateTime(now.year, now.month - 1)) : 'last month'}: ${vs <= 0 ? '−' : '+'}${(vs.abs() * 100).round()}%', style: context.ts(TickType.bodyS, color: c.textSecondary))),
           ]),
           if (cats.isEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text('No spending yet this month.', style: context.ts(TickType.body, color: c.textSecondary))),
           for (final e in cats.take(5)) Padding(padding: const EdgeInsets.only(top: 12), child: _CatBar(name: l.category(e.key)?.name ?? 'Other', cents: e.value, frac: e.value / maxCat)),
         ])),
         const SizedBox(height: 8),
-        TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: _Heatmap(flows: f, now: now)),
+        TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: _Heatmap(flows: f, now: now, isCurrent: !showLast)),
         const SizedBox(height: 8),
         TickCard(raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Flexible(child: Row(children: [TickIcon('briefcase', size: 22, color: c.text), const SizedBox(width: 8), Flexible(child: Text('Business', style: context.ts(TickType.title, size: 16)))])),
@@ -83,7 +83,8 @@ class _CatBar extends StatelessWidget {
 }
 
 class _Heatmap extends StatelessWidget {
-  const _Heatmap({required this.flows, required this.now});
+  const _Heatmap({required this.flows, required this.now, required this.isCurrent});
+  final bool isCurrent;
   final MonthFlows flows;
   final DateTime now;
   @override
@@ -91,7 +92,8 @@ class _Heatmap extends StatelessWidget {
     final c = context.c;
     final total = daysInMonth(now);
     final lead = firstWeekdaySunday0(now);
-    final maxV = flows.dailyOut.values.fold(1, (a, b) => a > b ? a : b);
+    final sorted = flows.dailyOut.values.toList()..sort();
+    final maxV = sorted.isEmpty ? 1 : sorted[((sorted.length - 1) * 0.9).floor()].clamp(1, 1 << 40);
     final cells = <Widget>[
       for (final d in 'SMTWTFS'.split('')) Center(child: Text(d, style: context.ts(TickType.bodyS, size: 11, color: c.textSecondary))),
       for (var i = 0; i < lead; i++) const SizedBox(),
@@ -101,8 +103,8 @@ class _Heatmap extends StatelessWidget {
           child: Container(
             decoration: d > now.day
                 ? BoxDecoration(borderRadius: BorderRadius.circular(7), border: Border.all(color: c.hairline))
-                : BoxDecoration(color: (flows.dailyOut[d] ?? 0) == 0 ? c.surface2 : c.text.withValues(alpha: 0.22 + 0.78 * math.sqrt(flows.dailyOut[d]! / maxV)), borderRadius: BorderRadius.circular(7),
-                    border: d == now.day ? Border.all(color: c.text, width: 2) : null),
+                : BoxDecoration(color: (flows.dailyOut[d] ?? 0) == 0 ? c.surface2 : c.text.withValues(alpha: 0.22 + 0.78 * math.sqrt((flows.dailyOut[d]! / maxV).clamp(0.0, 1.0))), borderRadius: BorderRadius.circular(7),
+                    border: isCurrent && d == now.day ? Border.all(color: c.text, width: 2) : null),
           ),
         ),
     ];

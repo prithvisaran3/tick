@@ -173,12 +173,15 @@ class PillButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final (bg, fg, border) = switch (style) {
+    final (bg0, fg0, border) = switch (style) {
       PillStyle.primary => (c.accent, c.onAccent, null as Color?),
       PillStyle.inverse => (c.text, c.bg, null),
       PillStyle.ghost => (const Color(0x00000000), c.text, c.hairline),
       PillStyle.quiet => (c.surface2, c.text, null),
     };
+    final disabled = onTap == null;
+    final bg = disabled ? c.surface2 : bg0;
+    final fg = disabled ? c.textSecondary : fg0;
     return Pressable(
       onTap: onTap, semanticLabel: label,
       child: Container(
@@ -204,14 +207,14 @@ class TickChip extends StatelessWidget {
     final c = context.c;
     return Pressable(
       onTap: onTap, semanticLabel: label,
-      child: Container(
+      child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Container(
         height: 36, padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(color: on ? c.text : c.surface1, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (icon != null) ...[TickIcon(icon!, size: 18, color: on ? c.bg : c.text), const SizedBox(width: 6)],
           Text(label, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: on ? c.bg : c.text, decoration: TextDecoration.none)),
         ]),
-      ),
+      )),
     );
   }
 }
@@ -248,7 +251,7 @@ class Segmented extends StatelessWidget {
             child: Pressable(
               onTap: () => onChanged(i), semanticLabel: options[i], scale: 0.97,
               child: Container(
-                height: 36, alignment: Alignment.center,
+                height: 40, alignment: Alignment.center,
                 decoration: BoxDecoration(color: i == index ? c.text : const Color(0x00000000), borderRadius: BorderRadius.circular(999)),
                 child: FittedBox(fit: BoxFit.scaleDown, child: Text(options[i], maxLines: 1, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: i == index ? c.bg : c.textSecondary, decoration: TextDecoration.none))),
               ),
@@ -269,14 +272,15 @@ class TickToggle extends StatelessWidget {
     return Semantics(
       toggled: on, container: true,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => onChanged(!on),
-        child: AnimatedContainer(
+        child: SizedBox(width: 56, height: 44, child: Center(child: AnimatedContainer(
           duration: const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(color: on ? c.accent : c.surface2, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
           alignment: on ? Alignment.centerRight : Alignment.centerLeft,
           child: Container(width: 22, height: 22, decoration: BoxDecoration(color: on ? c.onAccent : c.textSecondary, shape: BoxShape.circle)),
-        ),
+        ))),
       ),
     );
   }
@@ -340,6 +344,23 @@ class _CountUpTextState extends State<CountUpText> with SingleTickerProviderStat
         final v = (widget.cents * _c.value).round();
         return Text((widget.cents < 0 ? '−' : '') + f(v), style: widget.style, semanticsLabel: f(widget.cents));
       },
+    );
+  }
+}
+
+/// The logo: lowercase "tick" in Cabinet Grotesk Extrabold with a Volt dot on the i.
+class Wordmark extends StatelessWidget {
+  const Wordmark({super.key, this.size = 26});
+  final double size;
+  @override
+  Widget build(BuildContext context) {
+    final style = tickTextStyle(TickType.displayM, context.c.text, size: size);
+    return Semantics(
+      label: 'tick', excludeSemantics: true,
+      child: Stack(clipBehavior: Clip.none, children: [
+        Text('t\u0131ck', style: style),
+        Positioned(left: size * 0.455, top: size * 0.14, child: Container(width: size * 0.2, height: size * 0.2, decoration: BoxDecoration(color: TickPalette.volt, shape: BoxShape.circle, border: context.isDark ? null : Border.all(color: TickPalette.ink, width: 1)))),
+      ]),
     );
   }
 }

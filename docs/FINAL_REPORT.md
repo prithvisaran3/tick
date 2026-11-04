@@ -20,7 +20,7 @@ Built unattended on branch `claude/gifted-cannon-lkg2x3` (the harness designates
 - Supabase: 19 tables with forced owner-only RLS, vault wrappers for Plaid tokens, pg_cron jobs (6-hourly sync, weekly insights) calling the API with `X-Cron-Secret` from Vault, Google provider enabled, `tick://` redirects allow-listed, Realtime on transactions/expected/messages/connections, private `receipts` bucket.
 
 ## Tests
-- Flutter: 51 passing (domain, notifier, nudges, flows, receipt, notification plan, widget snapshot, haptic sync, 22 golden screenshots). `flutter analyze`: no issues.
+- Flutter: 55 passing (domain, notifier, nudges, flows, receipt, notification plan, widget snapshot, haptic sync, Dynamic Type 1.6x, 22 golden screenshots). `flutter analyze`: no issues.
 - API: 94 passing (25 parser, 47 reconcile including property-based, 9 Plaid incl. webhook verification, 8 recurring/insight, 3 Ask Tick, health).
 - RLS: SQL test passes against the live project (`tools/run_rls_tests.py`).
 - End-to-end against live services: `/ingest` (SMS + Apple Pay merge into one row), Plaid sandbox (sync, idempotent re-sync, late SMS merges), deployed API with a real Supabase JWT (JWKS) and SSE.
@@ -30,7 +30,7 @@ Built unattended on branch `claude/gifted-cannon-lkg2x3` (the harness designates
 - Golden screenshots (Flutter, demo data): `app/test/goldens/{today,activity,flows,ask-tick,caught,morning-receipt,incoming-upcoming,settings,onboarding-1,onboarding-2,onboarding-3}.{dark,light}.png`
 - Mockup exports: `design/exports/` (same names) and `design/exports/brand-sheet.png`
 - Brand: `design/brand-sheet.html`, `design/icons/_sheet.png`, `design/logo/`
-- Reviews: Opus design review (P0) and correctness review (P3) are applied and logged in `docs/DECISIONS.md`; the final Opus design/UX review result is summarised below.
+- Reviews: Opus design review (P0) and correctness review (P3) are applied and logged in `docs/DECISIONS.md`; the final Opus design/UX review (15 findings) was applied: tab bar clipping, golden harness (double padding, shadows), body-text tabular figures, disabled buttons, receipt overflow, wordmark Volt dot, chevron icons, 44pt tap targets, heatmap, Ask Tick empty state, copy fixes. Not applied: Pick-date chip, receipt zigzag edge, merging the "3 to check" card into the section label, short account labels in rows (logged in NEXT.md).
 
 ## Your 15 minutes
 1. On a Mac with Xcode and Flutter: `git clone https://github.com/prithvisaran3/tick.git && cd tick && git checkout claude/gifted-cannon-lkg2x3`.

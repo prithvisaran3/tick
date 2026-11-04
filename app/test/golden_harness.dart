@@ -48,8 +48,8 @@ Widget frame(ProviderContainer c, Widget child, {required bool dark, int? tab}) 
           child: DefaultTextStyle(
             style: TextStyle(fontFamily: 'Satoshi', color: dark ? const Color(0xFFF5F3EC) : const Color(0xFF0E0E12), decoration: TextDecoration.none),
             child: tab == null
-                ? TickScreen(child: child)
-                : TickScreen(child: Stack(children: [
+                ? child
+                : TickScreen(child: Stack(clipBehavior: Clip.none, children: [
                     Positioned.fill(child: child),
                     Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: tab, onTap: (_) {}, onAdd: () {})),
                   ])),

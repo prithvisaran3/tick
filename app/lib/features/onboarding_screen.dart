@@ -102,6 +102,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 16),
         Text('Tick catches every purchase and tells you what is safe to spend until payday.', style: context.ts(TickType.bodyL, color: c.textSecondary)),
         const Spacer(),
+        if (_error == null) Center(child: Text('Your data stays yours. Only you can read it.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+        const SizedBox(height: 8),
         if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!, style: context.ts(TickType.body, color: c.alert))),
         PillButton(_busy ? 'Signing in…' : 'Continue with Google', style: PillStyle.inverse, onTap: _busy ? null : _google),
         const SizedBox(height: 8),
@@ -151,7 +153,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ]);
     }
     return TickScreen(child: Column(children: [
-      SizedBox(height: 52, child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('tick', style: context.ts(TickType.displayM, size: 24)), dots])),
+      SizedBox(height: 52, child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Wordmark(size: 24), dots])),
       Expanded(child: body),
     ]));
   }
