@@ -66,5 +66,27 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Tick uses Face ID to keep your money private.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Tick scans receipts with the camera.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pick a receipt photo to add to a purchase.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.prithvi.tick</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>tick</string>
+				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>

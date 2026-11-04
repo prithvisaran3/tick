@@ -1,0 +1,56 @@
+import '../data/ledger.dart';
+import '../domain/money.dart';
+import '../domain/payday.dart';
+import '../domain/safe_to_spend.dart';
+
+class Nudge {
+  const Nudge(this.kind, this.title, this.body, {this.paceRatio, this.urgent = false});
+  final String kind; // pace | duplicate | forgotten | bill | payday
+  final String title;
+  final String body;
+  final double? paceRatio;
+  final bool urgent;
+}
+
+/// Exactly ONE nudge: highest priority wins. Pure; unit-tested.
+Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now) {
+  final today = dayOnly(now);
+  // 1. Overspend (urgent): safe to spend is negative.
+  if (sts != null && sts.overspent) {
+    return Nudge('pace', 'You are ${formatDollars(-sts.cents)} past safe to spend', 'Bills and goals before payday are bigger than your cash. Check what can wait.', urgent: true);
+  }
+  // 2. Bill due tomorrow.
+  final tomorrow = today.add(const Duration(days: 1));
+  final due = l.recurring.where((r) => dayOnly(r.nextDate) == tomorrow).toList();
+  if (due.isNotEmpty) {
+    final r = due.first;
+    return Nudge('bill', 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.');
+  }
+  // 3. Duplicate charge: same merchant + amount within 3 days, both outgoing and not marked reviewed.
+  final recent = l.txns.where((t) => t.amountCents < 0 && today.difference(dayOnly(t.occurredAt)).inDays <= 3).toList();
+  for (var i = 0; i < recent.length; i++) {
+    for (var j = i + 1; j < recent.length; j++) {
+      if (recent[i].merchant == recent[j].merchant && recent[i].amountCents == recent[j].amountCents && recent[i].categoryId == 'cat-subscriptions') {
+        return Nudge('duplicate', 'Two ${formatCents(-recent[i].amountCents)} charges at ${recent[i].merchant}', 'Same amount twice in 3 days. Worth a look.');
+      }
+    }
+  }
+  // 4. Category pace: food on pace to pass the typical monthly spend by 15%+ (needs 7+ days of data).
+  final pace = _foodPace(l, now);
+  if (pace != null) return pace;
+  return null;
+}
+
+Nudge? _foodPace(LedgerState l, DateTime now) {
+  if (now.day < 7) return null;
+  const foodCats = {'cat-groceries', 'cat-restaurants', 'cat-coffee'};
+  int sum(DateTime a, DateTime b) => l.txns.where((t) => t.amountCents < 0 && foodCats.contains(t.categoryId) && !t.occurredAt.isBefore(a) && t.occurredAt.isBefore(b)).fold(0, (s, t) => s - t.amountCents);
+  final start = DateTime(now.year, now.month, 1);
+  final soFar = sum(start, dayOnly(now).add(const Duration(days: 1)));
+  final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+  final projected = (soFar / now.day * daysInMonth).round();
+  final prevStart = DateTime(now.year, now.month - 1, 1);
+  final prev = sum(prevStart, start);
+  if (prev <= 0 || projected < prev * 1.15) return null;
+  return Nudge('pace', 'Food is running hot', 'On pace for ${formatDollars(projected)} vs ${formatDollars(prev)} last month.', paceRatio: projected / prev);
+}

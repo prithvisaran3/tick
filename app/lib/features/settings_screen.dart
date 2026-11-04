@@ -1,0 +1,181 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../data/env.dart';
+import '../data/ledger.dart';
+import '../data/remote.dart';
+import '../data/settings.dart';
+import '../design/theme.dart';
+import '../design/tokens.g.dart';
+import '../design/widgets/core.dart';
+import '../design/widgets/more.dart';
+import '../services/auth.dart';
+import '../services/haptics.dart';
+
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(settingsProvider);
+    final n = ref.read(settingsProvider.notifier);
+    final l = ref.watch(ledgerProvider);
+    final c = context.c;
+    Widget row(String icon, String title, Widget right, {VoidCallback? onTap}) => Pressable(
+          onTap: onTap, scale: 1,
+          child: SizedBox(height: 52, child: Row(children: [TickIcon(icon, size: 22, color: c.text), const SizedBox(width: 12), Expanded(child: Text(title, style: context.ts(TickType.title, size: 16))), right])),
+        );
+    Widget val(String t) => Text(t, style: context.ts(TickType.monoS, color: c.textSecondary));
+    return TickScreen(
+      child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
+        ScreenTitle('Settings', onBack: () => context.pop()),
+        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(children: [
+          Avatar(s.name ?? 'P', 'biz', size: 48), const SizedBox(width: 16),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.name ?? 'Prithvi', style: context.ts(TickType.title, size: 18)),
+            Text(Env.hasSupabase && ref.read(authServiceProvider).session != null ? 'Signed in with Google' : 'Not signed in', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          ])),
+        ])),
+        const SizedBox(height: 8),
+        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+          row('lock', 'Face ID lock', TickToggle(on: s.faceIdLock, onChanged: (v) => n.update((x) => x.copyWith(faceIdLock: v)))),
+          const Hairline(),
+          row('eye-off', 'Privacy blur', TickToggle(on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v)))),
+        ])),
+        const SizedBox(height: 8),
+        TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
+          const SizedBox(height: 8),
+          SizedBox(height: 44, child: Row(children: [Expanded(child: Text('Sound', style: context.ts(TickType.title, size: 16))), TickToggle(on: s.sound, onChanged: (v) { n.update((x) => x.copyWith(sound: v)); if (v) TickHaptics.instance.sound('capture_pop'); })])),
+          const SizedBox(height: 4),
+          Text('Theme', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Segmented(options: const ['System', 'Dark', 'Light'], index: ['system', 'dark', 'light'].indexOf(s.theme), onChanged: (i) => n.update((x) => x.copyWith(theme: ['system', 'dark', 'light'][i]))),
+        ])),
+        const SizedBox(height: 8),
+        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+          row('bank', 'Bank connections', val('${l.linksUsed} of 10 used'), onTap: () => context.push('/banks')),
+          const Hairline(),
+          row('receipt', 'Capture token', val('Shortcuts'), onTap: () => _tokenSheet(context, ref)),
+          const Hairline(),
+          row('settings', 'Categories and rules', Text('›', style: context.ts(TickType.displayM, color: c.textSecondary)), onTap: () => context.push('/categories')),
+        ])),
+        const SizedBox(height: 8),
+        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+          row('share', 'Export CSV', Text('›', style: context.ts(TickType.displayM, color: c.textSecondary)), onTap: () => _exportCsv(ref)),
+          const Hairline(),
+          row('play', 'Demo mode', TickToggle(on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
+          const Hairline(),
+          row('lock', 'Sign out', const SizedBox(), onTap: () async { await ref.read(authServiceProvider).signOut(); if (context.mounted) context.go('/onboarding'); }),
+        ])),
+        const SizedBox(height: 16),
+        HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick, including bank links. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
+      ]),
+    );
+  }
+
+  Future<void> _exportCsv(WidgetRef ref) async {
+    final l = ref.read(ledgerProvider);
+    String q(String s) => '"${s.replaceAll('"', '""')}"';
+    final b = StringBuffer('date,merchant,amount,category,account,business,note\n');
+    for (final t in l.txns) {
+      b.writeln([t.occurredAt.toIso8601String(), q(t.merchant), (t.amountCents / 100).toStringAsFixed(2), q(l.category(t.categoryId)?.name ?? ''), q(l.account(t.accountId)?.label ?? ''), t.isBusiness, q(t.note ?? '')].join(','));
+    }
+    final dir = await getTemporaryDirectory();
+    final f = File('${dir.path}/tick-export.csv')..writeAsStringSync(b.toString());
+    await SharePlus.instance.share(ShareParams(files: [XFile(f.path)]));
+  }
+
+  Future<void> _deleteAll(BuildContext context, WidgetRef ref) async {
+    final remote = ref.read(remoteProvider);
+    if (remote != null) {
+      for (final t in ['transactions', 'recurring', 'expected', 'goals', 'budgets', 'rules', 'insights', 'chats', 'snapshots']) {
+        try { await Supabase.instance.client.from(t).delete().neq('user_id', '00000000-0000-0000-0000-000000000000'); } catch (_) {}
+      }
+    }
+    ref.read(settingsProvider.notifier).update((x) => const AppSettings());
+    await ref.read(ledgerProvider.notifier).refresh();
+  }
+
+  Future<void> _tokenSheet(BuildContext context, WidgetRef ref) {
+    return showTickSheet<void>(context, builder: (ctx) => _TokenSheet(ref: ref));
+  }
+}
+
+class _TokenSheet extends StatefulWidget {
+  const _TokenSheet({required this.ref});
+  final WidgetRef ref;
+  @override
+  State<_TokenSheet> createState() => _TokenSheetState();
+}
+
+class _TokenSheetState extends State<_TokenSheet> {
+  String? _token;
+  String? _err;
+  Future<void> _make() async {
+    try {
+      final rnd = Random.secure();
+      final raw = List.generate(32, (_) => rnd.nextInt(256));
+      final token = 'tk_${base64Url.encode(raw).replaceAll('=', '')}';
+      final hash = sha256.convert(utf8.encode(token)).toString();
+      final db = Supabase.instance.client;
+      await db.from('ingest_tokens').update({'revoked_at': DateTime.now().toUtc().toIso8601String()}).isFilter('revoked_at', null);
+      await db.from('ingest_tokens').insert({'token_hash': hash, 'last4': token.substring(token.length - 4)});
+      setState(() => _token = token);
+    } catch (_) {
+      setState(() => _err = 'That didn\'t go through. Try again, nothing was lost.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Capture token', style: context.ts(TickType.displayM)),
+      const SizedBox(height: 8),
+      Text('Paste this into your Shortcuts automations. Making a new one turns the old one off.', style: context.ts(TickType.body, color: c.textSecondary)),
+      const SizedBox(height: 16),
+      if (_token != null) ...[
+        TickCard(raised: true, child: Text(_token!, style: context.ts(TickType.mono))),
+        const SizedBox(height: 8),
+        PillButton('Copy token', style: PillStyle.quiet, onTap: () => Clipboard.setData(ClipboardData(text: _token!))),
+        const SizedBox(height: 8),
+        Text('Shown once. Ingest URL: ${Env.apiBaseUrl}/ingest', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+      ] else ...[
+        PillButton('Make new token', onTap: _make),
+        if (_err != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_err!, style: context.ts(TickType.body, color: c.alert))),
+      ],
+    ]);
+  }
+}
+
+/// Settings > Categories and rules.
+class CategoriesScreen extends ConsumerWidget {
+  const CategoriesScreen({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = ref.watch(ledgerProvider);
+    return TickScreen(
+      child: ListView(children: [
+        ScreenTitle('Categories', onBack: () => context.pop()),
+        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+          for (var i = 0; i < l.categories.length; i++) ...[
+            if (i > 0) const Hairline(),
+            SizedBox(height: 52, child: Row(children: [Avatar(l.categories[i].name, l.categories[i].colorKey, size: 32), const SizedBox(width: 12), Expanded(child: Text(l.categories[i].name, style: context.ts(TickType.title, size: 16))), Text('${l.txns.where((t) => t.categoryId == l.categories[i].id).length}', style: context.ts(TickType.monoS, color: context.c.textSecondary))])),
+          ],
+        ])),
+        Padding(padding: const EdgeInsets.only(top: 12), child: Text('Fix a category on any purchase and Tick remembers it for that merchant next time.', style: context.ts(TickType.bodyS, color: context.c.textSecondary))),
+      ]),
+    );
+  }
+}

@@ -1,0 +1,174 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import '../data/ledger.dart';
+import '../data/settings.dart';
+import '../design/motion.g.dart';
+import '../design/theme.dart';
+import '../design/tokens.g.dart';
+import '../design/widgets/core.dart';
+import '../design/widgets/more.dart';
+import '../domain/money.dart';
+import '../domain/receipt.dart';
+import '../services/haptics.dart';
+
+/// The Morning Receipt: yesterday, printed. Lines tick in, total, safe to spend, one advice line, a "Ticked." stamp. Drag up to tear off and share.
+class ReceiptScreen extends ConsumerStatefulWidget {
+  const ReceiptScreen({super.key, this.advice, this.animate = true});
+  final String? advice;
+  final bool animate;
+  @override
+  ConsumerState<ReceiptScreen> createState() => _ReceiptScreenState();
+}
+
+class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
+  final _key = GlobalKey();
+  int _shown = 0;
+  bool _stamped = false;
+  double _tear = 0;
+  bool _torn = false;
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _print());
+  }
+
+  Future<void> _print() async {
+    final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)());
+    final n = r.lines.length + (r.moreCount > 0 ? 1 : 0);
+    if (!widget.animate || context.reduceMotion) { setState(() { _shown = n; _stamped = true; }); return; }
+    await Future<void>.delayed(const Duration(milliseconds: TickMotion.receiptLineIntervalMs * 3));
+    for (var i = 1; i <= n; i++) {
+      if (!mounted) return;
+      TickHaptics.instance.receiptTick();
+      setState(() => _shown = i);
+      await Future<void>.delayed(const Duration(milliseconds: TickMotion.receiptLineIntervalMs));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _stamped = true);
+    TickHaptics.instance.priceWeight(5000);
+    ref.read(settingsProvider.notifier).update((s) => s.copyWith(lastMorningReceipt: DateFormat('yyyy-MM-dd').format(ref.read(clockProvider)())));
+  }
+
+  @override
+  void dispose() { _t?.cancel(); super.dispose(); }
+
+  Future<void> _tearOff() async {
+    if (_torn) return;
+    _torn = true;
+    TickHaptics.instance.receiptRip();
+    try {
+      final b = _key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final img = await b.toImage(pixelRatio: 3);
+      final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+      final dir = await getTemporaryDirectory();
+      final f = File('${dir.path}/tick-morning-receipt.png')..writeAsBytesSync(bytes);
+      await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: 'Ticked.'));
+    } catch (_) {/* sharing is optional */}
+    if (mounted) setState(() { _tear = 0; _torn = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = ref.watch(ledgerProvider);
+    final now = ref.watch(clockProvider)();
+    final sts = ref.watch(safeToSpendProvider);
+    final c = context.c;
+    final r = buildReceipt(l.txns, now);
+    final paper = context.isDark ? TickPalette.paper : TickPalette.paper2;
+    final advice = widget.advice ?? fallbackAdvice(r, sts?.cents ?? 0, sts?.daysToPayday ?? 1);
+    final lines = <Widget>[
+      for (var i = 0; i < r.lines.length; i++)
+        _Line(visible: i < _shown, left: r.lines[i].merchant, right: '−${formatCents(r.lines[i].cents)}'),
+      if (r.moreCount > 0) _Line(visible: r.lines.length < _shown, left: 'and ${r.moreCount} more', right: ''),
+    ];
+    final ink = TickPalette.ink;
+    return TickScreen(
+      horizontal: 28,
+      child: Column(children: [
+        SizedBox(height: 52, child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Semantics(header: true, child: Text('Morning Receipt', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),
+          Text('Yesterday', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        ])),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onVerticalDragUpdate: (d) => setState(() => _tear = (_tear + d.delta.dy).clamp(-260.0, 0.0)),
+          onVerticalDragEnd: (_) { if (_tear < -TickMotion.receiptLineIntervalMs - 0 && _tear.abs() > 120) { _tearOff(); } else { setState(() => _tear = 0); } },
+          child: Transform.translate(
+            offset: Offset(0, _tear), child: Transform.rotate(angle: -0.01 + _tear / 4000,
+              child: RepaintBoundary(
+                key: _key,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+                  decoration: BoxDecoration(color: paper, borderRadius: const BorderRadius.vertical(top: Radius.circular(6)), boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 24), spreadRadius: -20)]),
+                  child: DefaultTextStyle(
+                    style: TextStyle(color: ink, decoration: TextDecoration.none),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Yesterday, ${DateFormat('EEE MMM d').format(r.day)}', style: context.ts(TickType.displayM, color: ink, size: 26)),
+                      const SizedBox(height: 4),
+                      Text('${r.captures} ${r.captures == 1 ? 'capture' : 'captures'}', style: context.ts(TickType.monoS, size: 12, color: TickPalette.graphite)),
+                      const SizedBox(height: 14), const _Dash(), const SizedBox(height: 6),
+                      if (r.captures == 0) Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Text('Quiet day. Your wallet says thanks.', style: context.ts(TickType.body, color: ink))) else ...lines,
+                      const SizedBox(height: 6), const _Dash(), const SizedBox(height: 12),
+                      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('Total spent', style: context.ts(TickType.monoS, color: TickPalette.graphite)),
+                        Text(formatCents(r.totalCents), style: context.ts(TickType.hero, color: ink, size: 44)),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('Safe to spend', style: context.ts(TickType.monoS, color: TickPalette.graphite)),
+                        Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2), decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(99)), child: Text(sts == null ? '—' : formatDollars(sts.cents), style: context.ts(TickType.monoL, color: ink))),
+                      ]),
+                      const SizedBox(height: 16),
+                      Text(advice, style: context.ts(TickType.body, color: ink)),
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: SizedBox(height: 52, child: _stamped
+                            ? PopIn(fromScale: 1.15, fromTilt: 0.2, spring: TickSprings.pop, child: Transform.rotate(angle: -0.14, child: UnconstrainedBox(child: Container(padding: const EdgeInsets.symmetric(horizontal: 20), alignment: Alignment.center, decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(99), border: Border.all(color: ink, width: 3)), child: Text('Ticked.', style: context.ts(TickType.displayM, color: ink, size: 22))))))
+                            : const SizedBox()),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Drag up to tear off and share', style: context.ts(TickType.body, color: c.textSecondary))]),
+        const Spacer(),
+        Padding(padding: const EdgeInsets.only(bottom: 44), child: PillButton('Show me today', onTap: () => context.go('/'))),
+      ]),
+    );
+  }
+}
+
+class _Line extends StatelessWidget {
+  const _Line({required this.visible, required this.left, required this.right});
+  final bool visible;
+  final String left, right;
+  @override
+  Widget build(BuildContext context) => AnimatedOpacity(
+        duration: const Duration(milliseconds: 120), opacity: visible ? 1 : 0,
+        child: Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(left, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink)), Text(right, style: context.ts(TickType.mono, size: 14.5, color: TickPalette.ink)),
+        ])),
+      );
+}
+
+class _Dash extends StatelessWidget {
+  const _Dash();
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (_, cs) => Row(children: [for (var i = 0; i < (cs.maxWidth / 10).floor(); i++) Expanded(child: Container(height: 2, margin: const EdgeInsets.only(right: 4), color: TickPalette.graphite.withValues(alpha: 0.5)))]));
+}

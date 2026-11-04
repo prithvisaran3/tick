@@ -19,3 +19,4 @@ xcuserdata/
 .supabase/
 supabase/.temp/
 .railway/
+app/ios/Flutter/Local.xcconfig
