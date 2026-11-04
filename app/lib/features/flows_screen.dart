@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../design/theme.dart';
@@ -52,6 +53,8 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
         ])),
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: _Heatmap(flows: f, now: now, isCurrent: !showLast)),
+        const SizedBox(height: 8),
+        TickCard(onTap: () => context.push('/budgets'), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(children: [TickIcon('goal', size: 22, color: c.text), const SizedBox(width: 8), Expanded(child: Text('Budgets and goals', style: context.ts(TickType.title, size: 16))), TickIcon('chevron-right', size: 20, color: c.textSecondary)])),
         const SizedBox(height: 8),
         TickCard(raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Flexible(child: Row(children: [TickIcon('briefcase', size: 22, color: c.text), const SizedBox(width: 8), Flexible(child: Text('Business', style: context.ts(TickType.title, size: 16)))])),

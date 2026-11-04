@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../domain/models.dart';
 import '../services/haptics.dart';
+import 'remote.dart';
 
 final sharedPrefsProvider = Provider<SharedPreferences?>((ref) => null);
 
@@ -59,11 +60,17 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 
   void update(AppSettings Function(AppSettings) f) {
+    final old = state;
     final n = f(state);
     if (n.haptics != state.haptics) TickHaptics.instance.setMode(n.haptics);
     if (n.sound != state.sound) TickHaptics.instance.setSound(n.sound);
     state = n;
     ref.read(sharedPrefsProvider)?.setString('tick.settings', jsonEncode(n.toJson()));
+    if (n.rule != null && n.rule != old.rule && !n.demoMode) {
+      final remote = ref.read(remoteProvider);
+      final r = n.rule!;
+      remote?.savePaydayRule({'frequency': r.frequency.name, 'next_date': r.anchor.toIso8601String().substring(0, 10), 'amount_cents': r.amountCents}).catchError((_) {});   // best effort
+    }
   }
 }
 

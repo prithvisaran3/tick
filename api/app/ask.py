@@ -162,6 +162,31 @@ class AskBody(BaseModel):
     question: str
     history: list[dict] = []
 
+def next_payday(rule: dict | None, today: date) -> date | None:
+    """Next payday on or after today from {frequency, next_date (any known payday), amount_cents}."""
+    if not rule or not rule.get("next_date"):
+        return None
+    try:
+        a = date.fromisoformat(rule["next_date"])
+    except ValueError:
+        return None
+    f = rule.get("frequency", "biweekly")
+    if f in ("weekly", "biweekly"):
+        step = 7 if f == "weekly" else 14
+        if a >= today:
+            return a
+        return a + timedelta(days=-(-(today - a).days // step) * step)
+    import calendar
+    d, k = a, 0
+    while d < today and k < 600:
+        k += 1
+        if f == "semimonthly":
+            d = d + timedelta(days=15)
+        else:
+            y, m = a.year + (a.month - 1 + k) // 12, (a.month - 1 + k) % 12 + 1
+            d = date(y, m, min(a.day, calendar.monthrange(y, m)[1]))
+    return d
+
 def load_ledger(user_id: str) -> Ledger:
     today = datetime.now(timezone.utc).date()
     since = (today - timedelta(days=400)).isoformat()
@@ -175,9 +200,7 @@ def load_ledger(user_id: str) -> Ledger:
     acc = rest().select("accounts", user_id=f"eq.{user_id}", select="name,type,balance_cents,available_cents")
     bud = [{"category": cats.get(x["category_id"], "Other"), "cap_cents": x["monthly_cap_cents"]} for x in rest().select("budgets", user_id=f"eq.{user_id}")]
     st = rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule")
-    payday = None
-    if st and st[0].get("payday_rule") and st[0]["payday_rule"].get("next_date"):
-        payday = date.fromisoformat(st[0]["payday_rule"]["next_date"])
+    payday = next_payday(st[0].get("payday_rule"), today) if st else None
     return Ledger(txns, rec, exp, acc, bud, payday, today)
 
 TOOL_SPECS = [

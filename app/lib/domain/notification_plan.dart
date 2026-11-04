@@ -5,7 +5,8 @@ import 'safe_to_spend.dart';
 import 'package:intl/intl.dart';
 
 class PlannedNotification {
-  const PlannedNotification(this.id, this.title, this.body, this.when, {this.repeatWeekly = false});
+  const PlannedNotification(this.id, this.title, this.body, this.when, {this.repeatWeekly = false, this.payload});
+  final String? payload; // route to open on tap: 'payday' | 'incoming'
   final int id;
   final String title;
   final String body;
@@ -48,7 +49,7 @@ List<PlannedNotification> planNotifications({
     final occ = occurrencesBetween(r.cadence, r.nextDate, today.add(const Duration(days: 1)), today.add(const Duration(days: 15)));
     for (final d in occ) {
       final when = _at(d.subtract(const Duration(days: 1)), '09:00');
-      if (when.isAfter(now)) out.add(PlannedNotification(2000 + n++, 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.', when));
+      if (when.isAfter(now)) out.add(PlannedNotification(2000 + n++, 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.', when, payload: 'incoming'));
     }
   }
   // Payday plan on payday, 7:30.
@@ -56,7 +57,7 @@ List<PlannedNotification> planNotifications({
     final when = _at(sts.nextPayday, '07:30');
     if (when.isAfter(now) && sts.nextPayday.difference(today).inDays <= 14) {
       final save = goals.fold<int>(0, (s, g) => s + g.perPaydayCents);
-      out.add(PlannedNotification(3000, 'Payday', save > 0 ? 'Move ${formatDollars(save)} to savings and you still have ${formatDollars(sts.cents + sts.goalsCents - save)} safe.' : 'Payday. Open Tick to plan it.', when));
+      out.add(PlannedNotification(3000, 'Payday', save > 0 ? 'Move ${formatDollars(save)} to savings and you still have ${formatDollars(sts.cents + sts.goalsCents - save)} safe.' : 'Payday. Open Tick to plan it.', when, payload: 'payday'));
     }
   }
   // Weekly review: Sunday, repeating.

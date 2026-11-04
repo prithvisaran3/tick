@@ -4,7 +4,7 @@ import '../domain/payday.dart';
 
 /// Realistic seed for a remote software engineer in Arlington, VA. Deterministic; dates relative to [now].
 class DemoData {
-  DemoData({required this.categories, required this.accounts, required this.txns, required this.recurring, required this.expected, required this.goals, required this.rule});
+  DemoData({required this.categories, required this.accounts, required this.txns, required this.recurring, required this.expected, required this.goals, required this.rule, this.budgets = const []});
   final List<Category> categories;
   final List<Account> accounts;
   final List<Txn> txns;
@@ -12,6 +12,7 @@ class DemoData {
   final List<Expected> expected;
   final List<Goal> goals;
   final PaydayRule rule;
+  final List<Budget> budgets;
 }
 
 const defaultCategories = [
@@ -110,7 +111,16 @@ DemoData buildDemo(DateTime now) {
       Expected(id: 'e-refund', kind: ExpectedKind.refund, label: 'Amazon refund', amountCents: 2400, date: today.add(const Duration(days: 4))),
       Expected(id: 'e-iou', kind: ExpectedKind.iou, label: 'Alex owes you', amountCents: 4000, date: today.add(const Duration(days: 7))),
     ],
-    goals: const [Goal(id: 'g1', name: 'Savings', targetCents: 1000000, savedCents: 840000, perPaydayCents: 40000)],
+    goals: const [
+      Goal(id: 'g1', name: 'Savings', targetCents: 1000000, savedCents: 840000, perPaydayCents: 40000),
+      Goal(id: 'g2', name: 'Japan trip', targetCents: 400000, savedCents: 120000, perPaydayCents: 0),
+    ],
+    budgets: const [
+      Budget(id: 'b1', categoryId: 'cat-groceries', capCents: 40000),
+      Budget(id: 'b2', categoryId: 'cat-restaurants', capCents: 15000),
+      Budget(id: 'b3', categoryId: 'cat-coffee', capCents: 6000),
+      Budget(id: 'b4', categoryId: 'cat-rideshare', capCents: 10000),
+    ],
     rule: rule,
   );
 }

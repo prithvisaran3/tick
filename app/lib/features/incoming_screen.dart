@@ -34,7 +34,7 @@ class IncomingScreen extends ConsumerWidget {
         if (landed != null) PopIn(onLanded: () => TickHaptics.instance.landed(), fromScale: 1.15, spring: TickSprings.pop,
             child: TickCard(color: c.accent, child: Row(children: [
               Transform.rotate(angle: -0.1, child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: c.onAccent, width: 3), borderRadius: BorderRadius.circular(999)), child: Text('Landed.', style: context.ts(TickType.displayM, color: c.onAccent, size: 20)))),
-              const SizedBox(width: 16), Expanded(child: Text('${formatDollars(landed!.amountCents)} from ${landed!.label.toLowerCase()}.', style: context.ts(TickType.title, color: c.onAccent, size: 15.5))),
+              const SizedBox(width: 16), Expanded(child: Text('${formatDollars(landed!.amountCents)} from ${landed!.kind == ExpectedKind.paycheck ? landed!.label.toLowerCase() : landed!.label.replaceAll(RegExp(r' owes you\$'), '')}.', style: context.ts(TickType.title, color: c.onAccent, size: 15.5))),
             ]))),
         SectionLabel('Incoming${incoming.isEmpty ? '' : ' · ${formatDollars(inTotal)}'}', color: c.incoming),
         if (incoming.isEmpty)

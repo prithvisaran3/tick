@@ -17,6 +17,8 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/pickers.dart';
+import '../services/ai_status.dart';
 import '../services/auth.dart';
 import '../services/haptics.dart';
 
@@ -67,6 +69,10 @@ class SettingsScreen extends ConsumerWidget {
           const Hairline(),
           row('receipt', 'Capture token', val('Shortcuts'), onTap: () => _tokenSheet(context, ref)),
           const Hairline(),
+          row('goal', 'Budgets and goals', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => context.push('/budgets')),
+          const Hairline(),
+          row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
+          const Hairline(),
           row('settings', 'Categories and rules', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => context.push('/categories')),
         ])),
         const SizedBox(height: 8),
@@ -74,14 +80,28 @@ class SettingsScreen extends ConsumerWidget {
           row('share', 'Export CSV', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _exportCsv(ref)),
           const Hairline(),
           row('play', 'Demo mode', TickToggle(on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
-          const Hairline(),
-          row('lock', 'Sign out', const SizedBox(), onTap: () async { await ref.read(authServiceProvider).signOut(); if (context.mounted) context.go('/onboarding'); }),
+          if (Env.hasSupabase && ref.read(authServiceProvider).session != null) ...[
+            const Hairline(),
+            row('arrow-out', 'Sign out', const SizedBox(), onTap: () async { await ref.read(authServiceProvider).signOut(); if (context.mounted) context.go('/onboarding'); }),
+          ],
         ])),
         const SizedBox(height: 16),
         HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
         Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick, including bank links. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
       ]),
     );
+  }
+
+  Future<void> _aiSheet(BuildContext context, WidgetRef ref) {
+    final a = ref.read(aiStatusProvider).asData?.value ?? AiStatus.off();
+    return showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(a.line, style: ctx.ts(TickType.displayM)),
+      const SizedBox(height: 8),
+      Text('Tick only uses free models, and only when rules can\'t answer. Alert parsing, merchant cleanup and Ask Tick use up to ${a.limit} calls a day.', style: ctx.ts(TickType.body, color: ctx.c.textSecondary)),
+      const SizedBox(height: 16),
+      if (a.models.isEmpty) Text(a.note ?? 'No free model is available right now. Everything still works without AI.', style: ctx.ts(TickType.body))
+      else ...[Text('Free models in use', style: ctx.ts(TickType.bodyS, color: ctx.c.textSecondary).copyWith(fontWeight: FontWeight.w700)), const SizedBox(height: 8), for (final m in a.models) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(m, style: ctx.ts(TickType.mono)))],
+    ]));
   }
 
   Future<void> _exportCsv(WidgetRef ref) async {
@@ -159,23 +179,54 @@ class _TokenSheetState extends State<_TokenSheet> {
   }
 }
 
-/// Settings > Categories and rules.
+/// Settings > Categories and rules: add and rename categories, review and remove learned rules.
 class CategoriesScreen extends ConsumerWidget {
   const CategoriesScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = ref.watch(ledgerProvider);
+    final c = context.c;
     return TickScreen(
-      child: ListView(children: [
+      child: ListView(padding: const EdgeInsets.only(bottom: 40), children: [
         ScreenTitle('Categories', onBack: () => context.pop()),
+        SectionLabel('Categories', trailing: TickChip('Add', icon: 'plus', onTap: () => _add(context, ref))),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
           for (var i = 0; i < l.categories.length; i++) ...[
             if (i > 0) const Hairline(),
-            SizedBox(height: 52, child: Row(children: [Avatar(l.categories[i].name, l.categories[i].colorKey, size: 32), const SizedBox(width: 12), Expanded(child: Text(l.categories[i].name, style: context.ts(TickType.title, size: 16))), Text('${l.txns.where((t) => t.categoryId == l.categories[i].id).length}', style: context.ts(TickType.monoS, color: context.c.textSecondary))])),
+            Pressable(
+              onTap: () async {
+                final n = await showTextSheet(context, title: 'Rename category', initial: l.categories[i].name, confirm: 'Tick');
+                if (n != null) ref.read(ledgerProvider.notifier).renameCategory(l.categories[i].id, n);
+              },
+              scale: 1,
+              child: SizedBox(height: 52, child: Row(children: [Avatar(l.categories[i].name, l.categories[i].colorKey, size: 32), const SizedBox(width: 12), Expanded(child: Text(l.categories[i].name, style: context.ts(TickType.title, size: 16))), Text('${l.txns.where((t) => t.categoryId == l.categories[i].id).length}', style: context.ts(TickType.monoS, color: c.textSecondary))])),
+            ),
           ],
         ])),
-        Padding(padding: const EdgeInsets.only(top: 12), child: Text('Fix a category on any purchase and Tick remembers it for that merchant next time.', style: context.ts(TickType.bodyS, color: context.c.textSecondary))),
+        SectionLabel('Learned rules'),
+        if (l.rules.isEmpty)
+          Text('Fix a category on any purchase and Tick remembers it for that merchant.', style: context.ts(TickType.body, color: c.textSecondary))
+        else
+          TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+            for (var i = 0; i < l.rules.length; i++) ...[
+              if (i > 0) const Hairline(),
+              SizedBox(height: 52, child: Row(children: [
+                Expanded(child: Text('${l.rules[i].pattern} → ${l.category(l.rules[i].categoryId)?.name ?? 'Other'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
+                Pressable(onTap: () => ref.read(ledgerProvider.notifier).deleteRule(l.rules[i].id), semanticLabel: 'Remove rule', child: SizedBox(width: 44, height: 44, child: Center(child: TickIcon('trash', size: 20, color: c.textSecondary)))),
+              ])),
+            ],
+          ])),
       ]),
     );
+  }
+
+  Future<void> _add(BuildContext context, WidgetRef ref) async {
+    final name = await showTextSheet(context, title: 'New category', hint: 'Pets, Gifts, Gym');
+    if (name == null || !context.mounted) return;
+    final color = await showTickSheet<String>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Pick a color', style: ctx.ts(TickType.displayM)), const SizedBox(height: 16),
+      Wrap(spacing: 12, runSpacing: 12, children: [for (final k in const ['food', 'ride', 'sub', 'home', 'biz', 'shop']) Pressable(onTap: () => Navigator.of(ctx).pop(k), semanticLabel: k, child: Avatar(name, k, size: 52))]),
+    ]));
+    if (color != null) ref.read(ledgerProvider.notifier).addCategory(name, color);
   }
 }

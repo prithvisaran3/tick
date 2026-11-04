@@ -9,6 +9,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/pickers.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/natural_input.dart';
@@ -31,6 +32,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   // paycheck
   int _freq = 1;
   int _dateIdx = 0;
+  DateTime? _customDate;
   String _amount = '';
   // basics
   String _rent = '';
@@ -73,8 +75,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     } else {
       final amt = parseCents(_amount) ?? 0;
       final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
-      n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateOptions(now)[_dateIdx], amountCents: amt), onboardingDone: true));
+      n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
       final led = ref.read(ledgerProvider.notifier);
+      final save = parseCents(_savings);
+      if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
       final rent = parseCents(_rent);
       if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
     }
@@ -118,7 +122,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 16),
         Segmented(options: const ['Weekly', 'Biweekly', 'Twice a month', 'Monthly'], index: _freq, onChanged: (i) => setState(() => _freq = i)),
         const SizedBox(height: 16),
-        Row(children: [for (var i = 0; i < dates.length; i++) ...[if (i > 0) const SizedBox(width: 8), TickChip(DateFormat('EEE MMM d').format(dates[i]), on: i == _dateIdx, onTap: () => setState(() => _dateIdx = i))]]),
+        SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+          for (var i = 0; i < 2; i++) ...[if (i > 0) const SizedBox(width: 8), TickChip(DateFormat('EEE MMM d').format(dates[i]), on: i == _dateIdx, onTap: () => setState(() => _dateIdx = i))],
+          const SizedBox(width: 8),
+          TickChip(_customDate == null ? 'Pick date' : DateFormat('EEE MMM d').format(_customDate!), icon: 'calendar', on: _dateIdx < 0, onTap: () async {
+            final d = await showDateSheet(context, initial: _customDate ?? dates.first);
+            if (d != null) setState(() { _customDate = d; _dateIdx = -1; });
+          }),
+        ])),
         const SizedBox(height: 16),
         Center(child: Column(children: [
           Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),

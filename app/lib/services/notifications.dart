@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import '../domain/notification_plan.dart';
+
+/// Taps on a notification (payload 'payday' or 'incoming'); the app shell routes them.
+final StreamController<String> notificationTaps = StreamController<String>.broadcast();
 
 /// All reminders are scheduled ON-DEVICE. Re-planned whenever data changes.
 class NotificationService {
@@ -19,7 +23,10 @@ class NotificationService {
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('America/New_York'));
     }
-    await _plugin.initialize(settings: const InitializationSettings(iOS: DarwinInitializationSettings(requestAlertPermission: false, requestBadgePermission: false, requestSoundPermission: false)));
+    await _plugin.initialize(
+      settings: const InitializationSettings(iOS: DarwinInitializationSettings(requestAlertPermission: false, requestBadgePermission: false, requestSoundPermission: false)),
+      onDidReceiveNotificationResponse: (r) { final p = r.payload; if (p != null && p.isNotEmpty) notificationTaps.add(p); },
+    );
     _ready = true;
   }
 
@@ -37,6 +44,7 @@ class NotificationService {
         await _plugin.zonedSchedule(
           id: n.id, title: n.title, body: n.body, scheduledDate: tz.TZDateTime.from(n.when, tz.local),
           notificationDetails: const NotificationDetails(iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true)),
+          payload: n.payload,
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           matchDateTimeComponents: n.repeatWeekly ? DateTimeComponents.dayOfWeekAndTime : null,
         );

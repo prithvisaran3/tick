@@ -11,7 +11,7 @@ import 'settings.dart';
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 class LedgerState {
-  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const [], this.justLanded});
+  const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const [], this.justLanded, this.budgets = const [], this.rules = const []});
   final List<Category> categories;
   final List<Account> accounts;
   final List<Txn> txns;
@@ -22,6 +22,8 @@ class LedgerState {
   final bool offline;
   final int linksUsed;
   final List<Connection> connections;
+  final List<Budget> budgets;
+  final List<LearnedRule> rules;
   final Expected? justLanded; // money that just arrived: the Landed moment plays once
 
   Category? category(String? id) => categories.where((c) => c.id == id).firstOrNull;
@@ -29,9 +31,9 @@ class LedgerState {
   Account? account(String? id) => accounts.where((a) => a.id == id).firstOrNull;
   List<Txn> get needsReview => txns.where((t) => t.needsReview).toList();
 
-  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed, List<Connection>? connections, Expected? justLanded, bool clearLanded = false}) => LedgerState(
+  LedgerState copyWith({List<Category>? categories, List<Account>? accounts, List<Txn>? txns, List<Recurring>? recurring, List<Expected>? expected, List<Goal>? goals, bool? loading, bool? offline, int? linksUsed, List<Connection>? connections, Expected? justLanded, bool clearLanded = false, List<Budget>? budgets, List<LearnedRule>? rules}) => LedgerState(
       categories: categories ?? this.categories, accounts: accounts ?? this.accounts, txns: txns ?? this.txns, recurring: recurring ?? this.recurring,
-      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections, justLanded: clearLanded ? null : (justLanded ?? this.justLanded));
+      expected: expected ?? this.expected, goals: goals ?? this.goals, loading: loading ?? this.loading, offline: offline ?? this.offline, linksUsed: linksUsed ?? this.linksUsed, connections: connections ?? this.connections, justLanded: clearLanded ? null : (justLanded ?? this.justLanded), budgets: budgets ?? this.budgets, rules: rules ?? this.rules);
 }
 
 class LedgerNotifier extends Notifier<LedgerState> {
@@ -42,7 +44,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     final now = ref.read(clockProvider)();
     if (s.demoMode) {
       final d = buildDemo(now);
-      return LedgerState(categories: d.categories, accounts: d.accounts, txns: d.txns, recurring: d.recurring, expected: d.expected, goals: d.goals, linksUsed: 3);
+      return LedgerState(categories: d.categories, accounts: d.accounts, txns: d.txns, recurring: d.recurring, expected: d.expected, goals: d.goals, linksUsed: 3, budgets: d.budgets);
     }
     final remote = ref.read(remoteProvider);
     if (remote != null) {
@@ -122,6 +124,63 @@ class LedgerNotifier extends Notifier<LedgerState> {
     if (remote != null && !ref.read(settingsProvider).demoMode && !id.startsWith('local-')) {
       try { await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
     }
+  }
+
+  bool get _live => ref.read(remoteProvider) != null && !ref.read(settingsProvider).demoMode;
+
+  Future<void> saveBudget(String categoryId, int capCents) async {
+    final existing = state.budgets.where((b) => b.categoryId == categoryId).firstOrNull;
+    final local = Budget(id: existing?.id ?? 'local-b-${_now.microsecondsSinceEpoch}', categoryId: categoryId, capCents: capCents);
+    state = state.copyWith(budgets: [for (final b in state.budgets) if (b.categoryId != categoryId) b, local]);
+    if (_live) { try { final saved = await ref.read(remoteProvider)!.upsertBudget(categoryId, capCents); state = state.copyWith(budgets: [for (final b in state.budgets) b.categoryId == categoryId ? saved : b]); } catch (_) { state = state.copyWith(offline: true); } }
+  }
+
+  Future<void> deleteBudget(String id) async {
+    state = state.copyWith(budgets: state.budgets.where((b) => b.id != id).toList());
+    if (_live && !id.startsWith('local-')) { try { await ref.read(remoteProvider)!.deleteBudget(id); } catch (_) {} }
+  }
+
+  Future<void> saveGoal(Goal g) async {
+    final isNew = !state.goals.any((x) => x.id == g.id);
+    state = state.copyWith(goals: isNew ? [...state.goals, g] : [for (final x in state.goals) x.id == g.id ? g : x]);
+    if (_live) {
+      try {
+        final saved = await ref.read(remoteProvider)!.upsertGoal(g);
+        state = state.copyWith(goals: [for (final x in state.goals) x.id == g.id ? saved : x]);
+      } catch (_) { state = state.copyWith(offline: true); }
+    }
+  }
+
+  Future<void> deleteGoal(String id) async {
+    state = state.copyWith(goals: state.goals.where((g) => g.id != id).toList());
+    if (_live && !id.startsWith('local-')) { try { await ref.read(remoteProvider)!.deleteGoal(id); } catch (_) {} }
+  }
+
+  Future<void> addCategory(String name, String colorKey) async {
+    final c = Category(id: 'local-c-${_now.microsecondsSinceEpoch}', name: name, colorKey: colorKey);
+    state = state.copyWith(categories: [...state.categories, c]);
+    if (_live) { try { final saved = await ref.read(remoteProvider)!.insertCategory(name, colorKey); state = state.copyWith(categories: [for (final x in state.categories) x.id == c.id ? saved : x]); } catch (_) {} }
+  }
+
+  Future<void> renameCategory(String id, String name) async {
+    state = state.copyWith(categories: [for (final c in state.categories) c.id == id ? Category(id: c.id, name: name, colorKey: c.colorKey, icon: c.icon, kind: c.kind) : c]);
+    if (_live && !id.startsWith('local-')) { try { await ref.read(remoteProvider)!.renameCategory(id, name); } catch (_) {} }
+  }
+
+  Future<void> deleteRule(String id) async {
+    state = state.copyWith(rules: state.rules.where((r) => r.id != id).toList());
+    if (_live && !id.startsWith('local-')) { try { await ref.read(remoteProvider)!.deleteRule(id); } catch (_) {} }
+  }
+
+  /// Payday plan: move money to savings. Adds to each goal, records one Transfer so the ledger stays honest, and notes the payday.
+  Future<void> movePaydayToSavings(List<Goal> moves) async {
+    final total = moves.fold<int>(0, (s, g) => s + g.perPaydayCents);
+    if (total <= 0) return;
+    for (final g in moves) {
+      await saveGoal(Goal(id: g.id, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents + g.perPaydayCents, perPaydayCents: g.perPaydayCents));
+    }
+    await add(amountCents: -total, merchant: 'Move to savings', categoryId: 'cat-transfer', source: 'manual', tags: const []);
+    if (_live) { try { await ref.read(remoteProvider)!.recordPayday(total); } catch (_) {} }
   }
 
   Future<void> addRecurring(Recurring r) async {

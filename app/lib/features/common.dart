@@ -58,7 +58,7 @@ class TxRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cat = ledger.category(t.categoryId);
     final acct = ledger.account(t.accountId);
-    final sub = subtitle ?? [if (cat != null) cat.name, if (t.isBusiness) 'Business', if (acct != null) acct.label else sourceLabel(t.source)].join(' · ');
+    final sub = subtitle ?? [if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source)].join(' · ');
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(children: [

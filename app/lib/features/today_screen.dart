@@ -15,6 +15,7 @@ import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'common.dart';
 import 'nudges.dart';
+import '../domain/budget_plan.dart';
 
 class TodayScreen extends ConsumerWidget {
   const TodayScreen({super.key});
@@ -30,6 +31,7 @@ class TodayScreen extends ConsumerWidget {
     final greeting = now.hour < 12 ? 'Good morning' : now.hour < 18 ? 'Good afternoon' : 'Good evening';
     final first = (settings.name ?? '').split(' ').first;
     final billShown = ledger.recurring.where((r) => !r.nextDate.isAfter(dayOnly(now).add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
+    final paydayNear = settings.demoMode ? (sts != null && sts.daysToPayday <= 1) : (settings.rule != null && isPaydayWindow(settings.rule!, now));
     final nudge = pickNudge(ledger, sts, now, skipBillFor: billShown.isEmpty ? null : billShown.first.merchant);
 
     final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(today.add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
@@ -55,18 +57,20 @@ class TodayScreen extends ConsumerWidget {
             _Pill('${formatDollars(-sts.billsCents)} bills'), const SizedBox(width: 6),
             _Pill('${formatDollars(-sts.goalsCents)} goals'),
           ])),
-        if (ledger.needsReview.isNotEmpty) ...[
-          const SizedBox(height: 16),
+        if (paydayNear && sts != null) ...[
+          const SizedBox(height: 12),
           TickCard(
-            onTap: () => context.push('/caught'), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), raised: true,
+            onTap: () => context.push('/payday-plan'), raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(children: [
-              TickIcon('caught', size: 22, color: c.text), const SizedBox(width: 12),
-              Expanded(child: Text('${ledger.needsReview.length} to check', style: context.ts(TickType.title, size: 16))),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Payday plan', style: context.ts(TickType.title, size: 16)),
+                Text(sts.daysToPayday <= 1 ? 'Payday is here. Plan it in a minute.' : 'Payday is tomorrow. Plan it in a minute.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+              ])),
               TickIcon('chevron-right', size: 20, color: c.textSecondary),
             ]),
           ),
         ],
-        SectionLabel(todays.isEmpty ? 'Today' : 'Today · ${todays.length} caught'),
+        SectionLabel(todays.isEmpty ? 'Today' : 'Today · ${todays.length} caught', trailing: ledger.needsReview.isEmpty ? null : TickChip('${ledger.needsReview.length} to check', icon: 'caught', onTap: () => context.push('/caught'))),
         if (ledger.loading)
           const ListSkeleton(rows: 2)
         else if (todays.isEmpty)
@@ -78,7 +82,7 @@ class TodayScreen extends ConsumerWidget {
               for (var i = 0; i < todays.length && i < 4; i++) ...[
                 if (i > 0) const Hairline(),
                 PopIn(delay: Duration(milliseconds: 80 * i), fromOffsetY: 60, fromScale: 0.94, onLanded: () { if (i == 0 && todays[0].source != 'manual') TickHaptics.instance.capturePop(todays[0].amountCents); },
-                    child: TxRow(t: todays[i], ledger: ledger, sticker: i == 0, onTap: () => context.push('/txn/${todays[i].id}'))),
+                    child: TxRow(t: todays[i], ledger: ledger, sticker: i == 0, subtitle: _sub(todays[i], ledger, i == 0), onTap: () => context.push('/txn/${todays[i].id}'))),
               ],
             ]),
           ),
@@ -105,6 +109,11 @@ class TodayScreen extends ConsumerWidget {
       ],
     );
   }
+}
+
+String _sub(Txn t, LedgerState l, bool first) {
+  final acct = l.account(t.accountId)?.shortLabel ?? sourceLabel(t.source);
+  return '$acct · ${first ? 'just now' : DateFormat('h:mm a').format(t.occurredAt)}';
 }
 
 class _Hero extends StatelessWidget {

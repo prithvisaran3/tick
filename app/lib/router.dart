@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'domain/models.dart';
 import 'package:flutter/widgets.dart';
@@ -21,6 +22,8 @@ import 'design/theme.dart';
 import 'data/ledger.dart';
 import 'package:intl/intl.dart';
 import 'features/banks_screen.dart';
+import 'features/budgets_screen.dart';
+import 'features/payday_plan_screen.dart';
 import 'domain/notification_plan.dart';
 import 'services/notifications.dart';
 import 'services/widget_sync.dart';
@@ -48,6 +51,8 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
+        GoRoute(path: '/budgets', pageBuilder: (c, s) => _page(s, const BudgetsScreen())),
+        GoRoute(path: '/payday-plan', pageBuilder: (c, s) => _page(s, const PaydayPlanScreen())),
         GoRoute(path: '/categories', pageBuilder: (c, s) => _page(s, const CategoriesScreen())),
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
@@ -117,12 +122,15 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   }
 
   @override
-  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  void dispose() { _taps?.cancel(); WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+
+  StreamSubscription<String>? _taps;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _taps = notificationTaps.stream.listen((p) { if (!mounted) return; context.push(p == 'payday' ? '/payday-plan' : '/incoming'); });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(notificationServiceProvider).requestPermission().then((_) => _sync());
       _checkPendingAdd();

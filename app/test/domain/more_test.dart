@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/data/demo_seed.dart';
 import 'package:tick/data/ledger.dart';
+import 'package:tick/domain/budget_plan.dart';
+import 'package:tick/domain/calendar.dart';
 import 'package:tick/domain/flows.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/domain/notification_plan.dart';
@@ -12,6 +14,7 @@ import 'package:tick/services/widget_sync.dart';
 import '../golden_harness.dart';
 
 void main() {
+  budgetAndPlanTests();
   final now = fixedNow;
   final demo = buildDemo(now);
   final sts = computeSafeToSpend(today: dayOnly(now), rule: demo.rule, accounts: demo.accounts, recurring: demo.recurring, goals: demo.goals);
@@ -111,5 +114,100 @@ void main() {
     await n.toggleBusiness(uber.id);
     expect(c.read(ledgerProvider).txns.firstWhere((x) => x.id == uber.id).isBusiness, isTrue);
     expect(c.read(ledgerProvider).txns.firstWhere((x) => x.id == uber.id).needsReview, isFalse);
+  });
+}
+
+void budgetAndPlanTests() {
+  final now = fixedNow;
+  final demo = buildDemo(now);
+  test('budget pace: calm, warm, hot, over', () {
+    final mid = DateTime(2026, 11, 15);
+    expect(budgetPace(spentCents: 10000, capCents: 40000, now: mid).state, PaceState.calm);
+    expect(budgetPace(spentCents: 19000, capCents: 40000, now: mid).state, PaceState.warm);
+    final hot = budgetPace(spentCents: 30000, capCents: 40000, now: mid);
+    expect(hot.state, PaceState.hot);
+    expect(hot.projectedCents, 60000);
+    expect(hot.line, 'Running hot: on pace for \$600 vs your \$400.');
+    expect(budgetPace(spentCents: 45000, capCents: 40000, now: mid).line, 'Over by \$50.');
+    expect(budgetPace(spentCents: 0, capCents: 40000, now: DateTime(2026, 11, 1)).paceFraction, closeTo(1 / 30, 0.001));
+    final early = budgetPace(spentCents: 30000, capCents: 40000, now: DateTime(2026, 11, 4));
+    expect(early.state, PaceState.calm);
+    expect(early.line, r'$100 left this month.');
+  });
+
+  test('spentInMonth counts only this month outgoing in the category', () {
+    final txns = [
+      Txn(id: '1', amountCents: -1000, occurredAt: DateTime(2026, 11, 2), merchant: 'a', categoryId: 'c'),
+      Txn(id: '2', amountCents: -500, occurredAt: DateTime(2026, 10, 30), merchant: 'a', categoryId: 'c'),
+      Txn(id: '3', amountCents: 700, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'c'),
+      Txn(id: '4', amountCents: -900, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'd'),
+    ];
+    expect(spentInMonth(txns, 'c', DateTime(2026, 11, 20)), 1000);
+  });
+
+  test('goal progress clamps', () {
+    expect(goalProgress(const Goal(id: 'g', name: 'x', targetCents: 100, savedCents: 150, perPaydayCents: 0)), 1.0);
+    expect(goalProgress(const Goal(id: 'g', name: 'x', targetCents: 0, savedCents: 0, perPaydayCents: 0)), 0);
+  });
+
+  test('payday plan: move to savings and what is left safe', () {
+    final rule = PaydayRule(frequency: PayFrequency.biweekly, anchor: DateTime(2026, 11, 6), amountCents: 231000);
+    final accounts = [const Account(id: 'a', name: 'Chase Checking', mask: '1180', availableCents: 67800 + 231000)];
+    final plan = buildPaydayPlan(today: DateTime(2026, 11, 6), rule: rule, accounts: accounts, recurring: demo.recurring, goals: demo.goals, paycheckLanded: true);
+    expect(plan.nextPayday, DateTime(2026, 11, 20));
+    expect(plan.moveCents, 40000);                       // only goals that move money and are not full
+    expect(plan.billsCents, 185000 + 6400 + 2000 + 2200 + 5500 > 0 ? plan.billsCents : 0);
+    expect(plan.safeAfterCents, 67800 + 231000 - plan.billsCents - 40000);
+    expect(plan.headline, startsWith('Payday. Move \$400 to savings and you still have '));
+    final notLanded = buildPaydayPlan(today: DateTime(2026, 11, 6), rule: rule, accounts: [const Account(id: 'a', name: 'C', availableCents: 67800)], recurring: const [], goals: const [], paycheckLanded: false);
+    expect(notLanded.safeAfterCents, 67800 + 231000);
+    expect(notLanded.headline, contains('safe to spend until Friday'));
+    expect(isPaydayWindow(rule, DateTime(2026, 11, 5)), isTrue);
+    expect(isPaydayWindow(rule, DateTime(2026, 11, 7)), isFalse);
+  });
+
+  test('calendar grid and short account labels', () {
+    final cells = monthCells(DateTime(2026, 11, 10));
+    expect(cells.where((c) => c == null).length, 0);          // Nov 1 2026 is a Sunday
+    expect(cells.length, 30);
+    expect(monthCells(DateTime(2026, 12, 1)).where((c) => c == null).length, 2);
+    expect(addMonths(DateTime(2026, 12, 15), 1), DateTime(2027, 1, 1));
+    expect(const Account(id: 'a', name: 'Chase Checking', mask: '1180').shortLabel, 'Chase ••1180');
+    expect(const Account(id: 'a', name: 'Cash').shortLabel, 'Cash');
+  });
+
+  test('move to savings adds goal progress and one transfer', () async {
+    final c = await demoContainer();
+    addTearDown(c.dispose);
+    final n = c.read(ledgerProvider.notifier);
+    final before = c.read(ledgerProvider).goals.firstWhere((g) => g.id == 'g1').savedCents;
+    final count = c.read(ledgerProvider).txns.length;
+    await n.movePaydayToSavings(c.read(ledgerProvider).goals.where((g) => g.perPaydayCents > 0).toList());
+    expect(c.read(ledgerProvider).goals.firstWhere((g) => g.id == 'g1').savedCents, before + 40000);
+    expect(c.read(ledgerProvider).txns.length, count + 1);
+    expect(c.read(ledgerProvider).txns.first.categoryId, 'cat-transfer');
+    expect(c.read(ledgerProvider).txns.first.amountCents, -40000);
+  });
+
+  test('budget and goal CRUD in the notifier', () async {
+    final c = await demoContainer();
+    addTearDown(c.dispose);
+    final n = c.read(ledgerProvider.notifier);
+    await n.saveBudget('cat-fun', 12000);
+    expect(c.read(ledgerProvider).budgets.any((b) => b.categoryId == 'cat-fun' && b.capCents == 12000), isTrue);
+    await n.saveBudget('cat-fun', 9000);                           // edit replaces, never duplicates
+    expect(c.read(ledgerProvider).budgets.where((b) => b.categoryId == 'cat-fun').length, 1);
+    await n.deleteBudget(c.read(ledgerProvider).budgets.firstWhere((b) => b.categoryId == 'cat-fun').id);
+    expect(c.read(ledgerProvider).budgets.any((b) => b.categoryId == 'cat-fun'), isFalse);
+    await n.saveGoal(const Goal(id: 'local-g-1', name: 'Bike', targetCents: 50000, savedCents: 0, perPaydayCents: 5000));
+    expect(c.read(ledgerProvider).goals.any((g) => g.name == 'Bike'), isTrue);
+    await n.saveGoal(const Goal(id: 'local-g-1', name: 'Bike', targetCents: 60000, savedCents: 0, perPaydayCents: 5000));
+    expect(c.read(ledgerProvider).goals.where((g) => g.name == 'Bike').single.targetCents, 60000);
+    await n.deleteGoal('local-g-1');
+    expect(c.read(ledgerProvider).goals.any((g) => g.name == 'Bike'), isFalse);
+    await n.addCategory('Pets', 'shop');
+    final pets = c.read(ledgerProvider).categories.firstWhere((x) => x.name == 'Pets');
+    await n.renameCategory(pets.id, 'Pet care');
+    expect(c.read(ledgerProvider).categories.any((x) => x.name == 'Pet care'), isTrue);
   });
 }

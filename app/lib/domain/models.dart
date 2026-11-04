@@ -26,6 +26,8 @@ class Account {
   final int? availableCents;
   final bool includeInSafe;
   String get label => mask == null ? name : '$name ••$mask';
+  /// Short form for rows: first word + last four, e.g. "Chase ••1180".
+  String get shortLabel => mask == null ? name.split(' ').first : '${name.split(' ').first} ••$mask';
   factory Account.fromJson(Map<String, dynamic> j) => Account(
       id: j['id'] as String, name: j['name'] as String, mask: j['mask'] as String?, type: (j['type'] ?? 'checking') as String,
       balanceCents: (j['balance_cents'] as num?)?.toInt(), availableCents: (j['available_cents'] as num?)?.toInt(),
@@ -130,4 +132,20 @@ class Connection {
   final String status; // active | login_required | error | removed
   bool get needsRelink => status == 'login_required';
   factory Connection.fromJson(Map<String, dynamic> j) => Connection(id: j['id'] as String, institution: (j['institution'] ?? 'Bank') as String, status: (j['status'] ?? 'active') as String);
+}
+
+@immutable
+class Budget {
+  const Budget({required this.id, required this.categoryId, required this.capCents});
+  final String id;
+  final String categoryId;
+  final int capCents;
+}
+
+@immutable
+class LearnedRule {
+  const LearnedRule({required this.id, required this.pattern, required this.categoryId});
+  final String id;
+  final String pattern;
+  final String categoryId;
 }

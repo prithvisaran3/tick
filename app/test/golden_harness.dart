@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tick/data/ledger.dart';
@@ -25,11 +26,11 @@ Future<void> loadFonts() async {
   await load('GeistMono', ['GeistMono-Variable.ttf']);
 }
 
-Future<ProviderContainer> demoContainer({bool demo = true}) async {
+Future<ProviderContainer> demoContainer({bool demo = true, List<Override> overrides = const []}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   TickHaptics.instance.recordOnly = true;
-  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs), clockProvider.overrideWithValue(() => fixedNow)]);
+  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs), clockProvider.overrideWithValue(() => fixedNow), ...overrides]);
   c.read(settingsProvider.notifier).update((s) => s.copyWith(demoMode: demo, onboardingDone: true, name: 'Prithvi'));
   return c;
 }

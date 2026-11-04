@@ -18,6 +18,8 @@ class Remote {
       db.from('expected').select().eq('status', 'expected'),
       db.from('goals').select(),
       db.from('connections').select('id,institution,status'),
+      db.from('budgets').select(),
+      db.from('rules').select(),
     ]);
     return LedgerState(
       categories: [for (final j in r[0]) Category.fromJson(j)],
@@ -28,6 +30,8 @@ class Remote {
       goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
       linksUsed: (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
+      budgets: [for (final j in r[7]) Budget(id: j['id'] as String, categoryId: j['category_id'] as String, capCents: (j['monthly_cap_cents'] as num).toInt())],
+      rules: [for (final j in r[8]) if (j['category_id'] != null) LearnedRule(id: j['id'] as String, pattern: j['pattern'] as String, categoryId: j['category_id'] as String)],
     );
   }
 
@@ -68,6 +72,32 @@ class Remote {
   Future<void> updateTxn(Txn t) => db.from('transactions').update({
         'category_id': _isUuid(t.categoryId) ? t.categoryId : null, 'tags': t.tags, 'needs_review': t.needsReview, 'confidence': t.confidence, 'note': t.note, 'merchant_clean': t.merchant,
       }).eq('id', t.id);
+
+  Future<Budget> upsertBudget(String categoryId, int cap) async {
+    final j = await db.from('budgets').upsert({'category_id': categoryId, 'monthly_cap_cents': cap}, onConflict: 'user_id,category_id').select().single();
+    return Budget(id: j['id'] as String, categoryId: categoryId, capCents: cap);
+  }
+
+  Future<void> deleteBudget(String id) => db.from('budgets').delete().eq('id', id);
+
+  Future<Goal> upsertGoal(Goal g) async {
+    final row = {'name': g.name, 'target_cents': g.targetCents, 'saved_cents': g.savedCents, 'per_payday_cents': g.perPaydayCents};
+    final j = _isUuid(g.id) ? await db.from('goals').update(row).eq('id', g.id).select().single() : await db.from('goals').insert(row).select().single();
+    return Goal(id: j['id'] as String, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents, perPaydayCents: g.perPaydayCents);
+  }
+
+  Future<void> deleteGoal(String id) => db.from('goals').delete().eq('id', id);
+
+  Future<Category> insertCategory(String name, String colorKey) async {
+    final j = await db.from('categories').insert({'name': name, 'color_key': colorKey, 'icon': 'card', 'kind': 'spend', 'sort': 99}).select().single();
+    return Category.fromJson(j);
+  }
+
+  Future<void> renameCategory(String id, String name) => db.from('categories').update({'name': name}).eq('id', id);
+  Future<void> deleteRule(String id) => db.from('rules').delete().eq('id', id);
+  Future<void> recordPayday(int moved) => db.from('paydays').upsert({'day': DateTime.now().toIso8601String().substring(0, 10), 'moved_cents': moved}, onConflict: 'user_id,day');
+
+  Future<void> savePaydayRule(Map<String, dynamic> rule) => db.from('settings').update({'payday_rule': rule}).eq('user_id', db.auth.currentUser!.id);
 
   /// Learned rule: the next purchase at this merchant gets this category (rules win over AI).
   Future<void> learnRule(String merchant, String categoryId) async {

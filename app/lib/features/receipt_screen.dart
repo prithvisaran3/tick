@@ -121,9 +121,9 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
             offset: Offset(0, _tear), child: Transform.rotate(angle: -0.01 + _tear / 4000,
               child: RepaintBoundary(
                 key: _key,
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
-                  decoration: BoxDecoration(color: paper, borderRadius: const BorderRadius.vertical(top: Radius.circular(6), bottom: Radius.circular(3)), boxShadow: const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 24), spreadRadius: -20)]),
+                child: PhysicalShape(clipper: const ZigZagClipper(), clipBehavior: Clip.antiAlias, color: paper, elevation: 14, shadowColor: const Color(0xFF000000), child: Container(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 44),
+                  color: paper,
                   child: DefaultTextStyle(
                     style: TextStyle(color: ink, decoration: TextDecoration.none),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -153,7 +153,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                       ),
                     ]),
                   ),
-                ),
+                )),
               ),
             ),
           ),
@@ -184,4 +184,27 @@ class _Dash extends StatelessWidget {
   const _Dash();
   @override
   Widget build(BuildContext context) => LayoutBuilder(builder: (_, cs) => Row(children: [for (var i = 0; i < (cs.maxWidth / 10).floor(); i++) Expanded(child: Container(height: 2, margin: const EdgeInsets.only(right: 4), color: TickPalette.graphite.withValues(alpha: 0.5)))]));
+}
+
+/// A torn paper edge along the bottom: 12pt teeth, 8pt deep.
+class ZigZagClipper extends CustomClipper<Path> {
+  const ZigZagClipper({this.tooth = 12, this.depth = 8});
+  final double tooth;
+  final double depth;
+  @override
+  Path getClip(Size size) {
+    final p = Path()..moveTo(0, 0)..lineTo(size.width, 0)..lineTo(size.width, size.height - depth);
+    var x = size.width;
+    var up = false;
+    while (x > 0) {
+      x = (x - tooth / 2).clamp(0, size.width);
+      p.lineTo(x, up ? size.height - depth : size.height);
+      up = !up;
+    }
+    p.lineTo(0, size.height - depth);
+    p.close();
+    return p;
+  }
+  @override
+  bool shouldReclip(covariant ZigZagClipper old) => old.tooth != tooth || old.depth != depth;
 }

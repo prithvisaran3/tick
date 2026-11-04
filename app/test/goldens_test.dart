@@ -2,7 +2,10 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/features/activity_screen.dart';
 import 'package:tick/features/ask_screen.dart';
+import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
+import 'package:tick/features/payday_plan_screen.dart';
+import 'package:tick/domain/models.dart';
 import 'package:tick/features/flows_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
@@ -26,6 +29,10 @@ void main() {
     'onboarding-1': (() => const OnboardingScreen(initialStep: 0), null),
     'onboarding-2': (() => const OnboardingScreen(initialStep: 1), null),
     'onboarding-3': (() => const OnboardingScreen(initialStep: 2), null),
+    'budgets-goals': (() => const BudgetsScreen(), null),
+    'payday-plan': (() => const PaydayPlanScreen(), null),
+    'categories': (() => const CategoriesScreen(), null),
+    'landed': (() => IncomingScreen(landed: Expected(id: 'e', kind: ExpectedKind.iou, label: 'Alex', amountCents: 4000, date: DateTime(2026, 11, 4))), null),
   };
 
   for (final e in screens.entries) {
