@@ -44,7 +44,7 @@ class SettingsScreen extends ConsumerWidget {
               Text(title, style: context.ts(TickType.title, size: 16)),
               if (sub != null) Text(sub, style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
             ])),
-            const SizedBox(width: 8), Flexible(child: Align(alignment: Alignment.centerRight, child: right)),
+            const SizedBox(width: 8), Flexible(flex: 0, child: Align(alignment: Alignment.centerRight, child: right)),
           ]))),
         );
     Widget val(String t) => Text(t, textAlign: TextAlign.right, style: context.ts(TickType.bodyS, color: c.textSecondary));

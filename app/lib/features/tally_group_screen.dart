@@ -135,12 +135,13 @@ class _Move extends ConsumerWidget {
     for (final x in txns) {
       if (looksLikeSettlement(t: m, personFirstName: first, txnCents: x.amountCents, merchant: x.merchant, txnAt: x.occurredAt, since: DateTime.now().subtract(const Duration(days: 45)))) { match = x; break; }
     }
-    final text = m.from == me ? 'You pay $first ${formatCents(m.cents)}' : '$first pays you ${formatCents(m.cents)}';
+    final third = m.from != me && m.to != me; // two friends settling between themselves
+    final text = third ? '${t.nameOf(m.from)} pays ${t.nameOf(m.to)} ${formatCents(m.cents)}' : m.from == me ? 'You pay $first ${formatCents(m.cents)}' : '$first pays you ${formatCents(m.cents)}';
     return Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(text, style: context.ts(TickType.bodyL)),
       if (match != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text('Looks like ${match.merchant} on ${DateFormat('MMM d').format(match.occurredAt)}.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 10),
-      PillButton(match != null ? 'Yes, that settles it' : (m.from == me ? 'I paid $first' : 'They paid me'), height: 44, style: match != null ? PillStyle.primary : PillStyle.quiet, onTap: () async {
+      PillButton(match != null ? 'Yes, that settles it' : (third ? '${t.nameOf(m.from)} paid ${t.nameOf(m.to)}' : m.from == me ? 'I paid $first' : 'They paid me'), height: 44, style: match != null ? PillStyle.primary : PillStyle.quiet, onTap: () async {
         final before = ref.read(tallyProvider).balancesOf(g.id).isEmpty;
         await ref.read(tallyProvider.notifier).settle(g.id, m.from, m.to, m.cents, transactionId: match?.id.startsWith('local-') == false ? match?.id : null);
         if (context.mounted) await _maybeSquare(context, ref, g.id, before);

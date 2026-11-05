@@ -84,7 +84,7 @@ class _GroupRow extends StatelessWidget {
       child: TickCard(
         onTap: () => context.push('/tally/${g.id}'),
         child: Row(children: [
-          g.emoji != null ? Text(g.emoji!, style: const TextStyle(fontSize: 28, decoration: TextDecoration.none)) : Avatar(g.name, g.colorKey),
+          g.emoji != null ? Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(color: c.surface2, shape: BoxShape.circle), child: Text(g.emoji!, style: const TextStyle(fontSize: 20, decoration: TextDecoration.none))) : Avatar(g.name, g.colorKey),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(g.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyL)),

@@ -137,9 +137,9 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
         Text(widget.edit == null ? 'Split an expense' : 'Edit expense', style: context.ts(TickType.title)),
         const SizedBox(height: 12),
-        TallyField(controller: _desc, hint: 'What was it for?', onChanged: (_) => setState(() {})),
+        TallyField(controller: _desc, hint: 'What was it for?', label: 'What was it for', onChanged: (_) => setState(() {})),
         const SizedBox(height: 8),
-        TallyField(controller: _amount, hint: 'Amount, like 42.50', keyboard: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {})),
+        TallyField(controller: _amount, hint: 'Amount in dollars, like 42.50', label: 'Amount in dollars', keyboard: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {})),
         const SizedBox(height: 16),
         Text('Paid by', style: context.ts(TickType.bodyS, color: c.textSecondary)),
         const SizedBox(height: 4),
