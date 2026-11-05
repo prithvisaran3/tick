@@ -51,16 +51,36 @@ class Account {
   int? get availableCreditCents => creditLimitCents == null ? null : (creditLimitCents! - owedCents).clamp(0, creditLimitCents!);
   /// 0.0-1.0+ of the limit used, or null without a limit.
   double? get utilisation => (creditLimitCents == null || creditLimitCents == 0) ? null : owedCents / creditLimitCents!;
-  /// What is still due on the last statement: the statement balance, but never more than you owe right now (a payment already made counts).
+  /// Has the last statement been paid? Plaid often leaves the statement date empty, so a payment counts when it is at least the statement
+  /// balance and was made within the 30 days before the due date (or after the statement date when that is known).
+  bool get statementPaid {
+    final s = statementBalanceCents;
+    if (s == null) return false;
+    if (s <= 0) return true;
+    if (lastPaymentCents == null || lastPaymentDate == null) return false;
+    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    final after = from == null || !lastPaymentDate!.isBefore(from);
+    return after && lastPaymentCents! >= s;
+  }
+
+  /// What is still due on the last statement: nothing when it was paid; a payment after the statement lowers it; never more than you owe.
   int get statementDueCents {
     final s = statementBalanceCents;
     if (s == null) return owedCents;
+    if (statementPaid) return 0;
     var due = s < owedCents ? s : owedCents;
-    if (lastPaymentDate != null && lastStatementDate != null && lastPaymentDate!.isAfter(lastStatementDate!) && lastPaymentCents != null) {
+    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    if (lastPaymentDate != null && lastPaymentCents != null && (from == null || !lastPaymentDate!.isBefore(from))) {
       due = (s - lastPaymentCents!).clamp(0, due);
     }
     return due < 0 ? 0 : due;
   }
+
+  /// Spending since the statement closed: owed now minus what is still due on the statement. It is due with the NEXT statement.
+  int get newSinceStatementCents => (owedCents - statementDueCents).clamp(0, owedCents);
+
+  /// The minimum payment, or null when the bank didn't share a real one (Plaid reports 0 for "unknown").
+  int? get knownMinimumCents => (minimumPaymentCents == null || minimumPaymentCents == 0) ? null : minimumPaymentCents;
 
   String get _brand => institution ?? name.split(' ').first;
   String get label => mask == null ? name : '$_brand ••$mask';

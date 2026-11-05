@@ -41,7 +41,8 @@ final fixture = [
 void main() {
   final l = LedgerState(categories: cats, accounts: accts, txns: fixture);
   final src = LocalActivitySource(l);
-  final nov = ActivityQuery(month: DateTime(2026, 11));
+  const all = ActivityQuery();
+  Future<Totals> nov(ActivityQuery q) => src.totals(q, from: etToUtc(DateTime(2026, 11)), to: etToUtc(DateTime(2026, 12)));
 
   test('New York month bounds do not depend on the phone time zone', () {
     expect(etToUtc(DateTime(2026, 11, 1)), DateTime.utc(2026, 11, 1, 4));   // EDT until Nov 1 02:00
@@ -53,20 +54,20 @@ void main() {
   });
 
   test('November totals match supabase/tests/flows.sql', () async {
-    final t = await src.totals(nov);
+    final t = await nov(all);
     expect((t.inCents, t.outCents, t.netCents, t.businessCents, t.billsCents), (200000, 51000, 149000, 1500, 40000));
     expect(t.byCategory['gro'], 4000);                       // card refund lowers groceries
     expect(t.byCategory.containsKey('tr'), isFalse);          // transfers never appear as spending
   });
 
   test('filters match the SQL filter', () async {
-    final credit = await src.totals(nov.copyWith(types: {'credit'}));
+    final credit = await nov(all.copyWith(types: {'credit'}));
     expect((credit.outCents, credit.inCents), (9000, 0));
-    final chk = await src.totals(nov.copyWith(accounts: {'chk'}));
+    final chk = await nov(all.copyWith(accounts: {'chk'}));
     expect((chk.outCents, chk.inCents), (42000, 200000));
-    final s = await src.totals(nov.copyWith(query: 'trader'));
+    final s = await nov(all.copyWith(query: 'trader'));
     expect((s.outCents, s.count), (4000, 2));
-    expect((await src.totals(nov.copyWith(query: 'groc'))).count, 2);
+    expect((await nov(all.copyWith(query: 'groc'))).count, 2);
     expect((await src.totals(const ActivityQuery())).outCents, 51999);
     final months = await src.months(const ActivityQuery());
     expect(months.length, 2);
@@ -78,19 +79,19 @@ void main() {
     DateTime? at;
     String? id;
     while (true) {
-      final p = await src.page(nov, beforeAt: at, beforeId: id, limit: 3);
+      final p = await src.page(all.copyWith(upTo: DateTime(2026, 11)), beforeAt: at, beforeId: id, limit: 3);
       if (p.rows.isEmpty) break;
       seen.addAll(p.rows.map((t) => t.id));
       at = p.rows.last.occurredAt;
       id = p.rows.last.id;
     }
-    expect(seen.length, 10);
-    expect(seen.toSet().length, 10);
+    expect(seen.length, 11);                                   // 10 in November plus the Oct 30 (New York) row that precedes it
+    expect(seen.toSet().length, 11);
     expect(seen.first, '09');
   });
 
   test('server arguments: empty filters are null, month becomes New York bounds', () {
-    final a = ActivityQuery(month: DateTime(2026, 11), types: const {'credit'}, query: '  uber ').rpcArgs();
+    final a = ActivityQuery(upTo: DateTime(2026, 11), types: const {'credit'}, query: '  uber ').rpcArgs(from: etToUtc(DateTime(2026, 11)));
     expect(a['p_from'], '2026-11-01T04:00:00.000Z');
     expect(a['p_to'], '2026-12-01T05:00:00.000Z');
     expect(a['p_types'], ['credit']);

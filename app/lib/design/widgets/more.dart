@@ -99,7 +99,7 @@ class TickTabBar extends StatelessWidget {
   final ValueChanged<int> onTap;
   final VoidCallback onAdd;
   final int badge;
-  static const tabs = [TabSpec('today', 'Today'), TabSpec('activity', 'Activity'), TabSpec('flows', 'Flows'), TabSpec('ask', 'Ask Tick')];
+  static const tabs = [TabSpec('today', 'Today'), TabSpec('activity', 'Activity'), TabSpec('insights', 'Insights'), TabSpec('tally', 'Tally')];
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -134,11 +134,12 @@ class TickTabBar extends StatelessWidget {
 }
 
 /// Bottom sheet that springs up. Returns when dismissed.
-Future<T?> showTickSheet<T>(BuildContext context, {required WidgetBuilder builder, bool full = false}) {
+/// [fill]: the sheet takes the full height and the child gets tight constraints (Ask Tick).
+Future<T?> showTickSheet<T>(BuildContext context, {required WidgetBuilder builder, bool full = false, bool fill = false}) {
   return Navigator.of(context, rootNavigator: true).push<T>(PageRouteBuilder<T>(
     opaque: false, barrierDismissible: true, barrierColor: const Color(0x99000000), barrierLabel: 'Close',
     transitionDuration: const Duration(milliseconds: 420), reverseTransitionDuration: const Duration(milliseconds: 220),
-    pageBuilder: (ctx, a, b) => _SheetHost(full: full, child: builder(ctx)),
+    pageBuilder: (ctx, a, b) => _SheetHost(full: full, fill: fill, child: builder(ctx)),
     transitionsBuilder: (ctx, a, b, child) {
       if (ctx.reduceMotion) return FadeTransition(opacity: a, child: child);
       final spring = CurvedAnimation(parent: a, curve: const _SpringCurve(), reverseCurve: Curves.easeIn);
@@ -157,9 +158,10 @@ class _SpringCurve extends Curve {
 }
 
 class _SheetHost extends StatelessWidget {
-  const _SheetHost({required this.child, required this.full});
+  const _SheetHost({required this.child, required this.full, this.fill = false});
   final Widget child;
   final bool full;
+  final bool fill;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -171,13 +173,13 @@ class _SheetHost extends StatelessWidget {
         child: GestureDetector(
           onTap: () {},
           child: Container(
-            width: double.infinity, constraints: BoxConstraints(maxHeight: mq.size.height * (full ? 0.94 : 0.88)),
+            width: double.infinity, height: fill ? mq.size.height * 0.94 : null, constraints: BoxConstraints(maxHeight: mq.size.height * (full ? 0.94 : 0.88)),
             padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + mq.padding.bottom + mq.viewInsets.bottom),
             decoration: BoxDecoration(color: c.bg, borderRadius: const BorderRadius.vertical(top: Radius.circular(TickRadius.sheet))),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
+            child: Column(mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min, children: [
               Container(width: 40, height: 5, decoration: BoxDecoration(color: c.hairline, borderRadius: BorderRadius.circular(3))),
               const SizedBox(height: 16),
-              Flexible(child: child),
+              if (fill) Expanded(child: child) else Flexible(child: child),
             ]),
           ),
         ),
@@ -207,13 +209,14 @@ class ScreenTitle extends StatelessWidget {
   final String title;
   final Widget? trailing;
   final VoidCallback? onBack;
+  /// Minimum 52pt tall, grows for two-line titles and large Dynamic Type; the title ellipsises after two lines.
   @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 52,
-        child: Row(children: [
-          if (onBack != null) Pressable(onTap: onBack, semanticLabel: 'Back', child: SizedBox(width: 44, height: 44, child: Center(child: TickIcon('chevron-left', size: 28, color: context.c.text)))),
-          Expanded(child: Semantics(header: true, child: Text(title, style: context.ts(TickType.displayL)))),
-          ?trailing,
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          if (onBack != null) Pressable(onTap: onBack, semanticLabel: 'Back', minSize: 44, child: SizedBox(width: 44, height: 44, child: Center(child: TickIcon('chevron-left', size: 28, color: context.c.text)))),
+          Expanded(child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Semantics(header: true, child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.displayL))))),
+          if (trailing != null) Padding(padding: const EdgeInsets.only(left: 8), child: trailing),
         ]),
       );
 }
@@ -227,8 +230,8 @@ class SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Semantics(header: true, child: Text(text, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13, letterSpacing: 0.2, color: color ?? context.c.textSecondary, decoration: TextDecoration.none))),
-          ?trailing,
+          Flexible(child: Semantics(header: true, child: Text(text, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13, letterSpacing: 0.2, color: color ?? context.c.textSecondary, decoration: TextDecoration.none)))),
+          if (trailing != null) ...[const SizedBox(width: 8), Flexible(child: Align(alignment: Alignment.centerRight, child: trailing))],
         ]),
       );
 }

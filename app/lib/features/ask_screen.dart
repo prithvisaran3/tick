@@ -11,6 +11,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/scaffold.dart';
 import 'common.dart';
 
 class AskMessage {
@@ -117,7 +118,8 @@ final askProvider = NotifierProvider<AskNotifier, List<AskMessage>>(AskNotifier.
 const suggestedQuestions = ['How much did I spend on food this month?', "What's due this week?", 'Business total this month', 'Which subscriptions am I paying for?', 'Can I afford \$200 today?'];
 
 class AskScreen extends ConsumerStatefulWidget {
-  const AskScreen({super.key});
+  const AskScreen({super.key, this.inSheet = false});
+  final bool inSheet;
   @override
   ConsumerState<AskScreen> createState() => _AskScreenState();
 }
@@ -146,7 +148,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     final l = ref.watch(ledgerProvider);
     final c = context.c;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const ScreenTitle('Ask Tick'),
+      if (!widget.inSheet) const ScreenTitle('Ask Tick'),
       Expanded(
         child: msgs.isEmpty
             ? ListView(children: [
@@ -157,13 +159,10 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                 for (final m in msgs) m.fromUser ? _UserBubble(m.text) : _Answer(m: m, ledger: l, onRetry: () => ref.read(askProvider.notifier).retry()),
               ]),
       ),
-      SizedBox(
-        height: 36,
-        child: ListView(scrollDirection: Axis.horizontal, clipBehavior: Clip.none, children: [for (final q in suggestedQuestions) Padding(padding: const EdgeInsets.only(right: 8), child: TickChip(q, onTap: () => _send(q)))]),
-      ),
+      ChipRow(children: [for (final q in suggestedQuestions) TickChip(q, onTap: () => _send(q))]),
       const SizedBox(height: 8),
       Padding(
-        padding: const EdgeInsets.only(bottom: 112),
+        padding: EdgeInsets.only(bottom: widget.inSheet ? 8 : 112),
         child: Container(
           height: 52, padding: const EdgeInsets.only(left: 16, right: 6), decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(999)),
           child: Row(children: [

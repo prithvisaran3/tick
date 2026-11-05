@@ -9,11 +9,12 @@ import 'data/env.dart';
 import 'data/settings.dart';
 import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
+import 'data/nav.dart';
 import 'features/activity_screen.dart';
+import 'features/insights_screen.dart';
+import 'features/tally_screen.dart';
 import 'features/cards.dart';
-import 'features/ask_screen.dart';
 import 'features/caught_screen.dart';
-import 'features/flows_screen.dart';
 import 'features/gallery_screen.dart';
 import 'features/incoming_screen.dart';
 import 'features/onboarding_screen.dart';
@@ -30,6 +31,7 @@ import 'features/banks_screen.dart';
 import 'features/budgets_screen.dart';
 import 'features/payday_plan_screen.dart';
 import 'domain/notification_plan.dart';
+import 'services/haptics.dart';
 import 'services/notifications.dart';
 import 'services/widget_sync.dart';
 
@@ -96,7 +98,6 @@ class Shell extends ConsumerStatefulWidget {
 }
 
 class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
-  int _i = 0;
   final Set<int> _built = {0};
   Timer? _syncTimer;
   StreamSubscription<String>? _taps;
@@ -203,11 +204,15 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _maybeReceipt(ref.read(ledgerProvider)); });
-    Widget page(int i) => _built.contains(i) ? const [TodayScreen(), ActivityScreen(), FlowsScreen(), AskScreen()][i] : const SizedBox.shrink();
-    return TickScreen(
+    final tab = ref.watch(shellTabProvider);
+    if (!_built.contains(tab)) _built.add(tab);
+    Widget page(int i) => _built.contains(i) ? const [TodayScreen(), ActivityScreen(), InsightsScreen(), TallyScreen()][i] : const SizedBox.shrink();
+    // Each tab owns its own safe area and gutters (collapsing large titles need the full width), so the shell adds none.
+    return ColoredBox(
+      color: context.c.bg,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned.fill(child: IndexedStack(index: _i, children: [for (var i = 0; i < 4; i++) page(i)])),
-        Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: _i, badge: l.needsReview.length, onTap: (i) => setState(() { _i = i; _built.add(i); }), onAdd: () => showQuickAdd(context))),
+        Positioned.fill(child: IndexedStack(index: tab, children: [for (var i = 0; i < 4; i++) page(i)])),
+        Positioned(left: 0, right: 0, bottom: 0, child: TickTabBar(index: tab, badge: l.needsReview.length, onTap: (i) { TickHaptics.instance.selection(); ref.read(shellTabProvider.notifier).go(i); }, onAdd: () => showQuickAdd(context))),
       ]),
     );
   }

@@ -8,7 +8,7 @@ import 'package:tick/features/cards.dart';
 import 'package:tick/features/ask_screen.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
-import 'package:tick/features/flows_screen.dart';
+import 'package:tick/features/insights_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
@@ -23,7 +23,7 @@ void main() {
   final screens = <String, (Widget Function(), int?)>{
     'today': (() => const TodayScreen(), 0),
     'activity': (() => const ActivityScreen(), 1),
-    'flows': (() => const FlowsScreen(), 2),
+    'insights': (() => const InsightsScreen(), 2),
     'ask': (() => const AskScreen(), 3),
     'caught': (() => const CaughtScreen(), null),
     'receipt': (() => const ReceiptScreen(animate: false), null),

@@ -5,11 +5,13 @@ import 'package:intl/intl.dart';
 import '../data/activity.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
+import '../domain/flows.dart';
 import '../domain/ideas.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/scaffold.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
@@ -18,13 +20,29 @@ import 'common.dart';
 /// Utilisation above this reads as "high" (the usual credit-score guidance).
 const highUtilisation = 0.30;
 
+/// One plain-words line about the statement: due, paid, or not shared. Consistent with the card screen and Safe to spend.
 String dueLine(Account a, DateTime now) {
+  if (a.owedCents == 0) return 'Paid off';
+  if (a.statementBalanceCents == null) return a.dueDate == null ? 'The bank shares the balance, not the statement' : 'Due ${DateFormat('MMM d').format(a.dueDate!)}';
+  if (a.statementPaid) return a.newSinceStatementCents > 0 ? 'Statement paid · ${formatDollars(a.newSinceStatementCents)} new' : 'Statement paid';
   final d = a.dueDate;
-  if (d == null) return a.owedCents == 0 ? 'Paid off' : 'Due date not shared by the bank';
+  if (d == null) return '${formatDollars(a.statementDueCents)} due, date not shared';
   final days = dayOnly(d).difference(dayOnly(now)).inDays;
   final when = days < 0 ? 'was due ${DateFormat('MMM d').format(d)}' : days == 0 ? 'due today' : days == 1 ? 'due tomorrow' : days < 7 ? 'due ${DateFormat('EEEE').format(d)}' : 'due ${DateFormat('MMM d').format(d)}';
-  final due = a.statementDueCents;
-  return due == 0 ? 'Statement paid' : '${formatDollars(due)} $when';
+  return '${formatDollars(a.statementDueCents)} $when';
+}
+
+/// Why the numbers look the way they do, in words, when the bank's data is partial or the statement is paid.
+String? statementExplainer(Account a) {
+  if (a.owedCents == 0) return null;
+  if (a.statementBalanceCents == null) return 'Your bank shares what you owe, but not the statement. Check the bank\'s app for the due date.';
+  if (a.statementPaid) {
+    return a.newSinceStatementCents > 0
+        ? 'The last statement is paid. ${formatCents(a.newSinceStatementCents)} is new spending since it closed, and it is due with your next statement.'
+        : 'The last statement is paid.';
+  }
+  if (a.knownMinimumCents == null) return 'Your bank didn\'t share a minimum payment. Pay the statement balance to avoid interest.';
+  return null;
 }
 
 /// The thin utilisation bar: neutral below 30%, Clay above it.
@@ -207,7 +225,8 @@ class _CompactCardRow extends StatelessWidget {
 final monthSpendByAccountProvider = FutureProvider.family<Map<String, int>, DateTime>((ref, now) async {
   ref.watch(ledgerRevisionProvider);
   final src = ref.watch(activitySourceProvider);
-  final t = await src.totals(ActivityQuery(month: monthOf(now)));
+  final m = monthOf(now);
+  final t = await src.totals(const ActivityQuery(), from: etToUtc(m), to: etToUtc(DateTime(m.year, m.month + 1, 1)));
   return t.byAccount;
 });
 
@@ -227,16 +246,17 @@ class CardScreen extends ConsumerWidget {
     final a = l.account(id);
     final c = context.c;
     if (a == null) {
-      return TickScreen(child: Column(children: [ScreenTitle('Card', onBack: () => context.pop()), const EmptyState('This card isn\'t here any more', 'It may have been removed from its bank link.', icon: 'card')]));
+      return TickPage(title: 'Card', onBack: () => context.pop(), children: const [EmptyState('This card isn\'t here any more', 'It may have been removed from its bank link.', icon: 'card')]);
     }
     final months = ref.watch(cardMonthsProvider(id));
     final u = a.utilisation;
     String? apr = a.aprBps == null ? null : '${(a.aprBps! / 100).toStringAsFixed(2)}%';
-    return TickScreen(
-      child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
-        ScreenTitle(a.shortLabel, onBack: () => context.pop()),
+    return TickPage(
+      title: a.shortLabel, onBack: () => context.pop(),
+      children: [
         Semantics(label: '${formatCents(a.owedCents)} owed', excludeSemantics: true, child: Text(formatCents(a.owedCents), style: context.ts(TickType.hero))),
         Text(dueLine(a, now), style: context.ts(TickType.body, color: c.textSecondary)),
+        if (statementExplainer(a) case final why?) Padding(padding: const EdgeInsets.only(top: 6), child: Text(why, style: context.ts(TickType.bodyS, color: c.textSecondary))),
         const SizedBox(height: 16),
         TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (u != null) ...[
@@ -247,7 +267,7 @@ class CardScreen extends ConsumerWidget {
             const SizedBox(height: 12),
           ],
           _KV('Last statement', a.statementBalanceCents == null ? 'Not shared by the bank' : formatCents(a.statementBalanceCents!)),
-          _KV('Minimum payment', a.minimumPaymentCents == null ? '—' : formatCents(a.minimumPaymentCents!)),
+          _KV('Minimum payment', a.knownMinimumCents == null ? 'Not shared by the bank' : formatCents(a.knownMinimumCents!)),
           _KV('Available credit', a.availableCreditCents == null ? '—' : formatCents(a.availableCreditCents!)),
           if (apr != null) _KV('Purchase APR', apr),
         ])),
@@ -297,7 +317,7 @@ class CardScreen extends ConsumerWidget {
         },
         const SizedBox(height: 12),
         Text('Tick never pays bills or moves money. Pay from your bank\'s app.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-      ]),
+      ],
     );
   }
 }

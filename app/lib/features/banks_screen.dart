@@ -10,7 +10,7 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../services/api.dart';
 import '../services/web_auth.dart';
-import '../design/widgets/refresh.dart';
+import '../design/widgets/scaffold.dart';
 import '../domain/models.dart';
 import '../data/account_counts.dart';
 import '../domain/bank_status.dart';
@@ -132,9 +132,9 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     final demo = ref.watch(settingsProvider).demoMode;
     final c = context.c;
     final left = _left ?? (10 - l.linksUsed);
-    return TickScreen(
-      child: TickScrollView(onRefresh: _refresh, slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 48), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        ScreenTitle('Banks', onBack: () => context.pop()),
+    return TickPage(
+      title: 'Banks', onBack: () => context.pop(), onRefresh: _refresh,
+      children: [
         for (final conn in l.connections) ...[
           _BankTile(conn: conn, ledger: l, now: ref.watch(clockProvider)(), counts: ref.watch(accountCountsProvider).value ?? const {}, busy: _busy,
               onAction: (a) {
@@ -166,7 +166,7 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: context.ts(TickType.body, color: c.alert))),
         const SizedBox(height: 12),
         Text('Apple Card isn\'t on Plaid. Purchases come in from Wallet, and you can import a statement in Settings.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-      ])))]),
+      ],
     );
   }
 }

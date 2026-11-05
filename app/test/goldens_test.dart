@@ -3,12 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/features/activity_screen.dart';
 import 'package:tick/features/banks_screen.dart';
 import 'package:tick/features/cards.dart';
+import 'package:tick/features/ask_button.dart';
 import 'package:tick/features/ask_screen.dart';
+import 'package:tick/features/tally_screen.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
 import 'package:tick/domain/models.dart';
-import 'package:tick/features/flows_screen.dart';
+import 'package:tick/features/insights_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/receipt_screen.dart';
@@ -22,9 +24,10 @@ void main() {
   final screens = <String, (Widget Function(), int?)>{
     'today': (() => const TodayScreen(), 0),
     'activity': (() => const ActivityScreen(), 1),
-    'flows': (() => const FlowsScreen(), 2),
-    'ask-tick': (() => const AskScreen(), 3),
-    'ask-tick-answer': (() => const AskScreen(), 3),
+    'insights': (() => const InsightsScreen(), 2),
+    'tally': (() => const TallyScreen(), 3),
+    'ask-tick': (() => const AskSheet(), null),
+    'ask-tick-answer': (() => const AskSheet(), null),
     'caught': (() => const CaughtScreen(), null),
     'morning-receipt': (() => const ReceiptScreen(animate: false), null),
     'incoming-upcoming': (() => const IncomingScreen(), null),

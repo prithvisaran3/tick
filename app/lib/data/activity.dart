@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../services/privacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/flows.dart';
+import '../domain/merchant_name.dart';
 import '../domain/models.dart';
 import '../services/session.dart';
 import 'ledger.dart';
@@ -19,12 +20,12 @@ const activityPageSize = 40;
 /// Account type chips. 'Loans' covers the student loan.
 const accountTypeChips = <(String, String)>[('checking', 'Checking'), ('savings', 'Savings'), ('credit', 'Credit cards'), ('loan', 'Loans')];
 
-/// What Activity shows. Server side this maps 1:1 onto the arguments of tick_activity_page / tick_flows / tick_months.
+/// What Activity shows: ONE continuous list across every month, optionally filtered. Server side this maps 1:1 onto the arguments of
+/// tick_activity_page / tick_flows. [upTo] ("Jump to month") starts the list at the end of that New York month instead of today.
 @immutable
 class ActivityQuery {
-  const ActivityQuery({this.month, this.types = const {}, this.accounts = const {}, this.categories = const {}, this.query = '', this.business = false, this.review = false});
-  /// First day of a New York month; null = all time.
-  final DateTime? month;
+  const ActivityQuery({this.upTo, this.types = const {}, this.accounts = const {}, this.categories = const {}, this.query = '', this.business = false, this.review = false});
+  final DateTime? upTo;
   final Set<String> types;
   final Set<String> accounts;
   final Set<String> categories;
@@ -32,18 +33,22 @@ class ActivityQuery {
   final bool business;
   final bool review;
 
-  bool get anyFilter => types.isNotEmpty || accounts.isNotEmpty || categories.isNotEmpty || query.isNotEmpty || business || review;
-  DateTime? get from => month == null ? null : etToUtc(month!);
-  DateTime? get to => month == null ? null : etToUtc(DateTime(month!.year, month!.month + 1, 1));
+  bool get anyFilter => filterCount > 0;
+  /// How many filters are active (the badge on the filter button). Search counts as one.
+  int get filterCount => (types.isNotEmpty ? 1 : 0) + (accounts.isNotEmpty ? 1 : 0) + (categories.isNotEmpty ? 1 : 0) + (query.trim().isNotEmpty ? 1 : 0) + (business ? 1 : 0) + (review ? 1 : 0);
+  DateTime? get to => upTo == null ? null : etToUtc(DateTime(upTo!.year, upTo!.month + 1, 1));
 
-  ActivityQuery copyWith({DateTime? month, bool allTime = false, Set<String>? types, Set<String>? accounts, Set<String>? categories, String? query, bool? business, bool? review}) =>
-      ActivityQuery(month: allTime ? null : (month ?? this.month), types: types ?? this.types, accounts: accounts ?? this.accounts, categories: categories ?? this.categories,
+  ActivityQuery copyWith({DateTime? upTo, bool clearUpTo = false, Set<String>? types, Set<String>? accounts, Set<String>? categories, String? query, bool? business, bool? review}) =>
+      ActivityQuery(upTo: clearUpTo ? null : (upTo ?? this.upTo), types: types ?? this.types, accounts: accounts ?? this.accounts, categories: categories ?? this.categories,
           query: query ?? this.query, business: business ?? this.business, review: review ?? this.review);
-  ActivityQuery clearFilters() => ActivityQuery(month: month);
+  ActivityQuery clearFilters() => ActivityQuery(upTo: upTo);
+  /// The same filters with no month limit (used for month totals, which apply their own bounds).
+  ActivityQuery get filtersOnly => ActivityQuery(types: types, accounts: accounts, categories: categories, query: query, business: business, review: review);
 
-  Map<String, dynamic> rpcArgs({DateTime? from, DateTime? to, bool fromQuery = true}) => {
-        'p_from': (fromQuery ? this.from : from)?.toUtc().toIso8601String(),
-        'p_to': (fromQuery ? this.to : to)?.toUtc().toIso8601String(),
+  /// Arguments for the server. [from]/[to] override the list bounds (month totals, day totals).
+  Map<String, dynamic> rpcArgs({DateTime? from, DateTime? to, bool useBounds = true}) => {
+        'p_from': from?.toUtc().toIso8601String(),
+        'p_to': (to ?? (useBounds ? this.to : null))?.toUtc().toIso8601String(),
         'p_types': types.isEmpty ? null : types.toList(),
         'p_accounts': accounts.isEmpty ? null : accounts.toList(),
         'p_categories': categories.isEmpty ? null : categories.toList(),
@@ -53,10 +58,11 @@ class ActivityQuery {
       };
 
   /// Local mirror of the server's tick_filtered (demo mode and the guest ledger).
-  bool matches(Txn t, LedgerState l) {
+  bool matches(Txn t, LedgerState l, {DateTime? from, DateTime? until}) {
     final at = t.occurredAt.toUtc();
-    if (from != null && at.isBefore(from!)) return false;
-    if (to != null && !at.isBefore(to!)) return false;
+    final hi = until ?? to;
+    if (from != null && at.isBefore(from)) return false;
+    if (hi != null && !at.isBefore(hi)) return false;
     if (types.isNotEmpty && !types.contains(l.account(t.accountId)?.type ?? 'checking')) return false;
     if (accounts.isNotEmpty && !accounts.contains(t.accountId)) return false;
     if (categories.isNotEmpty && !categories.contains(t.categoryId)) return false;
@@ -72,10 +78,10 @@ class ActivityQuery {
 
   @override
   bool operator ==(Object other) =>
-      other is ActivityQuery && other.month == month && setEquals(other.types, types) && setEquals(other.accounts, accounts) && setEquals(other.categories, categories) &&
+      other is ActivityQuery && other.upTo == upTo && setEquals(other.types, types) && setEquals(other.accounts, accounts) && setEquals(other.categories, categories) &&
       other.query == query && other.business == business && other.review == review;
   @override
-  int get hashCode => Object.hash(month, Object.hashAllUnordered(types), Object.hashAllUnordered(accounts), Object.hashAllUnordered(categories), query, business, review);
+  int get hashCode => Object.hash(upTo, Object.hashAllUnordered(types), Object.hashAllUnordered(accounts), Object.hashAllUnordered(categories), query, business, review);
 }
 
 DateTime monthOf(DateTime d) => DateTime(d.year, d.month, 1);
@@ -92,7 +98,15 @@ class MonthSummary {
   final Totals totals;
 }
 
+class MerchantTotal {
+  const MerchantTotal(this.merchant, this.cents, this.count);
+  final String merchant;
+  final int cents;
+  final int count;
+}
+
 abstract class ActivitySource {
+  Future<List<MerchantTotal>> topMerchants(DateTime from, DateTime to, {int limit = 8});
   Future<PageData> page(ActivityQuery q, {DateTime? beforeAt, String? beforeId, int limit = activityPageSize});
   Future<Totals> totals(ActivityQuery q, {DateTime? from, DateTime? to});
   Future<List<MonthSummary>> months(ActivityQuery q);
@@ -119,9 +133,15 @@ class RemoteActivitySource implements ActivitySource {
 
   @override
   Future<Totals> totals(ActivityQuery q, {DateTime? from, DateTime? to}) async {
-    final args = from == null && to == null ? q.rpcArgs() : q.rpcArgs(from: from, to: to, fromQuery: false);
+    final args = q.rpcArgs(from: from, to: to, useBounds: from == null && to == null);
     final j = await db.rpc('tick_flows', params: args).timeout(_timeout);
     return Totals.fromJson((j as Map).cast<String, dynamic>());
+  }
+
+  @override
+  Future<List<MerchantTotal>> topMerchants(DateTime from, DateTime to, {int limit = 8}) async {
+    final j = await db.rpc('tick_top_merchants', params: {'p_from': from.toUtc().toIso8601String(), 'p_to': to.toUtc().toIso8601String(), 'p_limit': limit}).timeout(_timeout);
+    return [for (final m in (j as List)) MerchantTotal(m['merchant'] as String, (m['cents'] as num).toInt(), (m['count'] as num).toInt())];
   }
 
   @override
@@ -161,20 +181,31 @@ class LocalActivitySource implements ActivitySource {
 
   @override
   Future<Totals> totals(ActivityQuery q, {DateTime? from, DateTime? to}) async {
-    final rows = l.txns.where((t) => q.copyWith(allTime: true).matches(t, l) && _within(t, from ?? q.from, to ?? q.to));
+    final rows = l.txns.where((t) => q.matches(t, l, from: from, until: to ?? (from == null ? q.to : null)));
     return computeTotals(rows, cats: _cats, accounts: _accts);
   }
 
-  bool _within(Txn t, DateTime? from, DateTime? to) {
-    final at = t.occurredAt.toUtc();
-    return (from == null || !at.isBefore(from)) && (to == null || at.isBefore(to));
+  @override
+  Future<List<MerchantTotal>> topMerchants(DateTime from, DateTime to, {int limit = 8}) async {
+    final by = <String, (int, int)>{};
+    for (final t in l.txns) {
+      final at = t.occurredAt.toUtc();
+      if (at.isBefore(from) || !at.isBefore(to)) continue;
+      final o = outOf(t, cats: _cats, accounts: _accts);
+      if (o == 0) continue;
+      final k = cleanMerchant(t.merchant);
+      final cur = by[k] ?? (0, 0);
+      by[k] = (cur.$1 + o, cur.$2 + 1);
+    }
+    final out = [for (final e in by.entries) if (e.value.$1 > 0) MerchantTotal(e.key, e.value.$1, e.value.$2)]..sort((a, b) => b.cents.compareTo(a.cents));
+    return out.take(limit).toList();
   }
 
   @override
   Future<List<MonthSummary>> months(ActivityQuery q) async {
     final base = ActivityQuery(types: q.types, accounts: q.accounts);
     final ms = {for (final t in l.txns.where((t) => base.matches(t, l))) monthOf(etDay(t.occurredAt))}.toList()..sort((a, b) => b.compareTo(a));
-    return [for (final m in ms) MonthSummary(m, await totals(base.copyWith(month: m)))];
+    return [for (final m in ms) MonthSummary(m, await totals(base, from: etToUtc(m), to: etToUtc(DateTime(m.year, m.month + 1, 1))))];
   }
 }
 
@@ -212,10 +243,9 @@ class ActivityNotifier extends Notifier<ActivityState> {
   @override
   ActivityState build() {
     ref.watch(activitySourceProvider);
-    final now = ref.read(clockProvider)();
     // Live changes (Realtime -> ledger refresh) refresh the first page and the totals without throwing away what is scrolled.
     ref.listen(ledgerRevisionProvider, (_, _) => _reloadKeepingScroll());
-    final q = stateOrNull?.query ?? ActivityQuery(month: monthOf(now));
+    final q = stateOrNull?.query ?? const ActivityQuery();
     Future.microtask(() => _load(q));
     return ActivityState(query: q);
   }
@@ -286,7 +316,7 @@ class ActivityNotifier extends Notifier<ActivityState> {
     }
   }
 
-  bool _isDefault(ActivityQuery q) => !q.anyFilter && q.month == monthOf(ref.read(clockProvider)());
+  bool _isDefault(ActivityQuery q) => !q.anyFilter && q.upTo == null;
 }
 
 final activityProvider = NotifierProvider<ActivityNotifier, ActivityState>(ActivityNotifier.new);
@@ -299,10 +329,28 @@ final monthFlowsProvider = FutureProvider.family<MonthFlows, DateTime>((ref, now
   final m = monthOf(now);
   final prevStart = DateTime(m.year, m.month - 1, 1);
   final r = await Future.wait([
-    src.totals(ActivityQuery(month: m)),
+    src.totals(const ActivityQuery(), from: etToUtc(m), to: etToUtc(DateTime(m.year, m.month + 1, 1))),
     src.totals(const ActivityQuery(), from: etToUtc(prevStart), to: etToUtc(prevStart.add(Duration(days: now.day)))),
   ]);
   return MonthFlows.from(r[0], r[1].outCents);
+});
+
+/// Key for one month's totals under the active filters (the sticky month header).
+@immutable
+class MonthKey {
+  const MonthKey(this.filters, this.month);
+  final ActivityQuery filters;
+  final DateTime month;
+  @override
+  bool operator ==(Object other) => other is MonthKey && other.month == month && other.filters == filters;
+  @override
+  int get hashCode => Object.hash(filters, month);
+}
+
+/// In, out and net for one month under the active filters; SQL in live mode. Re-queried when the ledger changes.
+final monthTotalsProvider = FutureProvider.family<Totals, MonthKey>((ref, k) async {
+  ref.watch(ledgerRevisionProvider);
+  return ref.watch(activitySourceProvider).totals(k.filters.filtersOnly, from: etToUtc(k.month), to: etToUtc(DateTime(k.month.year, k.month.month + 1, 1)));
 });
 
 /// First page of the default view (this month, no filters), so Activity opens offline.
