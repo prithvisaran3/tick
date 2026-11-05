@@ -23,6 +23,7 @@ import '../services/ai_status.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
+import 'apple_card_import.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -84,6 +85,8 @@ class SettingsScreen extends ConsumerWidget {
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
           row('share', 'Export CSV', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _exportCsv(ref)),
+          const Hairline(),
+          row('card', 'Import Apple Card statement', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => importAppleCard(context, ref)),
           const Hairline(),
           row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
           if (Env.hasSupabase && ref.watch(userIdProvider) == null) ...[

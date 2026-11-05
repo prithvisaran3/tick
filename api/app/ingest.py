@@ -66,6 +66,9 @@ def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)
             rest().update("ingest_logs", {"id": log["id"]}, {"status": "ignored", "result": {"reason": "not a transaction"}})
             return {"ok": True, "action": "ignored"}
         cand, tags = build_candidate(user_id, body.source, ref, parsed, now)
+        if body.source == "applepay" and body.card:
+            # Wallet names the card: "Apple Card" purchases land on the Apple Card account (it is never on Plaid).
+            cand.account_id = store.card_account(user_id, body.card)
         _, id_to_name = store.category_maps(user_id)
         with store.user_lock(user_id):
             actions = plan(cand, store.window(user_id, now), category_names=id_to_name)

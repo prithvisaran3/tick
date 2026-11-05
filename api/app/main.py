@@ -14,6 +14,7 @@ from .plaid import router as plaid_router
 from .intel import router as intel_router
 from .ask import router as ask_router
 from .receipts import router as receipts_router
+from .imports import router as imports_router
 
 log = logging.getLogger("tick")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -24,6 +25,7 @@ app.include_router(plaid_router)
 app.include_router(intel_router)
 app.include_router(ask_router)
 app.include_router(receipts_router)
+app.include_router(imports_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 
