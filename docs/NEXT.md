@@ -1,72 +1,108 @@
-# NEXT — resume here
-_Updated by the production audit (`docs/AUDIT.md`)._
-Fresh session? Read CLAUDE.md, docs/FINAL_REPORT.md and this file, then continue unattended from "Open work".
+# NEXT: resume here
 
-## What I must verify on the real iPhone (production-audit checklist)
-Nothing below could be run in the build sandbox (no Xcode, no device). Do them in order with `docs/RUN_ON_MAC.md`; tick each box.
-1. [ ] `flutter pub get` works on your Flutter (3.44+). If it prints an SDK error, `brew upgrade --cask flutter`.
-2. [ ] **Launch**: the Ink launch screen with the "tick" wordmark appears (no white flash), the app icon is the Ink + Volt checkmark, and the first screen is usable in under ~2 s. In Xcode's console there is no `fopen failed for data file` line; if there is, copy the whole line and the lines around it into an issue (all declared assets exist and are test-enforced, so it would point at something new).
-3. [ ] **Google sign-in** (onboarding > Continue with Google): the system sign-in sheet opens, you pick an account, it closes, you land on the paycheck step. Also test: close the sheet (calm "cancelled" text, button still works), airplane mode (calm "offline" text), then retry. Kill and relaunch: you are still signed in (Settings shows "Signed in with Google") and Today shows data immediately.
-4. [ ] **Freeze check**: switch tabs quickly, scroll Activity, pull down to refresh, background and reopen the app. Nothing should hang; the "System gesture gate timed out" log must not appear. If it does, note what you tapped just before.
-5. [ ] **Smoothness in `--release`** (or `--profile`): Activity scrolling and tab switches feel smooth (60 to 120 fps). With `--profile --dart-define=TICK_PERF=true` the overlay bars stay green.
-6. [ ] **Notifications**: the permission prompt appears about 2 s after onboarding (not at launch); a morning summary, a bill reminder (day before) and the Sunday review arrive; tapping the Payday notification opens the Payday plan.
-7. [ ] **Face ID**: Settings > Face ID lock turns on only after Face ID succeeds; backgrounding and reopening asks for Face ID; the privacy blur covers the app in the app switcher.
-8. [ ] **Haptics** (real iPhone, Settings > Haptics Full): the Pop at launch, Price weight when a purchase lands, Count-up on Safe to spend, Hold to confirm ramps and clicks, Caught swipes feel different per direction, Landed is a heavy stamp. Subtle is half strength; Off is silent.
-9. [ ] **Plaid** (once, see item below): Hold to link opens the Plaid sheet; closing it is not an error; after linking, rows appear within a minute.
-10. [ ] **Siri/Shortcuts**: "Log expense" opens Tick with the add sheet filled in; also try `tick://add?amount=18&merchant=Uber` from Safari.
+_Updated by the cards, ideas and security branch (`feat/cards-ideas-security`, 2026-11-06)._
+Fresh session? Read CLAUDE.md, this file, docs/DECISIONS.md, docs/SECURITY.md and docs/IDEAS.md.
 
-## Supabase migration to apply by hand (not applied by the audit)
-`supabase/migrations/20261105000001_indexes_and_cleanup.sql` adds indexes for the hot queries and three housekeeping cron jobs. It is safe to run. Apply when you are ready: `python3 tools/db.py push` (uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`), then `python3 tools/run_rls_tests.py`.
+## Do these in order (you, after the PR)
 
-## Do these by hand (in order of importance)
-1. **Plaid OAuth redirect (Chase and other OAuth banks).** Hosted Link works for OAuth banks without any redirect URI (current Plaid docs), so linking should work as is. If a bank refuses with an OAuth error, register this exact URI:
-   `https://tick-api-production.up.railway.app/plaid/oauth-return`
-   Where: https://dashboard.plaid.com > Developers > API > **Allowed redirect URIs** > Add new URI > paste it > Save. Then on Railway (project `tick-api`, service `tick-api`, Variables) add `PLAID_REDIRECT_URI` with the same value and redeploy. Do NOT set the variable before registering the URI: Plaid rejects unregistered redirect URIs and linking would fail.
-2. **Run on your iPhone:** `docs/RUN_ON_MAC.md`. Swift (haptics, web-auth channel, App Intent) is uncompiled and untested on a device.
-3. **Link ONE bank** (you have 10 Items for life; production Items are only created by the Hold-to-link flow, never by tests or code).
-4. **AI** runs on OpenRouter FREE models only, with data_collection=deny (see "AI status"). Settings > AI shows "AI today: N of 40" and the models in use.
-5. Capture token + Shortcuts: `docs/SHORTCUTS_SETUP.md`.
-6. Optional: GitHub repo secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PLAID_CLIENT_ID`, `PLAID_SANDBOX_SECRET` so CI also runs the RLS and live integration jobs (they skip cleanly without them).
-7. Paste masked bank alerts into `tools/samples/*.txt` to tune the parsers.
-8. Home-screen widget: needs a paid Apple Developer account (App Groups). Steps are at the end of `docs/RUN_ON_MAC.md`.
+Nothing was deployed and no migration was applied from the build session.
 
-## AI status (read this)
-- Provider: OpenRouter, only model ids ending in `:free`, chosen at runtime from `GET /api/v1/models` (cached 24h), top 3 sent as the `models` fallback array. Gemini code stays behind the `AIProvider` interface (`AI_PROVIDER=gemini` to re-enable, currently a stub); `GEMINI_API_KEY` is no longer required.
-- Privacy: requests set `provider.data_collection = "deny"`. With that setting, free NVIDIA models are filtered out by OpenRouter ("Free model training"), and Google's free Gemma models were rate-limited upstream on 2026-11-04. Models verified working under `deny` that day: `dots-studio/dots-3-note-preview:free`, `recursive/flint-v1.0:free` (both reasoning models; the code leaves token headroom). `api/app/ai.py` has `PREFERRED` and `AVOID_PREFIXES` for this; re-verify with `python3 tools/ai_smoke.py` (max 3 calls) when models rotate.
-- Limits: 20 requests/min and 50/day are upstream; Tick enforces 15/min and `AI_DAILY_CALL_LIMIT=40` (counted from `ai_usage` where `ok = true`). 429 or error: one retry after 1.5s, then silent fallback to non-AI. A rate-limited model is skipped for 10 minutes.
-- Rule-first: regex parsers and learned rules first; AI only when confidence < 0.8; results cached in `ai_cache` by input hash; one batched call for all uncategorised merchants of a sync; Morning Receipt advice generated once a day by `/jobs/daily-advice` (pg_cron, noon UTC) and weekly insight once a week; the app never calls AI on open.
-- Privacy filter `ai.scrub()` strips card digits, long numbers, emails, phones and URLs. Ask Tick sends only tool results and the last 6 messages.
-- Not verified: the receipt-photo vision call (needs a free vision model that passes `deny`), and `parse_alert_ai` returned empty text once under a reasoning model (falls back to the regex result and Caught).
-- Smoke test results (2026-11-04): categorize and tool-call worked through `dots-studio/dots-3-note-preview:free`; live categorisation through the deployed API worked (`tools/e2e_ai_live.py`).
+1. **Merge the PR** (`feat/cards-ideas-security` into `main`) once CI is green.
+2. **Apply the database migrations first**: `supabase db push --remote`.
+   This applies `20261105000001` (indexes), `20261106000001` (Plaid items and slot fix), `20261106000002` (Activity RPCs,
+   cards and loans) and `20261106000003` (security).
+   > Order note: you listed `railway up` before `db push`. I put the database first because the new API reads tables and
+   > columns that only exist after these migrations (`plaid_items`, `audit_log`, `ingest_tokens.scope`, `accounts.*` card
+   > fields). Deploying the API first would make bank links, capture and tokens fail until the push. Every migration is
+   > additive, so the API that is running now keeps working against the new schema.
+3. **Check the database**: `python3 tools/run_rls_tests.py`. It runs `rls.sql`, `attacks.sql` and `flows.sql` against the
+   project and rolls each one back. All three should say "passed".
+4. **Deploy the API**: `cd api && railway up --service tick-api --ci`.
+5. **Live check**: `python3 tools/e2e_deployed.py`. It needs email sign-in for a throwaway user, so run it **before** step 7.
+6. **Run on the iPhone** (`docs/RUN_ON_MAC.md`, then the checklist below). There are two new plugins (`file_picker`,
+   `flutter_secure_storage`, no extra pods) and a new Swift file (`TickPrivacy.swift`), so run `cd app && flutter pub get`
+   and let Xcode re-run `pod install`.
+7. **Lock down Supabase Auth**: `python3 tools/auth_config.py`, read the report, then `python3 tools/auth_config.py --apply`.
+   This turns email sign-in off, sets the redirect allow-list to exactly `tick://login-callback` and makes access tokens
+   15 minutes.
+8. **Link banks one at a time**, and check the counter after each one (Settings > Bank connections, and Banks >
+   "You have N of 10 bank links left"). Each link should cost exactly one.
+   1. **SoFi** (one link covers checking, savings and the student loan; credentials, not OAuth).
+   2. **Discover** (pick plain "Discover", not "Discover - Student Loans").
+   3. **Bank of America** (pick plain "Bank of America").
+   4. **Capital One**.
 
-## Deployed
-- API: https://tick-api-production.up.railway.app (Railway project `tick-api`; redeploy: `cd api && railway up --service tick-api --ci` with `RAILWAY_TOKEN`). Env: Supabase, Plaid, `OPENROUTER_API_KEY`, `CRON_SECRET`, `AI_PROVIDER`, `AI_DAILY_CALL_LIMIT`.
-- Supabase: 22 tables with forced owner-only RLS (+ server-only tables), vault wrappers, pg_cron: `tick-sync-all` (6h), `tick-weekly-insights` (Sun 22:00 UTC), `tick-daily-advice` (12:00 UTC), calling the API with `X-Cron-Secret` from Vault.
+   After each link, wait a minute, pull to refresh, and confirm that the cards show owed, due date and utilisation and
+   that the counter dropped by exactly one. If a link ever shows "Your bank may still be connecting", **don't link again**:
+   pull to refresh after a minute. The webhook usually finishes it.
+9. Do the manual security steps in `docs/SECURITY.md` §5: 2FA everywhere, delete the tokens from the Claude
+   environment, rotate the Supabase secret key, a $0 OpenRouter limit, delete the Gemini key, and the GitHub settings.
 
-## Phase status
-All phases P0-P8 done, plus the finishing session: AI on OpenRouter, Plaid hardening, Payday plan, budgets and goals editors, categories and rules editor, torn receipt edge, Pick date, short account labels, CI green without secrets.
+### Your Plaid counter
+The "10 → 8" was a Tick counting bug, not two Items: the logs show one link session, one `item_id`, exchanged twice in the
+same second (the webhook and the app raced). Only **one** Plaid Item was created (Chase). After the migration the counter
+is rebuilt from distinct item_ids, so Tick will say **9 left**. Plaid's dashboard is the final word: if it shows a
+different number, tell Tick by adding that item to `plaid_items` by hand.
 
-## Open work (known gaps, all need a device or are low priority)
-- Nothing has run on a device: Core Haptics patterns, WidgetKit, App Intent, Google sign-in, ASWebAuthenticationSession Plaid flow, local notifications and their tap routing, Face ID.
-- Plaid has only been exercised in sandbox; real webhook delivery to `/webhooks/plaid` (signature verification is unit-tested with a locally signed key, key rotation and rate limiting tested) is unverified until the first real link.
-- Receipt photo scanning needs a free vision model that passes `data_collection=deny`; until then the photo is saved and you type the total.
-- Ingest serialises per user with an in-process lock (one Railway replica). Scaling out needs a Postgres advisory-lock RPC.
-- Goal editor `Add` label should read `Tick` for edits (copy polish); widget extension uses the system rounded font (bundle Cabinet Grotesk into the extension for exact type).
-- Budgets are not part of Safe to spend (only goals and bills are).
+## What I must verify on the real iPhone
 
-## Splitwise plan (not in v1)
-Data model is ready: `people`, `transactions.splits jsonb`, `transactions.participants jsonb`, `expected(kind=iou)`. Steps: (1) people + groups tables and a people picker on a purchase; (2) split editor (equal, exact, percent) writing `splits`; (3) running balances per person; (4) settle-up flow with Hold to confirm; (5) HEARTBEAT haptic (already compiled) once per person on settle-up; (6) share a settle link by text.
+Nothing below can run in the build sandbox (no Xcode, no device).
 
-## APNs push plan (not in v1)
-Local notifications cover v1. For server push: Apple Push key (p8), key id/team id in Railway env, p8 in Vault, `device_tokens(user_id, token, env)` with RLS, register via a small iOS plugin, send from FastAPI over HTTP/2 on Landed deposits (Plaid webhook), price hikes and urgent overspend. Keep the 8:00 morning summary local.
+1. [ ] `flutter pub get` and the Xcode build succeed, including the new Swift `TickPrivacy.swift` and the two new pods.
+2. [ ] **Sign-in survives the Keychain move**: after updating, you are still signed in (the old session is moved from
+   SharedPreferences into the Keychain once). Sign out and back in with Google, kill and relaunch: still signed in.
+3. [ ] **Activity**: the month strip (Nov 2026, Oct 2026, …, All time) with in, out and net; scroll far down and pages keep
+   loading with a skeleton row at the end; the account-type and per-account chips ("Chase ••1173") filter the list
+   **and** the totals; search finds merchants, notes and categories; airplane mode still shows this month's first page.
+4. [ ] **Cards on Today and Banks**: owed, due date, utilisation bar (Clay above 30%); tap a card for the statement, minimum,
+   APR, the statement cycle (closing date, "pay $X by …" to report under 30%) and spend by month.
+5. [ ] **Safe to spend** subtracts the card statements due before payday (the "cards due" pill), and the loan payment if it's
+   due before payday. "Truly free" shows what's left after every card balance.
+6. [ ] **Card-due guard**: when checking can't cover the cards and bills due before payday, Today says by how much (Clay).
+7. [ ] **What if…** pill: enter an amount and see what's left until payday, with the price-weight haptic.
+8. [ ] **Notifications**: a card due-date reminder 2 days before at 9:00; a utilisation heads-up 3 days before a
+   high-utilisation statement closes; tapping either opens that card.
+9. [ ] **Link confirm**: "Link a bank" shows "This uses 1 of your N remaining links" and needs a hold to continue.
+10. [ ] **Apple Card**: buy something with Apple Pay on Apple Card. It lands on the "Apple Card ••…" account. Then Settings
+    > Import Apple Card statement with a real CSV: "Imported N, skipped M duplicates", and nothing shows twice.
+11. [ ] **Privacy**:
+    - [ ] Hide amounts turns every amount into `$••••`, including notifications.
+    - [ ] Start a screen recording from Control Center: amounts hide while it runs.
+    - [ ] Face ID "Ask after 1 min": quick app switches don't ask; after a minute away they do.
+    - [ ] The app switcher shows the cover.
+12. [ ] **Files**: in Xcode's Devices window, download the app container: `Library/Application Support/ledger_cache.json`
+    exists and is excluded from backup. (File protection can't be seen there; trust the code or check with a locked-phone
+    background refresh.)
+13. [ ] **Panic** (try it once): Settings > Panic. You are signed out everywhere; the old Shortcuts token is refused (401) at
+    once; sign in again and make a new token.
+14. [ ] Everything from the previous checklist still holds: launch speed, Google sign-in, haptics, Face ID,
+    `--release` smoothness.
 
-## Sign in with Apple
-Required by App Store review once Google sign-in exists: enable the capability, `sign_in_with_apple` + `signInWithIdToken(provider: apple)`, enable the Apple provider via the Management API, link accounts by email.
+## Later
+- **FinanceKit for Apple Card.** Apple Card data is only readable through FinanceKit, which needs the
+  `com.apple.developer.financekit` entitlement. Apple grants it on request to organisations, so a personal app with a free
+  account almost certainly can't get it.
+  - To try: enrol in the paid Apple Developer Program, request the entitlement (developer.apple.com > Contact > FinanceKit),
+    then add a small Swift plugin that reads `FinanceStore` transactions and posts them to `/ingest` as source `applecard`.
+  - Until then: Wallet capture plus the statement CSV import.
+- The ideas left as tickets in `docs/IDEAS.md` (subscription detective, Zelle ledger, duplicate and fee detector,
+  weekly recap image, Ask Tick what-if, loan payoff, sweep nudges, rewards picker, splits).
+- Lock Screen widgets, Live Activity and Action Button: need a paid Apple account (App Groups).
+- Ingest and import serialise per user with an in-process lock (one Railway replica). Scaling out needs a Postgres
+  advisory lock.
+- The food-pace nudge still sums the rows on the phone (it is a heuristic, not a displayed total). Move it to the server
+  with the subscription detective.
 
-## Path to opening Tick to others
-1. The 10-Item Plaid Trial cap is per client: move to a paid Plaid plan first; add per-user rate limits and abuse limits on `/ingest`.
-2. Sign in with Apple, privacy policy, account deletion, App Store privacy labels.
-3. Per-user AI quotas from `ai_usage` (the free pool is shared across users and tiny; a paid model behind the same interface is the real answer).
-4. Multi-replica safety (advisory locks around reconcile, a queue for Plaid sync).
-5. Plaid production review and security questionnaire; Vault already encrypts tokens at rest.
-6. TestFlight, crash reporting, analytics that never contain merchant text.
+## AI status
+Unchanged from the last session:
+- OpenRouter `:free` models only, `data_collection=deny`, 15 a minute and 40 a day, rules first.
+- New in this session: prompts mark merchant and note text as untrusted, Ask Tick can only read, and model-written
+  merchant names are bounded (`docs/SECURITY.md`).
+- Re-verify the models with `python3 tools/ai_smoke.py` when they rotate.
+
+## Deployed (as of this branch: NOT redeployed)
+- API: https://tick-api-production.up.railway.app (Railway project `tick-api`).
+- Supabase: migrations up to `20261104000007` applied; `20261105000001` and the three `20261106*` are waiting for `db push`.
+
+## Splitwise, APNs, Sign in with Apple, opening Tick to others
+See the plans in the git history of this file (`git show main:docs/NEXT.md`) and `docs/IDEAS.md` #6 and #14.
