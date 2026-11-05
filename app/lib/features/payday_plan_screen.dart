@@ -32,6 +32,7 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
     final s = ref.watch(settingsProvider);
     final now = ref.watch(clockProvider)();
     final c = context.c;
+    if (l.loading && l.accounts.isEmpty) return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const ListSkeleton(rows: 4)]));
     final rule = s.demoMode ? ref.watch(safeToSpendProvider) == null ? null : buildRuleFor(ref) : s.rule;
     if (rule == null) {
       return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const EmptyState('Add your paycheck first', 'Tick plans payday once it knows when you get paid.', icon: 'calendar')]));
@@ -67,6 +68,8 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
           Center(child: PopIn(fromScale: 1.15, onLanded: () => TickHaptics.instance.landed(), child: Transform.rotate(angle: -0.1, child: Container(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8), decoration: BoxDecoration(border: Border.all(color: c.text, width: 3), borderRadius: BorderRadius.circular(999)), child: Text('Ticked.', style: context.ts(TickType.displayM, size: 22))))))
         else
           HoldToConfirm(label: 'Move to savings', onConfirmed: () async {
+            if (_moved) return;                                          // a second hold can never move money twice
+            setState(() => _moved = true);
             await ref.read(ledgerProvider.notifier).movePaydayToSavings(plan.moves);
             if (mounted) setState(() => _moved = true);
           }),

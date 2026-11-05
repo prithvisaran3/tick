@@ -2,8 +2,10 @@
 abstract final class Env {
   static const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const supabasePublishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
-  static const googleIosClientId = String.fromEnvironment('GOOGLE_OAUTH_IOS_CLIENT_ID');
-  static const googleWebClientId = String.fromEnvironment('GOOGLE_OAUTH_WEB_CLIENT_ID');
   static const apiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'https://tick-api-production.up.railway.app');
+  /// --dart-define=TICK_PERF=true shows Flutter's performance overlay (profile/debug builds).
+  static const perfOverlay = bool.fromEnvironment('TICK_PERF');
+  /// WidgetKit needs the App Groups capability (paid Apple Developer account). Off by default; --dart-define=TICK_WIDGETS=true turns the snapshot on.
+  static const widgetsEnabled = bool.fromEnvironment('TICK_WIDGETS');
   static bool get hasSupabase => supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty;
 }

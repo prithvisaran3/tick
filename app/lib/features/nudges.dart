@@ -21,7 +21,8 @@ Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now, {String? skipBil
     return Nudge('relink', 'Your ${broken.first.institution} link needs a quick sign-in to keep syncing.', 'Takes under a minute. Nothing was lost.', urgent: true);
   }
   // 1. Overspend (urgent): safe to spend is negative.
-  if (sts != null && sts.overspent) {
+  final hasCash = l.accounts.any((a) => a.includeInSafe && a.type != 'credit' && a.type != 'savings');
+  if (sts != null && sts.overspent && hasCash) {
     return Nudge('pace', 'You are ${formatDollars(-sts.cents)} past safe to spend', 'Bills and goals before payday are bigger than your cash. Check what can wait.', urgent: true);
   }
   // 2. Bill due tomorrow.

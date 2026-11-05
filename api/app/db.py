@@ -17,11 +17,11 @@ class Rest:
         r.raise_for_status()
         return r.json()
 
-    def insert(self, table: str, row: dict | list[dict], *, upsert_on: str | None = None) -> list[dict]:
-        h = {**self.h, "Prefer": "return=representation" + (",resolution=merge-duplicates" if upsert_on else "")}
+    def insert(self, table: str, row: dict | list[dict], *, upsert_on: str | None = None, returning: bool = True) -> list[dict]:
+        h = {**self.h, "Prefer": ("return=representation" if returning else "return=minimal") + (",resolution=merge-duplicates" if upsert_on else "")}
         r = self.c.post(f"{self.base}/{table}", headers=h, json=row, params={"on_conflict": upsert_on} if upsert_on else None)
         r.raise_for_status()
-        return r.json()
+        return r.json() if returning else []
 
     def update(self, table: str, match: dict, patch: dict) -> list[dict]:
         h = {**self.h, "Prefer": "return=representation"}

@@ -47,7 +47,9 @@ String weekdayName(DateTime d, DateTime now) {
 String sourceLabel(String s) => switch (s) { 'applepay' => 'Apple Pay', 'sms' => 'Text alert', 'plaid' => 'Bank', 'receipt' => 'Receipt', _ => 'Added by you' };
 
 class TxRow extends StatelessWidget {
-  const TxRow({super.key, required this.t, required this.ledger, this.onTap, this.sticker = false, this.showDate = false, this.subtitle});
+  const TxRow({super.key, required this.t, required this.ledger, this.onTap, this.sticker = false, this.showDate = false, this.subtitle, this.hero = false});
+  /// Shared-element transition to the detail screen. Only ONE list per route may enable it (duplicate Hero tags in a route throw).
+  final bool hero;
   final Txn t;
   final LedgerState ledger;
   final VoidCallback? onTap;
@@ -62,7 +64,7 @@ class TxRow extends StatelessWidget {
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(children: [
-        Hero(tag: 'av-${t.id}', child: Avatar(t.merchant, t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop'))),
+        if (hero) Hero(tag: 'av-${t.id}', child: Avatar(t.merchant, t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop'))) else Avatar(t.merchant, t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop')),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -83,6 +85,48 @@ class TxRow extends StatelessWidget {
       child: onTap == null ? row : Pressable(onTap: onTap, scale: 0.985, child: row),
     );
   }
+}
+
+/// Calm banner when the last refresh failed; the numbers on screen are the last known ones.
+class OfflineBanner extends StatelessWidget {
+  const OfflineBanner({super.key, required this.onRetry});
+  final Future<void> Function() onRetry;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: TickCard(
+          raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(children: [
+            Expanded(child: Semantics(liveRegion: true, child: Text('Can\'t reach Tick right now. Showing your last known numbers.', style: context.ts(TickType.bodyS, color: context.c.textSecondary)))),
+            const SizedBox(width: 8),
+            TickChip('Retry', onTap: () => onRetry()),
+          ]),
+        ),
+      );
+}
+
+/// Full-area error with a retry, for when there is nothing cached to show.
+class ErrorState extends StatefulWidget {
+  const ErrorState({super.key, required this.onRetry, this.title = 'That didn\'t load', this.body = 'Check your connection and try again. Nothing was lost.'});
+  final Future<void> Function() onRetry;
+  final String title;
+  final String body;
+  @override
+  State<ErrorState> createState() => _ErrorStateState();
+}
+
+class _ErrorStateState extends State<ErrorState> {
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+        child: Column(children: [
+          Text(widget.title, textAlign: TextAlign.center, style: context.ts(TickType.title)),
+          const SizedBox(height: 4),
+          Text(widget.body, textAlign: TextAlign.center, style: context.ts(TickType.body, color: context.c.textSecondary)),
+          const SizedBox(height: 16),
+          SizedBox(width: 200, child: ActionButton('Try again', style: PillStyle.quiet, onPressed: widget.onRetry)),
+        ]),
+      );
 }
 
 class EmptyState extends StatelessWidget {

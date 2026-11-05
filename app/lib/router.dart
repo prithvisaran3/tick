@@ -3,8 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'domain/models.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
+import 'data/env.dart';
 import 'data/settings.dart';
+import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
 import 'features/activity_screen.dart';
 import 'features/ask_screen.dart';
@@ -19,6 +22,7 @@ import 'features/settings_screen.dart';
 import 'features/today_screen.dart';
 import 'features/txn_detail_screen.dart';
 import 'design/theme.dart';
+import 'design/tokens.g.dart';
 import 'data/ledger.dart';
 import 'package:intl/intl.dart';
 import 'features/banks_screen.dart';
@@ -39,7 +43,18 @@ CustomTransitionPage<void> _page(GoRouterState s, Widget child) => CustomTransit
 
 GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       initialLocation: initial,
+      errorBuilder: (context, state) => const _NotFound(),
       redirect: (context, state) {
+        // Custom-scheme deep links arrive here as tick://<host>?...: tick://add?amount=18&merchant=Uber opens quick add;
+        // anything else (OAuth and Plaid callbacks are consumed by their own sessions) just lands on Today.
+        if (state.uri.scheme == 'tick') {
+          if (state.uri.host == 'add') {
+            final q = state.uri.queryParameters;
+            final amt = double.tryParse(q['amount'] ?? '');
+            ref.read(pendingQuickAddProvider.notifier).state = PendingQuickAdd(amt == null ? null : (amt * 100).round(), q['merchant']);
+          }
+          return '/';
+        }
         final done = ref.read(settingsProvider).onboardingDone;
         if (!done && state.matchedLocation == '/') return '/onboarding';
         return null;
@@ -57,36 +72,21 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
-        GoRoute(path: '/add', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: _AddRedirect(amount: s.uri.queryParameters['amount'], merchant: s.uri.queryParameters['merchant']))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],
     );
 
-/// Deep link tick://add?amount=18&merchant=Uber (App Intent / Shortcuts) -> quick add prefilled.
-class _AddRedirect extends StatefulWidget {
-  const _AddRedirect({this.amount, this.merchant});
-  final String? amount;
+/// A quick-add request from a deep link (tick://add?amount=18&merchant=Uber); the Tab shell opens the sheet.
+class PendingQuickAdd {
+  const PendingQuickAdd(this.cents, this.merchant);
+  final int? cents;
   final String? merchant;
-  @override
-  State<_AddRedirect> createState() => _AddRedirectState();
 }
 
-class _AddRedirectState extends State<_AddRedirect> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      context.go('/');
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      final cents = widget.amount == null ? null : (double.tryParse(widget.amount!) == null ? null : (double.parse(widget.amount!) * 100).round());
-      if (mounted) showQuickAdd(context, prefillCents: cents, prefillMerchant: widget.merchant);
-    });
-  }
-  @override
-  Widget build(BuildContext context) => const SizedBox();
-}
+final pendingQuickAddProvider = StateProvider<PendingQuickAdd?>((ref) => null);
 
 /// Tab shell: Today · Activity · Flows · Ask Tick with the floating bar and the Add button.
+/// Tabs build lazily on first visit and then stay alive; reminders and the widget snapshot re-plan on a debounce, never per state change.
 class Shell extends ConsumerStatefulWidget {
   const Shell({super.key});
   @override
@@ -95,17 +95,65 @@ class Shell extends ConsumerStatefulWidget {
 
 class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   int _i = 0;
+  final Set<int> _built = {0};
+  Timer? _syncTimer;
+  StreamSubscription<String>? _taps;
   bool _receiptChecked = false;
+  bool _asked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _taps = notificationTaps.stream.listen((p) { if (mounted) context.push(p == 'payday' ? '/payday-plan' : '/incoming'); });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingAdd();
+      _maybeAskNotifications();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    _taps?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPendingAdd();
+      ref.read(ledgerProvider.notifier).refresh();
+    }
+  }
+
+  void _scheduleSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer(const Duration(seconds: 2), _sync);
+  }
 
   void _sync() {
+    if (!mounted) return;
     final l = ref.read(ledgerProvider);
+    if (l.loading) return;
     final s = ref.read(settingsProvider);
     final sts = ref.read(safeToSpendProvider);
     final now = ref.read(clockProvider)();
-    writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
-    {
-      ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals));
-    }
+    if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
+    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals));
+  }
+
+  /// Ask for notification permission once, after onboarding, a moment after the first frame, never at launch of a blank app.
+  Future<void> _maybeAskNotifications() async {
+    if (_asked) return;
+    _asked = true;
+    final s = ref.read(settingsProvider);
+    if (!s.onboardingDone) return;
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    await ref.read(notificationServiceProvider).requestPermission();
+    _scheduleSync();
   }
 
   Future<void> _checkPendingAdd() async {
@@ -116,43 +164,56 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkPendingAdd();
-  }
-
-  @override
-  void dispose() { _taps?.cancel(); WidgetsBinding.instance.removeObserver(this); super.dispose(); }
-
-  StreamSubscription<String>? _taps;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _taps = notificationTaps.stream.listen((p) { if (!mounted) return; context.push(p == 'payday' ? '/payday-plan' : '/incoming'); });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(notificationServiceProvider).requestPermission().then((_) => _sync());
-      _checkPendingAdd();
-      // First open of the day plays the Morning Receipt first.
-      if (_receiptChecked) return;
-      _receiptChecked = true;
-      final s = ref.read(settingsProvider);
-      final today = DateFormat('yyyy-MM-dd').format(ref.read(clockProvider)());
-      if (s.onboardingDone && s.lastMorningReceipt != today) context.push('/receipt');
-    });
+  /// First open of the day plays the Morning Receipt first, once, and only when there is something to show.
+  void _maybeReceipt(LedgerState l) {
+    if (_receiptChecked || l.loading) return;
+    final s = ref.read(settingsProvider);
+    if (!s.onboardingDone) return;
+    _receiptChecked = true;
+    final now = ref.read(clockProvider)();
+    final today = DateFormat('yyyy-MM-dd').format(now);
+    if (s.lastMorningReceipt == today) return;
+    if (l.txns.isEmpty) return;
+    ref.read(settingsProvider.notifier).update((x) => x.copyWith(lastMorningReceipt: today));   // mark seen at open: "Show me today" can never re-trigger it
+    context.push('/receipt');
   }
 
   @override
   Widget build(BuildContext context) {
     final l = ref.watch(ledgerProvider);
-    ref.listen(ledgerProvider, (_, _) => _sync());
-    final pages = [const TodayScreen(), const ActivityScreen(), const FlowsScreen(), const AskScreen()];
+    ref.listen(pendingQuickAddProvider, (prev, next) {
+      if (next == null) return;
+      ref.read(pendingQuickAddProvider.notifier).state = null;
+      showQuickAdd(context, prefillCents: next.cents, prefillMerchant: next.merchant);
+    });
+    ref.listen(ledgerProvider, (prev, next) {
+      _scheduleSync();
+      _maybeReceipt(next);
+      if (next.justLanded != null && prev?.justLanded?.id != next.justLanded!.id) {
+        final e = next.justLanded!;
+        ref.read(ledgerProvider.notifier).landedShown();
+        context.push('/landed', extra: e);
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _maybeReceipt(ref.read(ledgerProvider)); });
+    Widget page(int i) => _built.contains(i) ? const [TodayScreen(), ActivityScreen(), FlowsScreen(), AskScreen()][i] : const SizedBox.shrink();
     return TickScreen(
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned.fill(child: IndexedStack(index: _i, children: pages)),
-        Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: _i, badge: l.needsReview.length, onTap: (i) => setState(() => _i = i), onAdd: () => showQuickAdd(context))),
+        Positioned.fill(child: IndexedStack(index: _i, children: [for (var i = 0; i < 4; i++) page(i)])),
+        Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: _i, badge: l.needsReview.length, onTap: (i) => setState(() { _i = i; _built.add(i); }), onAdd: () => showQuickAdd(context))),
       ]),
     );
   }
+}
+
+class _NotFound extends StatelessWidget {
+  const _NotFound();
+  @override
+  Widget build(BuildContext context) => TickScreen(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text('Nothing here.', style: context.ts(TickType.displayM)),
+          const SizedBox(height: 16),
+          SizedBox(width: 220, child: PillButton('Back to Today', onTap: () => context.go('/'))),
+        ]),
+      );
 }

@@ -1,6 +1,6 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:go_router/go_router.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
@@ -9,6 +9,7 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../services/api.dart';
+import '../services/web_auth.dart';
 import 'common.dart';
 
 /// Bank connections. Plaid Hosted Link opens in ASWebAuthenticationSession (the web flow handles OAuth banks like Chase without
@@ -46,7 +47,7 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
       final j = await api.post('/plaid/link-token', {'connection_id': ?connectionId});
       final url = j['hosted_link_url'] as String?;
       if (url == null) throw ApiException(500, 'no link url');
-      await FlutterWebAuth2.authenticate(url: url, callbackUrlScheme: 'tick');
+      await webAuthenticate(url);
       if (connectionId == null) {
         await api.post('/plaid/complete', {'link_token': j['link_token']});
       } else {
@@ -54,6 +55,13 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
       }
       await ref.read(ledgerProvider.notifier).refresh();
       await _loadLinks();
+      // The first sync of a new link runs on the server (up to 12 months of history). Realtime pushes rows in; poll a few times as a backstop.
+      for (final s in const [6, 15, 40]) {
+        Future<void>.delayed(Duration(seconds: s), () { if (mounted) ref.read(ledgerProvider.notifier).refresh(); });
+      }
+    } on PlatformException catch (e) {
+      // Closing the Plaid sheet is not an error.
+      if (mounted && e.code != 'CANCELED') setState(() => _error = 'That didn\'t go through. Try again, nothing was lost.');
     } catch (e) {
       if (mounted) setState(() => _error = e is ApiException && e.status == 409 ? 'You have used all 10 bank links.' : 'That didn\'t go through. Try again, nothing was lost.');
     }

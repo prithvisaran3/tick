@@ -17,7 +17,8 @@ class Category {
 
 @immutable
 class Account {
-  const Account({required this.id, required this.name, this.mask, this.type = 'checking', this.balanceCents, this.availableCents, this.includeInSafe = true});
+  const Account({required this.id, required this.name, this.mask, this.type = 'checking', this.balanceCents, this.availableCents, this.includeInSafe = true, this.manual = false});
+  final bool manual; // typed in by hand (no bank link)
   final String id;
   final String name;
   final String? mask;
@@ -31,7 +32,7 @@ class Account {
   factory Account.fromJson(Map<String, dynamic> j) => Account(
       id: j['id'] as String, name: j['name'] as String, mask: j['mask'] as String?, type: (j['type'] ?? 'checking') as String,
       balanceCents: (j['balance_cents'] as num?)?.toInt(), availableCents: (j['available_cents'] as num?)?.toInt(),
-      includeInSafe: (j['include_in_safe'] ?? true) as bool);
+      includeInSafe: (j['include_in_safe'] ?? true) as bool, manual: (j['is_manual'] ?? false) as bool);
 }
 
 @immutable

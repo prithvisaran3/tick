@@ -44,7 +44,7 @@ class AppSettings {
         morningTime: (j['morningTime'] ?? '08:00') as String, weeklyTime: (j['weeklyTime'] ?? '19:00') as String,
         lastMorningReceipt: j['lastMorningReceipt'] as String?, name: j['name'] as String?,
         rule: j['rule'] == null ? null : PaydayRule(
-            frequency: PayFrequency.values.firstWhere((f) => f.name == (j['rule'] as Map)['f']), anchor: DateTime.parse((j['rule'] as Map)['a'] as String), amountCents: ((j['rule'] as Map)['c'] as num).toInt()),
+            frequency: PayFrequency.values.firstWhere((f) => f.name == (j['rule'] as Map)['f'], orElse: () => PayFrequency.biweekly), anchor: DateTime.parse((j['rule'] as Map)['a'] as String), amountCents: ((j['rule'] as Map)['c'] as num).toInt()),
       );
 }
 
@@ -53,7 +53,14 @@ class SettingsNotifier extends Notifier<AppSettings> {
   AppSettings build() {
     final p = ref.read(sharedPrefsProvider);
     final raw = p?.getString('tick.settings');
-    final s = raw == null ? const AppSettings() : AppSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    var s = const AppSettings();
+    if (raw != null) {
+      try {
+        s = AppSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {
+        p?.remove('tick.settings');                                  // corrupt settings must never stop the app from launching
+      }
+    }
     TickHaptics.instance.setMode(s.haptics);
     TickHaptics.instance.setSound(s.sound);
     return s;

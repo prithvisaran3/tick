@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
+import '../services/session.dart';
 import 'env.dart';
 import 'ledger.dart';
 
@@ -13,7 +14,7 @@ class Remote {
     final r = await Future.wait([
       db.from('categories').select().order('sort'),
       db.from('accounts').select(),
-      db.from('transactions').select().order('occurred_at', ascending: false).limit(1500),
+      db.from('transactions').select().gte('occurred_at', DateTime.now().subtract(const Duration(days: 130)).toUtc().toIso8601String()).order('occurred_at', ascending: false).limit(1200),
       db.from('recurring').select().eq('status', 'active'),
       db.from('expected').select().eq('status', 'expected'),
       db.from('goals').select(),
@@ -22,11 +23,12 @@ class Remote {
       db.from('rules').select(),
     ]);
     return LedgerState(
-      categories: [for (final j in r[0]) Category.fromJson(j)],
-      accounts: [for (final j in r[1]) Account.fromJson(j)],
-      txns: [for (final j in r[2]) Txn.fromJson(j)],
-      recurring: [for (final j in r[3]) _rec(j)],
-      expected: [for (final j in r[4]) _exp(j)],
+      // Each row is parsed on its own: one malformed row is skipped, it can never fail the whole refresh.
+      categories: _each(r[0], Category.fromJson),
+      accounts: _each(r[1], Account.fromJson),
+      txns: _each(r[2], Txn.fromJson),
+      recurring: _each(r[3], _rec),
+      expected: _each(r[4], _exp),
       goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
       linksUsed: (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
@@ -35,12 +37,20 @@ class Remote {
     );
   }
 
+  List<T> _each<T>(List<dynamic> rows, T Function(Map<String, dynamic>) f) {
+    final out = <T>[];
+    for (final j in rows) {
+      try { out.add(f(j as Map<String, dynamic>)); } catch (_) {/* skip bad row */}
+    }
+    return out;
+  }
+
   Recurring _rec(Map<String, dynamic> j) => Recurring(
-      id: j['id'] as String, merchant: j['merchant'] as String, cadence: Cadence.values.firstWhere((c) => c.name == j['cadence']),
+      id: j['id'] as String, merchant: j['merchant'] as String, cadence: Cadence.values.firstWhere((c) => c.name == j['cadence'], orElse: () => Cadence.monthly),
       expectedCents: (j['expected_cents'] as num).toInt(), nextDate: DateTime.parse(j['next_date'] as String), categoryId: j['category_id'] as String?,
       priceHistory: [for (final p in (j['price_history'] as List? ?? const [])) ((p as Map)['cents'] as num).toInt()]);
   Expected _exp(Map<String, dynamic> j) => Expected(
-      id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind']), label: j['label'] as String,
+      id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind'], orElse: () => ExpectedKind.refund), label: j['label'] as String,
       amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String));
 
   /// Expected money that landed in the last two days.
@@ -88,6 +98,12 @@ class Remote {
 
   Future<void> deleteGoal(String id) => db.from('goals').delete().eq('id', id);
 
+  Future<Account> upsertManualAccount(Account a, int cents) async {
+    final row = {'name': a.name, 'type': 'checking', 'balance_cents': cents, 'available_cents': cents, 'is_manual': true, 'include_in_safe': true};
+    final j = _isUuid(a.id) ? await db.from('accounts').update(row).eq('id', a.id).select().single() : await db.from('accounts').insert(row).select().single();
+    return Account.fromJson(j);
+  }
+
   Future<Category> insertCategory(String name, String colorKey) async {
     final j = await db.from('categories').insert({'name': name, 'color_key': colorKey, 'icon': 'card', 'kind': 'spend', 'sort': 99}).select().single();
     return Category.fromJson(j);
@@ -96,6 +112,20 @@ class Remote {
   Future<void> renameCategory(String id, String name) => db.from('categories').update({'name': name}).eq('id', id);
   Future<void> deleteRule(String id) => db.from('rules').delete().eq('id', id);
   Future<void> recordPayday(int moved) => db.from('paydays').upsert({'day': DateTime.now().toIso8601String().substring(0, 10), 'moved_cents': moved}, onConflict: 'user_id,day');
+
+  /// The payday rule saved by an earlier install, if any (so a reinstall does not ask again).
+  Future<PaydayRule?> loadPaydayRule() async {
+    final j = await db.from('settings').select('payday_rule').maybeSingle();
+    final r = j?['payday_rule'];
+    if (r is! Map) return null;
+    try {
+      return PaydayRule(
+        frequency: PayFrequency.values.firstWhere((f) => f.name == r['frequency'], orElse: () => PayFrequency.biweekly),
+        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt());
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> savePaydayRule(Map<String, dynamic> rule) => db.from('settings').update({'payday_rule': rule}).eq('user_id', db.auth.currentUser!.id);
 
@@ -113,11 +143,13 @@ class Remote {
         'price_history': [{'date': DateTime.now().toIso8601String().substring(0, 10), 'cents': r.expectedCents}]});
 }
 
+/// Rebuilds only when the signed-in user changes (sign-in, sign-out), never on hourly token refresh.
 final remoteProvider = Provider<Remote?>((ref) {
   if (!Env.hasSupabase) return null;
+  final uid = ref.watch(userIdProvider);
+  if (uid == null) return null;
   try {
-    final c = Supabase.instance.client;
-    return c.auth.currentSession == null ? null : Remote(c);
+    return Remote(Supabase.instance.client);
   } catch (_) {
     return null;
   }

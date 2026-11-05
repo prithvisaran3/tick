@@ -26,11 +26,11 @@ Future<void> loadFonts() async {
   await load('GeistMono', ['GeistMono-Variable.ttf']);
 }
 
-Future<ProviderContainer> demoContainer({bool demo = true, List<Override> overrides = const []}) async {
+Future<ProviderContainer> demoContainer({bool demo = true, List<Override> overrides = const [], DateTime? now}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
   TickHaptics.instance.recordOnly = true;
-  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs), clockProvider.overrideWithValue(() => fixedNow), ...overrides]);
+  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs), clockProvider.overrideWithValue(() => now ?? fixedNow), ...overrides]);
   c.read(settingsProvider.notifier).update((s) => s.copyWith(demoMode: demo, onboardingDone: true, name: 'Prithvi'));
   return c;
 }

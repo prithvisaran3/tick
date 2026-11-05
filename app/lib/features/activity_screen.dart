@@ -7,6 +7,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/refresh.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
@@ -99,17 +100,33 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         ]),
       ),
       Expanded(
-        child: l.loading
-            ? const ListSkeleton(rows: 7)
-            : list.isEmpty
-                ? EmptyState(f.any ? 'No matches' : 'Nothing here yet', f.any ? 'Try a different search or clear the filters.' : 'Add your first one in three taps.', icon: 'search')
-                : ListView(padding: const EdgeInsets.only(bottom: 130), children: [
-                    for (final d in days) ...[
-                      SectionLabel(dayLabel(d, now), trailing: Text(formatCents(groups[d]!.fold(0, (s, t) => s + t.amountCents), sign: true), style: context.ts(TickType.monoS, color: c.textSecondary))),
-                      for (final t in groups[d]!)
-                        _SwipeRow(t: t, ledger: l, child: TxRow(t: t, ledger: l, onTap: () => context.push('/txn/${t.id}'))),
-                    ],
-                  ]),
+        child: () {
+          if (l.loading && l.txns.isEmpty) return const ListSkeleton(rows: 8);
+          if (l.offline && l.txns.isEmpty) return ErrorState(onRetry: ref.read(ledgerProvider.notifier).refresh);
+          // Flatten day headers and rows so the list builds lazily (a long history must never build all at once).
+          final items = <Object>[for (final d in days) ...[d, ...groups[d]!]];
+          return TickScrollView(
+            onRefresh: ref.read(ledgerProvider.notifier).refresh,
+            slivers: [
+              if (l.offline) SliverToBoxAdapter(child: OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh)),
+              if (list.isEmpty)
+                SliverToBoxAdapter(child: EmptyState(f.any ? 'No matches' : 'Nothing here yet', f.any ? 'Try a different search or clear the filters.' : 'Add your first one in three taps.', icon: 'search'))
+              else
+                SliverList.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, i) {
+                    final it = items[i];
+                    if (it is DateTime) {
+                      return SectionLabel(dayLabel(it, now), trailing: Text(formatCents(groups[it]!.fold(0, (s, t) => s + t.amountCents), sign: true), style: context.ts(TickType.monoS, color: c.textSecondary)));
+                    }
+                    final t = it as Txn;
+                    return _SwipeRow(t: t, ledger: l, child: TxRow(t: t, ledger: l, hero: true, onTap: () => context.push('/txn/${t.id}')));
+                  },
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 130)),
+            ],
+          );
+        }(),
       ),
     ]);
   }

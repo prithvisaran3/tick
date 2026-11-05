@@ -9,6 +9,8 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/pickers.dart';
+import '../design/widgets/refresh.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
@@ -37,19 +39,23 @@ class TodayScreen extends ConsumerWidget {
     final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(today.add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
     final nextIn = ledger.expected.where((e) => e.kind == ExpectedKind.paycheck).toList()..sort((a, b) => a.date.compareTo(b.date));
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 130),
-      children: [
+    return TickScrollView(
+      onRefresh: ref.read(ledgerProvider.notifier).refresh,
+      slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SizedBox(
           height: 52,
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Wordmark(),
-            Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
+            Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', minSize: 44, child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
           ]),
         ),
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),
         const SizedBox(height: 16),
-        _Hero(sts: sts, loading: ledger.loading),
+        if (ledger.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
+        _Hero(sts: sts, loading: ledger.loading, needsBalance: !settings.demoMode && !ledger.loading && sts != null && !ledger.accounts.any((a) => a.includeInSafe && a.type != 'credit' && a.type != 'savings'), onAddBalance: () async {
+          final cents = await showAmountSheet(context, title: 'In your checking account');
+          if (cents != null) ref.read(ledgerProvider.notifier).setManualBalance(cents);
+        }),
         const SizedBox(height: 12),
         if (sts != null)
           SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
@@ -81,7 +87,10 @@ class TodayScreen extends ConsumerWidget {
             child: Column(children: [
               for (var i = 0; i < todays.length && i < 4; i++) ...[
                 if (i > 0) const Hairline(),
-                PopIn(delay: Duration(milliseconds: 80 * i), fromOffsetY: 60, fromScale: 0.94, onLanded: () { if (i == 0 && todays[0].source != 'manual') TickHaptics.instance.capturePop(todays[0].amountCents); },
+                PopIn(delay: Duration(milliseconds: 80 * i), fromOffsetY: 60, fromScale: 0.94, onLanded: () {
+                  // The pop + price weight is for a NEW capture only, not for re-opening the app with an old one on top.
+                  if (i == 0 && todays[0].source != 'manual' && now.difference(todays[0].occurredAt).abs() < const Duration(minutes: 2)) TickHaptics.instance.capturePop(todays[0].amountCents);
+                },
                     child: TxRow(t: todays[i], ledger: ledger, sticker: i == 0, subtitle: _sub(todays[i], ledger, i == 0), onTap: () => context.push('/txn/${todays[i].id}'))),
               ],
             ]),
@@ -106,6 +115,7 @@ class TodayScreen extends ConsumerWidget {
             ]),
           ),
         ],
+      ]))),
       ],
     );
   }
@@ -117,12 +127,25 @@ String _sub(Txn t, LedgerState l, bool first) {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.sts, required this.loading});
+  const _Hero({required this.sts, required this.loading, this.needsBalance = false, this.onAddBalance});
+  final bool needsBalance;
+  final VoidCallback? onAddBalance;
   final dynamic sts; // SafeToSpend?
   final bool loading;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    if (loading && sts == null) {
+      return const Center(child: Skeleton(width: 300, height: 128, radius: 64));
+    }
+    if (needsBalance) {
+      // No bank and no typed balance: Safe to spend can't be honest yet, so ask for the one number it needs.
+      return Column(children: [
+        Pressable(onTap: onAddBalance, semanticLabel: 'Add your balance', child: Sticker(hole: true, padding: const EdgeInsets.fromLTRB(44, 20, 36, 20), child: Text('Add balance', style: context.ts(TickType.displayM, color: c.onAccent)))),
+        const SizedBox(height: 12),
+        Text('Safe to spend needs what is in your account today.', textAlign: TextAlign.center, style: context.ts(TickType.body, color: c.textSecondary)),
+      ]);
+    }
     if (sts == null) {
       return Column(children: [
         Sticker(hole: true, padding: const EdgeInsets.fromLTRB(44, 20, 36, 20), child: Text('Add paycheck', style: context.ts(TickType.displayM, color: c.onAccent))),

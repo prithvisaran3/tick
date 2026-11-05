@@ -10,12 +10,12 @@ from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai
-from .auth import current_user
+from .auth import current_user, user_limiter
 from .db import rest
-from .intel import detect_recurring
+from .intel import ET, detect_recurring
 
 router = APIRouter()
 
@@ -159,8 +159,8 @@ def fallback_answer(q: str, l: Ledger) -> tuple[str, list[dict]]:
 
 # ----------------- route -----------------
 class AskBody(BaseModel):
-    question: str
-    history: list[dict] = []
+    question: str = Field(min_length=1, max_length=500)
+    history: list[dict] = Field(default_factory=list, max_length=12)
 
 def next_payday(rule: dict | None, today: date) -> date | None:
     """Next payday on or after today from {frequency, next_date (any known payday), amount_cents}."""
@@ -188,12 +188,12 @@ def next_payday(rule: dict | None, today: date) -> date | None:
     return d
 
 def load_ledger(user_id: str) -> Ledger:
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(ET).date()
     since = (today - timedelta(days=400)).isoformat()
     cats = {c["id"]: c["name"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
     r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "id,merchant_clean,merchant_raw,amount_cents,occurred_at,category_id,tags,account_id"), ("limit", "5000")])
     r.raise_for_status()
-    txns = [{"id": x["id"], "merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).date(),
+    txns = [{"id": x["id"], "merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date(),
              "category": cats.get(x["category_id"]), "tags": x["tags"] or [], "account": x["account_id"]} for x in r.json()]
     rec = [{"merchant": x["merchant"], "cadence": x["cadence"], "expected_cents": x["expected_cents"], "next_date": date.fromisoformat(x["next_date"])} for x in rest().select("recurring", user_id=f"eq.{user_id}", status="eq.active")]
     exp = [{"label": x["label"], "kind": x["kind"], "amount_cents": x["amount_cents"], "date": date.fromisoformat(x["expected_date"])} for x in rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected")]
@@ -219,6 +219,7 @@ TOOL_SPECS = [
 ]
 OR_TOOLS = [{"type": "function", "function": t} for t in TOOL_SPECS]
 MAX_AI_CALLS = 3
+DEADLINE_SECONDS = 40
 
 SYSTEM = ("You are Tick, a friend who is great with money, inside a personal finance app. Answer in plain sentences. LEAD WITH THE NUMBER (for example "
           "'$412 on food this month.'). Use the tools for facts; never invent figures. Tool money amounts are in cents: convert to dollars. Keep answers under 60 words. "
@@ -236,7 +237,11 @@ def llm_answer(user_id: str, q: str, history: list[dict], l: Ledger) -> tuple[st
         if h.get("role") in ("user", "assistant") and h.get("text"):
             msgs.append({"role": h["role"], "content": ai.scrub(str(h["text"]))})
     msgs.append({"role": "user", "content": ai.scrub(q)})
+    import time as _t
+    deadline = _t.time() + DEADLINE_SECONDS                      # a slow free model must not hold the stream open forever
     for _ in range(MAX_AI_CALLS):
+        if _t.time() > deadline:
+            return None
         r = ai._chat("tools", msgs, user_id, "ask", tools=OR_TOOLS, max_tokens=300)
         if r is None:
             return None
@@ -259,17 +264,32 @@ def sse(events: Iterator[dict]) -> Iterator[str]:
     for e in events:
         yield f"data: {json.dumps(e)}\n\n"
 
+ASK_BUDGET_SECONDS = 45
+
 @router.post("/ask")
 def ask(body: AskBody, user_id: str = Depends(current_user)):
+    user_limiter.check(f"ask:{user_id}", 8, 60)
     q = body.question.strip()[:500]
+    history = [h for h in body.history if isinstance(h, dict)][:12]
+
     def gen() -> Iterator[dict]:
-        l = load_ledger(user_id)
-        res = llm_answer(user_id, q, body.history, l) or fallback_answer(q, l)
-        text, blocks = res
+        # Headers go out immediately; the keepalive comment below keeps proxies from closing a quiet stream.
+        try:
+            l = load_ledger(user_id)
+            res = llm_answer(user_id, q, history, l) or fallback_answer(q, l)
+            text, blocks = res
+        except Exception:
+            yield {"type": "error", "message": "That didn't go through. Try again, nothing was lost."}
+            return
         words = re.findall(r"\S+\s*", text)
         for i in range(0, len(words), 3):
             yield {"type": "token", "text": "".join(words[i:i + 3])}
         for b in blocks:
             yield {"type": "block", "block": b}
         yield {"type": "done"}
-    return StreamingResponse(sse(gen()), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    def stream() -> Iterator[str]:
+        yield ": ping\n\n"
+        yield from sse(gen())
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})

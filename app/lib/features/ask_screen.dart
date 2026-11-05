@@ -14,47 +14,101 @@ import '../design/widgets/more.dart';
 import 'common.dart';
 
 class AskMessage {
-  AskMessage(this.fromUser, this.text, {List<Map<String, dynamic>>? blocks}) : blocks = blocks ?? [];
+  AskMessage(this.fromUser, this.text, {List<Map<String, dynamic>>? blocks, this.failed = false}) : blocks = blocks ?? [];
   final bool fromUser;
   String text;
   final List<Map<String, dynamic>> blocks;
+  bool failed; // the stream broke: partial text stays, with a retry
 }
 
 class AskNotifier extends Notifier<List<AskMessage>> {
   bool busy = false;
-  @override
-  List<AskMessage> build() => [];
+  http.Client? _client;
+  String? _lastQuestion;
+  bool _cancelled = false;
 
-  /// Streams an answer from POST /ask (SSE). Events: {type:token,text}, {type:block,block}, {type:done}.
+  @override
+  List<AskMessage> build() {
+    ref.onDispose(cancel);
+    return [];
+  }
+
+  /// Stop the current answer (leaving the screen, tapping stop). Partial text stays.
+  void cancel() {
+    _cancelled = true;
+    _client?.close();
+    _client = null;
+  }
+
+  Future<void> retry() async {
+    final q = _lastQuestion;
+    if (q == null || busy) return;
+    if (state.isNotEmpty && !state.last.fromUser && state.last.failed) state = state.sublist(0, state.length - 2);   // drop the failed pair and ask again
+    await ask(q);
+  }
+
+  /// Streams an answer from POST /ask (SSE). Events: {type:token,text}, {type:block,block}, {type:error}, {type:done}; `: ping` keepalives are ignored.
+  /// Before the first token arrives, one automatic retry. After that a broken stream keeps the partial text and offers a retry.
   Future<void> ask(String q) async {
-    if (busy || q.trim().isEmpty) return;
+    final question = q.trim();
+    if (busy || question.isEmpty) return;
     busy = true;
+    _cancelled = false;
+    _lastQuestion = question;
+    final history = [for (final m in state.reversed.take(6).toList().reversed) {'role': m.fromUser ? 'user' : 'assistant', 'text': m.text}];
     final reply = AskMessage(false, '');
-    state = [...state, AskMessage(true, q.trim()), reply];
-    try {
-      final token = Env.hasSupabase ? Supabase.instance.client.auth.currentSession?.accessToken : null;
-      if (token == null) throw StateError('offline');
-      final req = http.Request('POST', Uri.parse('${Env.apiBaseUrl}/ask'))
-        ..headers.addAll({'Authorization': 'Bearer $token', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
-        ..body = jsonEncode({'question': q.trim(), 'history': [for (final m in state.take(state.length - 2).toList().reversed.take(6).toList().reversed) {'role': m.fromUser ? 'user' : 'assistant', 'text': m.text}]});
-      final res = await http.Client().send(req).timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) throw StateError('status ${res.statusCode}');
-      await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
-        if (!line.startsWith('data:')) continue;
-        final ev = jsonDecode(line.substring(5).trim()) as Map<String, dynamic>;
-        switch (ev['type']) {
-          case 'token': reply.text += ev['text'] as String;
-          case 'block': reply.blocks.add(ev['block'] as Map<String, dynamic>);
-          case 'done': break;
-        }
-        state = [...state];
+    state = [...state, AskMessage(true, question), reply];
+    var attempt = 0;
+    while (true) {
+      try {
+        await _stream(question, history, reply);
+        reply.failed = false;
+        if (reply.text.isEmpty) reply.text = 'I couldn\'t find an answer for that. Try asking it another way.';
+        break;
+      } catch (e) {
+        if (_cancelled) break;
+        final gotSomething = reply.text.isNotEmpty || reply.blocks.isNotEmpty;
+        if (!gotSomething && attempt == 0) { attempt++; await Future<void>.delayed(const Duration(milliseconds: 700)); continue; }
+        reply.failed = true;
+        if (!gotSomething) reply.text = 'Can\'t reach Tick right now. Your numbers on Today and Flows are still here.';
+        break;
       }
-      if (reply.text.isEmpty) reply.text = 'I couldn\'t find an answer for that. Try asking it another way.';
-    } catch (_) {
-      reply.text = 'Can\'t reach Tick right now. Showing your last known numbers on Today and Flows.';
     }
     busy = false;
     state = [...state];
+  }
+
+  Future<void> _stream(String q, List<Map<String, String>> history, AskMessage reply) async {
+    final token = Env.hasSupabase ? Supabase.instance.client.auth.currentSession?.accessToken : null;
+    if (token == null) throw StateError('signed out');
+    final client = http.Client();
+    _client = client;
+    try {
+      final req = http.Request('POST', Uri.parse('${Env.apiBaseUrl}/ask'))
+        ..headers.addAll({'Authorization': 'Bearer $token', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
+        ..body = jsonEncode({'question': q, 'history': history});
+      final res = await client.send(req).timeout(const Duration(seconds: 20));
+      if (res.statusCode != 200) throw StateError('status ${res.statusCode}');
+      var finished = false;
+      final lines = res.stream.transform(utf8.decoder).transform(const LineSplitter()).timeout(const Duration(seconds: 30));   // idle timeout between chunks
+      await for (final line in lines) {
+        if (!line.startsWith('data:')) continue;                                  // comments (": ping") and blanks
+        Map<String, dynamic> ev;
+        try { ev = jsonDecode(line.substring(5).trim()) as Map<String, dynamic>; } catch (_) { continue; }
+        switch (ev['type']) {
+          case 'token': reply.text += (ev['text'] as String? ?? '');
+          case 'block': if (ev['block'] is Map<String, dynamic>) reply.blocks.add(ev['block'] as Map<String, dynamic>);
+          case 'error': throw StateError('server error');
+          case 'done': finished = true;
+        }
+        state = [...state];
+        if (finished) break;
+      }
+      if (!finished && reply.text.isEmpty) throw StateError('empty stream');
+    } finally {
+      client.close();
+      if (identical(_client, client)) _client = null;
+    }
   }
 }
 
@@ -76,16 +130,19 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   void dispose() { _ctl.dispose(); _focus.dispose(); _scroll.dispose(); super.dispose(); }
 
   void _send([String? q]) {
+    if (ref.read(askProvider.notifier).busy) return;                    // one question at a time
     final text = q ?? _ctl.text;
+    if (text.trim().isEmpty) return;
     _ctl.clear();
     ref.read(askProvider.notifier).ask(text);
     setState(() {});
-    Future.delayed(const Duration(milliseconds: 100), () { if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); });
+    Future.delayed(const Duration(milliseconds: 100), () { if (mounted && _scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); });
   }
 
   @override
   Widget build(BuildContext context) {
     final msgs = ref.watch(askProvider);
+    final busy = ref.read(askProvider.notifier).busy;
     final l = ref.watch(ledgerProvider);
     final c = context.c;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -97,7 +154,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                 Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [for (final q in suggestedQuestions.take(4)) TickChip(q, onTap: () => _send(q))]),
               ])
             : ListView(controller: _scroll, padding: const EdgeInsets.only(bottom: 16), children: [
-                for (final m in msgs) m.fromUser ? _UserBubble(m.text) : _Answer(m: m, ledger: l),
+                for (final m in msgs) m.fromUser ? _UserBubble(m.text) : _Answer(m: m, ledger: l, onRetry: () => ref.read(askProvider.notifier).retry()),
               ]),
       ),
       SizedBox(
@@ -114,7 +171,10 @@ class _AskScreenState extends ConsumerState<AskScreen> {
               if (_ctl.text.isEmpty) IgnorePointer(child: Text('Ask anything about your money', style: context.ts(TickType.body, color: c.textSecondary))),
               EditableText(controller: _ctl, focusNode: _focus, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline, onChanged: (_) => setState(() {}), onSubmitted: (v) => _send()),
             ])),
-            Pressable(onTap: _send, semanticLabel: 'Send', child: Container(width: 40, height: 40, decoration: BoxDecoration(color: _ctl.text.isEmpty ? c.surface1 : c.accent, shape: BoxShape.circle), alignment: Alignment.center, child: TickIcon('arrow-up', size: 20, color: _ctl.text.isEmpty ? c.textSecondary : c.onAccent))),
+            Pressable(
+              onTap: busy ? () => ref.read(askProvider.notifier).cancel() : _send, semanticLabel: busy ? 'Stop' : 'Send', minSize: 44,
+              child: Container(width: 40, height: 40, decoration: BoxDecoration(color: _ctl.text.isEmpty && !busy ? c.surface1 : c.accent, shape: BoxShape.circle), alignment: Alignment.center, child: busy ? TickLoader(color: c.onAccent, size: 5) : TickIcon('arrow-up', size: 20, color: _ctl.text.isEmpty ? c.textSecondary : c.onAccent)),
+            ),
           ]),
         ),
       ),
@@ -133,7 +193,8 @@ class _UserBubble extends StatelessWidget {
 }
 
 class _Answer extends StatelessWidget {
-  const _Answer({required this.m, required this.ledger});
+  const _Answer({required this.m, required this.ledger, required this.onRetry});
+  final VoidCallback onRetry;
   final AskMessage m;
   final LedgerState ledger;
   @override
@@ -147,6 +208,7 @@ class _Answer extends StatelessWidget {
         else if (match != null) ...[Text(match.group(1)!, style: context.ts(TickType.hero, size: 52)), const SizedBox(height: 2), Text(match.group(2)!, style: context.ts(TickType.bodyL))]
         else Text(m.text, style: context.ts(TickType.bodyL)),
         for (final b in m.blocks) Padding(padding: const EdgeInsets.only(top: 12), child: _Block(block: b, ledger: ledger)),
+        if (m.failed) Padding(padding: const EdgeInsets.only(top: 12), child: Row(children: [TickChip('Try again', icon: 'repeat', onTap: onRetry)])),
       ]),
     );
   }

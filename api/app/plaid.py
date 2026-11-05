@@ -15,17 +15,18 @@ from typing import Any
 import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumbers, SECP256R1
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import store
-from .auth import current_user, require_cron
+from .auth import current_user, require_cron, user_limiter
 from .config import settings
 from .db import rest
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
-from .reconcile import Candidate, apply_plaid_removed, plan
+from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
 ITEM_CAP = 10
 router = APIRouter()
@@ -243,8 +244,31 @@ def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     if best:
         rest().update("expected", {"id": best[1]["id"]}, {"status": "landed", "matched_transaction_id": txn_id})
 
+def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime) -> None:
+    """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit)."""
+    if cents <= 0:
+        return
+    best = None
+    for e in expected:
+        days = abs((datetime.fromisoformat(e["expected_date"]).date() - when.date()).days)
+        if days <= 4 and abs(e["amount_cents"] - cents) <= max(500, e["amount_cents"] * 0.1) and (best is None or days < best[0]):
+            best = (days, e)
+    if best:
+        expected.remove(best[1])
+        rest().update("expected", {"id": best[1]["id"]}, {"status": "landed", "matched_transaction_id": txn_id})
+
+def _flush(rows: list[dict]) -> None:
+    if rows:
+        rest().insert("transactions", list(rows), returning=False)          # one bulk insert instead of a request per transaction
+        rows.clear()
+
 def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
-    """Pull /transactions/sync pages, reconcile into the ledger, advance the cursor only after everything persisted."""
+    """Pull /transactions/sync pages, reconcile into the ledger, advance the cursor only after everything persisted.
+
+    Per page: ONE query loads the existing rows around the page's time range plus rows matching its Plaid ids, every candidate is reconciled
+    in memory against that pool (later candidates see earlier ones), new rows go in with one bulk insert, and updates are flushed in order.
+    (It used to issue 3-4 queries per transaction, which timed out on a 12-month first sync.)"""
+    import uuid
     prov = prov or provider()
     user_id = conn["user_id"]
     token = rest().rpc("tick_vault_get", {"secret_id": conn["vault_secret_id"]})
@@ -253,31 +277,53 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
     cursor = conn.get("cursor")
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
+    expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date")
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
         accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token))
-        by_pid = {k: v for k, v in accts.items()}
         while True:
             page = prov.sync_page(token, cursor)
-            for t in page.get("added", []) + page.get("modified", []):
-                cand, tags = plaid_candidate(t, by_pid, rules, name_to_id)
-                with store.user_lock(user_id):
-                    pool = {t.id: t for t in store.window(user_id, cand.occurred_at) + store.by_plaid_ids(user_id, [i for i in (cand.plaid_transaction_id, cand.plaid_pending_id) if i])}
-                    actions = plan(cand, list(pool.values()), category_names=id_to_name)
-                    action = actions[0]
-                    tid = None
+            items = page.get("added", []) + page.get("modified", [])
+            cands = [plaid_candidate(t, accts, rules, name_to_id) for t in items]
+            with store.user_lock(user_id):
+                pool: dict[str, object] = {}
+                if cands:
+                    lo = min(c.occurred_at for c, _ in cands)
+                    hi = max(c.occurred_at for c, _ in cands)
+                    ids = [i for c, _ in cands for i in (c.plaid_transaction_id, c.plaid_pending_id) if i]
+                    for t in store.window_range(user_id, lo, hi) + store.by_plaid_ids(user_id, ids):
+                        pool[t.id] = t
+                txns = list(pool.values())
+                inserts: list[dict] = []
+                for cand, tags in cands:
+                    new_id = str(uuid.uuid4())
+                    actions = plan_and_apply(txns, cand, new_id, category_names=id_to_name)
+                    first = actions[0]
                     for a in actions:
-                        tid = store.persist(user_id, a, {"tags": tags} if a.kind == "insert" and tags else None) or tid
-                    if action.kind == "insert" and tid and cand.category_id == name_to_id.get("Other") and cand.amount_cents < 0:
-                        uncategorised[cand.merchant_clean or cand.merchant_raw] = tid
-                counts["merged" if action.kind == "update" and action.reason == "heuristic" else ("added" if action.kind == "insert" else "modified")] += 1
-                if action.kind == "insert" and tid:
-                    _landed(user_id, tid, cand.amount_cents, cand.occurred_at)
+                        if a.kind == "insert":
+                            row = {k: store.ser(v) for k, v in a.fields.items()}
+                            row.update({"id": a.txn_id, "user_id": user_id})
+                            if tags:
+                                row["tags"] = tags
+                            inserts.append(row)
+                        else:
+                            _flush(inserts)                       # an update may target a row inserted earlier in this page
+                            store.persist(user_id, a)
+                    counts["merged" if first.kind == "update" and first.reason == "heuristic" else ("added" if first.kind == "insert" else "modified")] += 1
+                    if actions[-1].kind == "insert":
+                        if cand.category_id == name_to_id.get("Other") and cand.amount_cents < 0:
+                            uncategorised[cand.merchant_clean or cand.merchant_raw] = new_id
+                _flush(inserts)
+                # Landed matching after rows exist (matched_transaction_id is a foreign key).
+                for cand, _ in cands:
+                    row = next((t for t in txns if getattr(t, "plaid_transaction_id", None) == cand.plaid_transaction_id), None)
+                    if row is not None and cand.amount_cents > 0:
+                        _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at)
             rem = [r["transaction_id"] for r in page.get("removed", [])]
             if rem:
-                txns = store.by_plaid_ids(user_id, rem)
-                for a in apply_plaid_removed(txns, rem):
+                gone = store.by_plaid_ids(user_id, rem)
+                for a in apply_plaid_removed(gone, rem):
                     store.persist(user_id, a)
                     counts["removed"] += 1
             cursor = page["next_cursor"]
@@ -326,6 +372,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         token = rest().rpc("tick_vault_get", {"secret_id": rows[0]["vault_secret_id"]})
     elif slots_used(user_id) >= ITEM_CAP:
         raise HTTPException(409, "You have used all 10 bank links.")
+    user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
         r = provider().create_link_token(user_id, access_token=token)
     except PlaidError as e:
@@ -337,10 +384,10 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
 class CompleteBody(BaseModel):
     link_token: str
 
-def finish_link(user_id: str, link_token_value: str) -> list[str]:
+def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -> list[dict]:
     prov = provider()
     publics = prov.link_token_result(link_token_value)
-    ids: list[str] = []
+    created: list[dict] = []
     for pt in publics:
         access, item_id = prov.exchange(pt)
         if rest().select("connections", item_id=f"eq.{item_id}", select="id"):
@@ -349,37 +396,50 @@ def finish_link(user_id: str, link_token_value: str) -> list[str]:
         sid = rest().rpc("tick_vault_put", {"secret_name": f"plaid-{item_id}", "secret_value": access})
         inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
         conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id, "vault_secret_id": sid, "status": "active"})[0]
-        sync_connection(conn, prov)
-        ids.append(conn["id"])
-    return ids
+        if sync_now:
+            sync_connection(conn, prov)
+        created.append(conn)
+    return created
 
 @router.post("/plaid/complete")
-def complete(body: CompleteBody, user_id: str = Depends(current_user)):
+def complete(body: CompleteBody, background: BackgroundTasks, user_id: str = Depends(current_user)):
+    """Exchange the public token and create the connection, then run the first sync (up to 12 months) in the BACKGROUND so the app gets an
+    answer in a couple of seconds. The app sees rows arrive through Realtime and the connection's last_synced_at."""
+    user_limiter.check(f"link:{user_id}", 5, 60)
     sess = _session_for_link_token(body.link_token)
     if sess and sess["user_id"] != user_id:
         raise HTTPException(403, "not your link session")
     try:
-        ids = finish_link(user_id, body.link_token)
+        created = finish_link(user_id, body.link_token, sync_now=False)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
-    return {"connections": ids, **links(user_id)}
+    for conn in created:
+        background.add_task(_safe_sync, conn)
+    return {"connections": [c["id"] for c in created], "syncing": bool(created), **links(user_id)}
 
 @router.post("/plaid/sync/{connection_id}")
-def sync_one(connection_id: str, user_id: str = Depends(current_user)):
+def sync_one(connection_id: str, background: BackgroundTasks, user_id: str = Depends(current_user)):
+    user_limiter.check(f"sync:{user_id}", 6, 60)
     rows = rest().select("connections", id=f"eq.{connection_id}", user_id=f"eq.{user_id}")
     if not rows:
         raise HTTPException(404, "connection not found")
-    return sync_connection(rows[0])
+    background.add_task(_safe_sync, rows[0])               # the app sees the result through Realtime
+    return {"syncing": True}
 
 @router.post("/webhooks/plaid")
-async def plaid_webhook(request: Request, plaid_verification: str = Header(default="")):
+async def plaid_webhook(request: Request, background: BackgroundTasks, plaid_verification: str = Header(default="")):
+    """Verify, then do the work in the background: Plaid expects an answer within seconds and retries slow ones."""
     body = await request.body()
+    # Verification and the lookups below are blocking network calls: run them in the threadpool, never on the event loop.
+    return await run_in_threadpool(_handle_webhook, body, plaid_verification, background)
+
+def _handle_webhook(body: bytes, plaid_verification: str, background: BackgroundTasks) -> dict:
     verify_webhook(body, plaid_verification)
     ev = json.loads(body)
     typ, code, item_id = ev.get("webhook_type"), ev.get("webhook_code"), ev.get("item_id")
     conns = rest().select("connections", item_id=f"eq.{item_id}") if item_id else []
     if typ == "TRANSACTIONS" and code in ("SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE") and conns:
-        sync_connection(conns[0])
+        background.add_task(_safe_sync, conns[0])
     elif typ == "ITEM" and conns:
         if code == "ERROR":
             err = (ev.get("error") or {}).get("error_code", "ERROR")
@@ -388,17 +448,24 @@ async def plaid_webhook(request: Request, plaid_verification: str = Header(defau
             rest().update("connections", {"id": conns[0]["id"]}, {"status": "login_required", "error_code": code})
         elif code == "LOGIN_REPAIRED":
             rest().update("connections", {"id": conns[0]["id"]}, {"status": "active", "error_code": None})
-            sync_connection(conns[0])
+            background.add_task(_safe_sync, conns[0])
     elif typ == "LINK" and code == "SESSION_FINISHED" and ev.get("status") == "success":
         lt = ev.get("link_token")
         sess = _session_for_link_token(lt)
         if sess and not sess.get("connection_id"):
-            finish_link(sess["user_id"], lt)
+            for conn in finish_link(sess["user_id"], lt, sync_now=False):
+                background.add_task(_safe_sync, conn)
         elif sess and sess.get("connection_id"):
             cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
             if cs:
-                sync_connection(cs[0])                                       # update mode finished: same Item, just sync
+                background.add_task(_safe_sync, cs[0])                       # update mode finished: same Item, just sync
     return {"ok": True}
+
+def _safe_sync(conn: dict) -> None:
+    try:
+        sync_connection(conn)
+    except Exception:
+        rest().update("connections", {"id": conn["id"]}, {"status": "error", "error_code": "SYNC_FAILED"})
 
 def _session_for_link_token(lt: str | None) -> dict | None:
     """SESSION_FINISHED carries only the link_token, so the owner is looked up from the session stored when the token was created."""
@@ -413,14 +480,9 @@ def oauth_return():
     return "<!doctype html><meta charset=utf-8><title>tick</title><body style='background:#0E0E12;color:#F5F3EC;font-family:system-ui;display:grid;place-items:center;height:100vh'>Returning to Tick..."
 
 @router.post("/jobs/sync-all", dependencies=[Depends(require_cron)])
-def sync_all():
-    """pg_cron backstop every 6 hours."""
-    conns = rest().select("connections", provider="eq.plaid", status="neq.removed")
-    out = {}
+def sync_all(background: BackgroundTasks):
+    """pg_cron backstop every 6 hours. Returns at once; connections sync one after another in the background."""
+    conns = [c for c in rest().select("connections", provider="eq.plaid", status="neq.removed") if c.get("vault_secret_id")]
     for c in conns:
-        if c.get("vault_secret_id"):
-            try:
-                out[c["id"]] = sync_connection(c)
-            except Exception:
-                out[c["id"]] = {"error": "failed"}
-    return {"synced": len(out)}
+        background.add_task(_safe_sync, c)
+    return {"queued": len(conns)}

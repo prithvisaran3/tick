@@ -49,7 +49,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         h('Controls'),
         Segmented(options: const ['Full', 'Subtle', 'Off'], index: _seg, onChanged: (i) => setState(() => _seg = i)),
         const SizedBox(height: 8),
-        Row(children: [Expanded(child: Text('Toggle', style: context.ts(TickType.title))), TickToggle(on: _tog, onChanged: (v) => setState(() => _tog = v))]),
+        Row(children: [Expanded(child: Text('Toggle', style: context.ts(TickType.title))), TickToggle(label: 'Toggle', on: _tog, onChanged: (v) => setState(() => _tog = v))]),
         const SizedBox(height: 8),
         HoldToConfirm(label: 'Delete', danger: true, onConfirmed: () {}),
         h('Avatars'),

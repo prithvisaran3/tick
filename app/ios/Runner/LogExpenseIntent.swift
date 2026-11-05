@@ -2,7 +2,7 @@ import AppIntents
 import Foundation
 
 /// "Log expense" for Siri, Shortcuts and the Action Button.
-/// Saves the entry to the shared App Group and opens Tick, which shows quick add prefilled (see lib/services/pending_add.dart).
+/// Saves the entry to the app's UserDefaults and opens Tick, which shows quick add prefilled (see lib/services/pending_add.dart).
 @available(iOS 16.0, *)
 struct LogExpenseIntent: AppIntent {
   static var title: LocalizedStringResource = "Log expense"
@@ -22,7 +22,8 @@ struct LogExpenseIntent: AppIntent {
     if let merchant { entry["merchant"] = merchant }
     if let category { entry["category"] = category }
     if let data = try? JSONSerialization.data(withJSONObject: entry), let s = String(data: data, encoding: .utf8) {
-      UserDefaults(suiteName: "group.com.prithvi.tick")?.set(s, forKey: "pendingAdd")
+      // Same store shared_preferences reads ("flutter." prefix). No App Group needed, so this works with a free Apple account.
+      UserDefaults.standard.set(s, forKey: "flutter.pendingAdd")
     }
     return .result()
   }

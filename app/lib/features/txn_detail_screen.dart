@@ -19,7 +19,9 @@ class TxnDetailScreen extends ConsumerWidget {
     final l = ref.watch(ledgerProvider);
     final t = l.txns.where((x) => x.id == id).firstOrNull;
     final c = context.c;
-    if (t == null) return TickScreen(child: Column(children: [ScreenTitle('Purchase', onBack: () => context.pop()), const EmptyState('Not found', 'This one moved or was deleted.')]));
+    if (t == null) {
+      return TickScreen(child: Column(children: [ScreenTitle('Purchase', onBack: () => context.pop()), if (l.loading) const ListSkeleton(rows: 3) else const EmptyState('Not found', 'This one moved or was deleted.')]));
+    }
     final cat = l.category(t.categoryId);
     final acct = l.account(t.accountId);
     return TickScreen(

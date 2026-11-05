@@ -20,10 +20,10 @@ router = APIRouter()
 
 class IngestBody(BaseModel):
     source: str = Field(pattern="^(sms|applepay)$")
-    text: str | None = None
-    merchant: str | None = None
+    text: str | None = Field(default=None, max_length=2000)
+    merchant: str | None = Field(default=None, max_length=200)
     amount: float | str | None = None
-    card: str | None = None
+    card: str | None = Field(default=None, max_length=80)
 
 def build_candidate(user_id: str, source: str, ref: str, parsed: ParsedAlert, now: datetime) -> tuple[Candidate, list[str]]:
     name_to_id, _ = store.category_maps(user_id)

@@ -21,7 +21,9 @@ class TickIcon extends StatelessWidget {
 
 /// Scales down with a spring while pressed.
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, this.onTap, this.semanticLabel, this.scale = 0.96});
+  const Pressable({super.key, required this.child, this.onTap, this.semanticLabel, this.scale = 0.96, this.minSize = 0});
+  /// Minimum tap target (Apple asks for 44 pt). The visible child keeps its size; only the hit area grows.
+  final double minSize;
   final Widget child;
   final VoidCallback? onTap;
   final String? semanticLabel;
@@ -47,7 +49,10 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
           onTapUp: (_) => _to(1),
           onTapCancel: () => _to(1),
           onTap: widget.onTap,
-          child: AnimatedBuilder(animation: _c, builder: (_, ch) => Transform.scale(scale: _c.value, child: ch), child: widget.child),
+          child: AnimatedBuilder(
+            animation: _c, builder: (_, ch) => Transform.scale(scale: _c.value, child: ch),
+            child: widget.minSize > 0 ? ConstrainedBox(constraints: BoxConstraints(minWidth: widget.minSize, minHeight: widget.minSize), child: Center(widthFactor: 1, heightFactor: 1, child: widget.child)) : widget.child,
+          ),
         ),
       );
 }
@@ -67,11 +72,12 @@ class PopIn extends StatefulWidget {
 }
 
 class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController.unbounded(vsync: this, value: 0);
+  late final AnimationController _c;
   bool _started = false;
   @override
   void initState() {
     super.initState();
+    _c = AnimationController.unbounded(vsync: this, value: 0);      // created here, never lazily in dispose()
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.delay > Duration.zero) await Future<void>.delayed(widget.delay);
       if (!mounted) return;
@@ -163,7 +169,8 @@ class Hairline extends StatelessWidget {
 enum PillStyle { primary, ghost, inverse, quiet }
 
 class PillButton extends StatelessWidget {
-  const PillButton(this.label, {super.key, this.onTap, this.style = PillStyle.primary, this.icon, this.height = 56, this.expand = true});
+  const PillButton(this.label, {super.key, this.onTap, this.style = PillStyle.primary, this.icon, this.height = 56, this.expand = true, this.busy = false});
+  final bool busy; // in-progress: shows the Tick loader and ignores taps
   final String label;
   final VoidCallback? onTap;
   final PillStyle style;
@@ -179,18 +186,20 @@ class PillButton extends StatelessWidget {
       PillStyle.ghost => (const Color(0x00000000), c.text, c.hairline),
       PillStyle.quiet => (c.surface2, c.text, null),
     };
-    final disabled = onTap == null;
+    final disabled = onTap == null && !busy;
     final bg = disabled ? c.surface2 : bg0;
     final fg = disabled ? c.textSecondary : fg0;
     return Pressable(
-      onTap: onTap, semanticLabel: label,
+      onTap: busy ? null : onTap, semanticLabel: busy ? '$label, working' : label,
       child: Container(
         height: height, width: expand ? double.infinity : null, padding: expand ? null : const EdgeInsets.symmetric(horizontal: 24),
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(TickRadius.pill), border: border == null ? null : Border.all(color: border, width: 1.5)),
-        child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
-          if (icon != null) ...[TickIcon(icon!, size: 22, color: fg), const SizedBox(width: 8)],
-          Text(label, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none)),
-        ]),
+        child: busy
+            ? Center(child: TickLoader(color: fg))
+            : Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (icon != null) ...[TickIcon(icon!, size: 22, color: fg), const SizedBox(width: 8)],
+                Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none))),
+              ]),
       ),
     );
   }
@@ -205,16 +214,21 @@ class TickChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final text = Text(label, textAlign: TextAlign.center, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: on ? c.bg : c.text, decoration: TextDecoration.none));
     return Pressable(
       onTap: onTap, semanticLabel: label,
-      child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Container(
-        height: 36, padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(color: on ? c.text : c.surface1, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[TickIcon(icon!, size: 18, color: on ? c.bg : c.text), const SizedBox(width: 6)],
-          Text(label, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: on ? c.bg : c.text, decoration: TextDecoration.none)),
-        ]),
-      )),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 36), padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(color: on ? c.text : c.surface1, borderRadius: BorderRadius.circular(18), border: on ? null : Border.all(color: c.hairline)),
+          // Inside a Wrap the chip may wrap its text at large Dynamic Type; in a horizontal list (unbounded width) it stays on one line.
+          child: LayoutBuilder(builder: (context, cs) => Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[TickIcon(icon!, size: 18, color: on ? c.bg : c.text), const SizedBox(width: 6)],
+            if (cs.maxWidth.isFinite) Flexible(child: text) else text,
+          ])),
+        ),
+      ),
     );
   }
 }
@@ -263,19 +277,20 @@ class Segmented extends StatelessWidget {
 }
 
 class TickToggle extends StatelessWidget {
-  const TickToggle({super.key, required this.on, required this.onChanged});
+  const TickToggle({super.key, required this.on, required this.onChanged, this.label});
   final bool on;
+  final String? label;
   final ValueChanged<bool> onChanged;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     return Semantics(
-      toggled: on, container: true,
+      toggled: on, container: true, label: label, button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => onChanged(!on),
         child: SizedBox(width: 56, height: 44, child: Center(child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
+          duration: context.reduceMotion ? Duration.zero : const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(color: on ? c.accent : c.surface2, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
           alignment: on ? Alignment.centerRight : Alignment.centerLeft,
@@ -296,15 +311,29 @@ class Skeleton extends StatefulWidget {
 }
 
 class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.skeletonShimmerMs))..repeat(reverse: true);
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.skeletonShimmerMs));
+  bool _started = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (context.reduceMotion) { _c.stop(); _c.value = 0.5; }
+    else if (!_started) { _started = true; _c.repeat(reverse: true); }
+  }
   @override
   void dispose() { _c.dispose(); super.dispose(); }
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (_, _) => Container(
-          width: widget.width, height: widget.height,
-          decoration: BoxDecoration(color: Color.lerp(context.c.surface1, context.c.surface2, _c.value), borderRadius: BorderRadius.circular(widget.radius)),
+  Widget build(BuildContext context) => Semantics(
+        label: 'Loading',
+        child: ExcludeSemantics(
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (_, _) => Container(
+                width: widget.width, height: widget.height,
+                decoration: BoxDecoration(color: Color.lerp(context.c.surface1, context.c.surface2, _c.value), borderRadius: BorderRadius.circular(widget.radius)),
+              ),
+            ),
+          ),
         ),
       );
 }
@@ -322,10 +351,11 @@ class CountUpText extends StatefulWidget {
 }
 
 class _CountUpTextState extends State<CountUpText> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: widget.duration);
+  late final AnimationController _c;
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: widget.duration);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (context.reduceMotion) { _c.value = 1; return; }
@@ -363,4 +393,77 @@ class Wordmark extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Three dots that spring up in turn: Tick's in-progress indicator (never a default spinner). Static under Reduce Motion.
+class TickLoader extends StatefulWidget {
+  const TickLoader({super.key, this.color, this.size = 8});
+  final Color? color;
+  final double size;
+  @override
+  State<TickLoader> createState() => _TickLoaderState();
+}
+
+class _TickLoaderState extends State<TickLoader> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  bool _started = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started && !context.reduceMotion) { _started = true; _c.repeat(); }
+    if (context.reduceMotion && _c.isAnimating) _c.stop();
+  }
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color ?? context.c.text;
+    return Semantics(
+      label: 'Loading', liveRegion: true,
+      child: ExcludeSemantics(
+        child: RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: _c,
+            builder: (_, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+              for (var i = 0; i < 3; i++)
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: widget.size * 0.4),
+                  child: Transform.translate(
+                    offset: Offset(0, context.reduceMotion ? 0 : -widget.size * 0.9 * math.max(0, math.sin((_c.value * 2 * math.pi) - i * 0.9))),
+                    child: Container(width: widget.size, height: widget.size, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A button that runs an async action: shows progress, blocks double taps, and never throws into the UI.
+class ActionButton extends StatefulWidget {
+  const ActionButton(this.label, {super.key, required this.onPressed, this.style = PillStyle.primary, this.icon, this.height = 56, this.enabled = true});
+  final String label;
+  final Future<void> Function() onPressed;
+  final PillStyle style;
+  final String? icon;
+  final double height;
+  final bool enabled;
+  @override
+  State<ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<ActionButton> {
+  bool _busy = false;
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onPressed();
+    } catch (_) {/* the action reports its own failure; a thrown error must never reach the UI */}
+    if (mounted) setState(() => _busy = false);
+  }
+  @override
+  Widget build(BuildContext context) => PillButton(widget.label, style: widget.style, icon: widget.icon, height: widget.height, busy: _busy, onTap: widget.enabled ? _run : null);
 }

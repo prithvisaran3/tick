@@ -24,6 +24,7 @@ class BudgetsScreen extends ConsumerWidget {
     return TickScreen(
       child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
         ScreenTitle('Budgets and goals', onBack: () => context.pop()),
+        if (l.loading && l.budgets.isEmpty && l.goals.isEmpty) const ListSkeleton(rows: 4),
         SectionLabel('Budgets', trailing: TickChip('Add', icon: 'plus', onTap: () => _editBudget(context, ref, null))),
         if (l.budgets.isEmpty)
           const EmptyState('No budgets yet', 'Set a monthly cap on food or rideshare and Tick draws the pace line.', icon: 'goal')
@@ -105,7 +106,7 @@ class _BudgetCard extends StatelessWidget {
             final w = cs.maxWidth;
             return SizedBox(height: 16, child: Stack(alignment: Alignment.centerLeft, clipBehavior: Clip.none, children: [
               Container(height: 8, decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(8))),
-              TweenAnimationBuilder<double>(tween: Tween(begin: 0, end: p.fill / 1.3), duration: const Duration(milliseconds: 500), curve: Curves.easeOutBack,
+              TweenAnimationBuilder<double>(tween: Tween(begin: 0, end: p.fill / 1.3), duration: context.reduceMotion ? Duration.zero : const Duration(milliseconds: 500), curve: Curves.easeOutBack,
                   builder: (_, v, _) => Container(width: w * v.clamp(0.0, 1.0), height: 8, decoration: BoxDecoration(color: fillColor, borderRadius: BorderRadius.circular(8)))),
               Positioned(left: (w * p.paceFraction / 1.3).clamp(0.0, w - 2), child: Container(width: 2, height: 16, color: c.textSecondary)),
             ]));
@@ -138,7 +139,7 @@ class _GoalCard extends StatelessWidget {
           const SizedBox(height: 12),
           LayoutBuilder(builder: (_, cs) => Stack(children: [
             Container(height: 8, decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(8))),
-            TweenAnimationBuilder<double>(tween: Tween(begin: 0, end: prog), duration: const Duration(milliseconds: 500), curve: Curves.easeOutBack,
+            TweenAnimationBuilder<double>(tween: Tween(begin: 0, end: prog), duration: context.reduceMotion ? Duration.zero : const Duration(milliseconds: 500), curve: Curves.easeOutBack,
                 builder: (_, v, _) => Container(width: cs.maxWidth * v.clamp(0.0, 1.0), height: 8, decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8), border: context.isDark ? null : Border.all(color: TickPalette.ink, width: 1)))),
           ])),
           const SizedBox(height: 8),

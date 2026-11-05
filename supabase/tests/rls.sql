@@ -3,7 +3,7 @@ do $$
 declare
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
   n int; cat_a uuid; txn_a uuid; t text; fails text := '';
-  owner_tables text[] := array['profiles','settings','ingest_tokens','connections','accounts','categories','transactions','rules','budgets','goals','people','recurring','expected','insights','chats','messages','ingest_logs','snapshots','ai_usage'];
+  owner_tables text[] := array['profiles','settings','ingest_tokens','connections','accounts','categories','transactions','rules','budgets','goals','people','recurring','expected','insights','chats','messages','ingest_logs','snapshots','ai_usage','paydays','plaid_slots','ai_cache','plaid_link_sessions'];
 begin
   insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, created_at, updated_at)
     values (a, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'a-' || a || '@test.local', '{}', now(), now()),
@@ -27,6 +27,9 @@ begin
   insert into public.expected (user_id, kind, label, amount_cents, expected_date) values (a, 'paycheck', 'Payroll', 231000, current_date);
   insert into public.ai_usage (user_id, feature, model) values (a, 'ask', 'x');
   insert into public.ingest_logs (user_id, source, payload) values (a, 'sms', '{}');
+  insert into public.paydays (user_id, day, moved_cents) values (a, current_date, 5);
+  insert into public.ai_cache (key, feature, value) values ('k-' || a, 'x', '{}');
+  insert into public.plaid_link_sessions (link_token, user_id) values ('lt-' || a, a);
 
   -- Act as user B.
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
@@ -61,6 +64,17 @@ begin
   exception when insufficient_privilege or check_violation then null; end;
   begin insert into public.ingest_logs (user_id, source, payload) values (b, 'x', '{}'); fails := fails || 'app inserted ingest_logs; ';
   exception when insufficient_privilege or check_violation then null; end;
+
+  -- Server-only tables are invisible and unwritable to the app (RLS forced, no policy).
+  select count(*) into n from public.ai_cache; if n <> 0 then fails := fails || 'authenticated sees ai_cache; '; end if;
+  select count(*) into n from public.plaid_link_sessions; if n <> 0 then fails := fails || 'authenticated sees plaid_link_sessions; '; end if;
+  begin insert into public.plaid_link_sessions (link_token, user_id) values ('x', b); fails := fails || 'app wrote plaid_link_sessions; ';
+  exception when insufficient_privilege or check_violation then null; end;
+  begin insert into public.plaid_slots (user_id, used) values (b, 0); fails := fails || 'app wrote plaid_slots; ';
+  exception when insufficient_privilege or check_violation then null; end;
+  -- paydays: owner-only
+  insert into public.paydays (user_id, day, moved_cents) values (b, current_date, 100);
+  select count(*) into n from public.paydays where user_id = a; if n <> 0 then fails := fails || 'B reads A paydays; '; end if;
 
   -- Anonymous sees nothing.
   reset role;

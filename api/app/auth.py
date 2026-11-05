@@ -73,13 +73,18 @@ class RateLimiter:
     def __init__(self, limit: int, per_seconds: int) -> None:
         self.limit, self.per, self.hits = limit, per_seconds, defaultdict(deque)
 
-    def check(self, key: str) -> None:
+    def check(self, key: str, limit: int | None = None, per: int | None = None) -> None:
         now = time.time()
+        lim, window = limit or self.limit, per or self.per
         q = self.hits[key]
-        while q and q[0] < now - self.per:
+        while q and q[0] < now - window:
             q.popleft()
-        if len(q) >= self.limit:
-            raise HTTPException(429, "slow down")
+        if len(q) >= lim:
+            raise HTTPException(429, "That was a lot at once. Try again in a moment.")
         q.append(now)
+        if len(self.hits) > 5000:                      # bound memory: drop idle keys
+            for k in [k for k, v in self.hits.items() if not v or v[-1] < now - 3600]:
+                self.hits.pop(k, None)
 
 ingest_limiter = RateLimiter(60, 60)
+user_limiter = RateLimiter(30, 60)
