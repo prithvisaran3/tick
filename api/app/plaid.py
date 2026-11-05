@@ -48,6 +48,10 @@ class BankProvider(ABC):
     def sync_page(self, access_token: str, cursor: str | None) -> dict: ...
     @abstractmethod
     def item_institution(self, access_token: str) -> str | None: ...
+    def item_products(self, access_token: str) -> list[str]:
+        return ["transactions"]
+    def liabilities(self, access_token: str) -> dict:
+        return {}
 
 class PlaidProvider(BankProvider):
     def __init__(self, client_id: str, secret: str, env: str, webhook: str) -> None:
@@ -72,9 +76,17 @@ class PlaidProvider(BankProvider):
             body["redirect_uri"] = redirect          # only after it is registered under Allowed redirect URIs in the Plaid dashboard
         if access_token:
             body["access_token"] = access_token          # update mode: re-authenticate the SAME Item, never a new one
-        else:
-            body["products"] = ["transactions"]
-            body["transactions"] = {"days_requested": 365}
+            return self._post("/link/token/create", body)
+        body["products"] = ["transactions"]
+        body["transactions"] = {"days_requested": 365}
+        if os.environ.get("PLAID_LIABILITIES", "1") != "0":
+            # Cards and loans: statement balance, minimum payment, due date. Optional, so a bank without it still links.
+            try:
+                return self._post("/link/token/create", {**body, "optional_products": ["liabilities"]})
+            except PlaidError as e:
+                if e.typ != "INVALID_REQUEST" and e.code not in ("INVALID_PRODUCT", "PRODUCTS_NOT_ENABLED", "PRODUCT_NOT_ENABLED", "INVALID_FIELD"):
+                    raise
+                # The plan doesn't allow Liabilities: link without it (creating a link token never creates an Item).
         return self._post("/link/token/create", body)
 
     def link_token_result(self, link_token: str) -> list[str]:
@@ -107,6 +119,17 @@ class PlaidProvider(BankProvider):
         except PlaidError:
             pass
         return None
+
+    def item_products(self, access_token: str) -> list[str]:
+        try:
+            item = self._post("/item/get", {"access_token": access_token})["item"]
+            return sorted(set(item.get("products") or []) | set(item.get("billed_products") or []))
+        except PlaidError:
+            return ["transactions"]
+
+    def liabilities(self, access_token: str) -> dict:
+        """Only called for Items that were granted Liabilities at link time."""
+        return self._post("/liabilities/get", {"access_token": access_token}).get("liabilities") or {}
 
     def webhook_key(self, kid: str) -> dict:
         return self._post("/webhook_verification_key/get", {"key_id": kid})["key"]
@@ -190,6 +213,31 @@ def record_item(user_id: str, item_id: str, institution: str | None, link_token_
                   returning=False, ignore_duplicates=True)
 
 # ---------------- mapping ----------------
+_FEE = ("INTEREST CHARGE", "LATE FEE", "ANNUAL FEE", "FOREIGN TRANSACTION FEE", "FINANCE CHARGE", "OVERDRAFT", "SERVICE FEE", "INTEREST CHARGED")
+
+def classify(t: dict, acct_type: str | None, cents: int) -> tuple[str | None, str | None, list[str]]:
+    """(category name or None for 'categorise by merchant', flow, extra tags) from Plaid's category and the account type.
+    Sign convention: Plaid positive = money out; Tick negative = money out. A card purchase is spending; a card payment and a
+    loan's 'payment received' are internal transfers; a refund on a card lowers spending and is never income; a loan payment from
+    checking is a bill; fees and interest have their own category."""
+    pfc = t.get("personal_finance_category") or {}
+    primary, detailed = pfc.get("primary", ""), pfc.get("detailed", "")
+    name = (t.get("name") or t.get("merchant_name") or "").upper()
+    credit_like = acct_type in ("credit", "loan")
+    if detailed == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT" or (credit_like and cents > 0 and primary in ("TRANSFER_IN", "LOAN_PAYMENTS")):
+        return "Transfer", "transfer", []
+    if acct_type == "loan" and cents > 0:
+        return "Transfer", "transfer", []
+    if primary == "LOAN_PAYMENTS" and cents < 0 and not credit_like:
+        return "Loan payment", "bill", []
+    if primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or (acct_type == "loan" and cents < 0):
+        return "Fees and interest", None, []
+    if primary in ("TRANSFER_IN", "TRANSFER_OUT"):
+        return "Transfer", None, []              # pairing decides later whether it went to one of my own accounts
+    if cents > 0:
+        return (None, None, ["refund"]) if credit_like else ("Income", None, [])
+    return None, None, []
+
 def plaid_candidate(t: dict, acct_by_pid: dict[str, dict], rules: dict[str, str], name_to_id: dict[str, str]) -> tuple[Candidate, list[str]]:
     cents = -round(float(t["amount"]) * 100)              # Plaid: positive = money out
     when = t.get("datetime") or t.get("authorized_datetime")
@@ -201,36 +249,84 @@ def plaid_candidate(t: dict, acct_by_pid: dict[str, dict], rules: dict[str, str]
         occurred = datetime.fromisoformat(d).replace(hour=16, tzinfo=timezone.utc)   # ~noon Eastern
     raw = t.get("name") or t.get("merchant_name") or ""
     clean = t.get("merchant_name") or clean_merchant(raw)
-    pfc = (t.get("personal_finance_category") or {}).get("primary", "")
-    if pfc in ("TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS") :
-        cat = "Transfer"
-    elif cents > 0:
-        cat = "Income"
-    else:
-        cat, _ = categorize(clean or raw, rules)
     acct = acct_by_pid.get(t["account_id"], {})
-    tags = ["business"] if cents < 0 and looks_business(clean or raw) else []
+    cat, flow, extra = classify(t, acct.get("type"), cents)
+    if cat is None:
+        cat, _ = categorize(clean or raw, rules)
+    tags = (["business"] if cents < 0 and flow is None and looks_business(clean or raw) else []) + extra
     c = Candidate("plaid", t["transaction_id"], cents, occurred, raw, clean, acct.get("mask"), "pending" if t.get("pending") else "posted",
                   plaid_transaction_id=t["transaction_id"], plaid_pending_id=t.get("pending_transaction_id"), confidence=1.0,
-                  account_id=acct.get("id"), category_id=name_to_id.get(cat), time_precise=precise)
+                  account_id=acct.get("id"), category_id=name_to_id.get(cat), time_precise=precise, flow=flow)
     return c, tags
 
-def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict]) -> dict[str, dict]:
+def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict], institution: str | None = None) -> dict[str, dict]:
+    """Upsert the Item's accounts. Depository balances are positive; credit and loan balances are what you OWE, stored negative.
+    Only masks are stored, never full account or routing numbers."""
     out: dict[str, dict] = {}
     for a in accts:
         b = a.get("balances") or {}
-        typ = {"depository": "checking", "credit": "credit", "investment": "other", "loan": "other"}.get(a.get("type"), "other")
-        if a.get("subtype") == "savings":
+        typ = {"depository": "checking", "credit": "credit", "loan": "loan", "investment": "other"}.get(a.get("type"), "other")
+        if a.get("subtype") in ("savings", "money market", "cd", "hsa"):
             typ = "savings"
-        cur, avail = b.get("current"), b.get("available")
-        # Credit: current balance is what you owe -> negative cents.
-        bal = None if cur is None else (-round(cur * 100) if typ == "credit" else round(cur * 100))
+        cur, avail, limit = b.get("current"), b.get("available"), b.get("limit")
+        owes = typ in ("credit", "loan")
+        bal = None if cur is None else (-round(cur * 100) if owes else round(cur * 100))
         av = None if avail is None else round(avail * 100)
-        row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("name") or "Account", "mask": a.get("mask"),
-               "type": typ, "balance_cents": bal, "available_cents": av, "include_in_safe": typ != "savings"}
+        row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("official_name") or a.get("name") or "Account",
+               "mask": a.get("mask"), "type": typ, "subtype": a.get("subtype"), "institution": institution, "balance_cents": bal, "available_cents": av,
+               "credit_limit_cents": None if limit is None else round(limit * 100), "include_in_safe": typ in ("checking", "credit")}
         saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
         out[a["account_id"]] = saved
     return out
+
+def _cents(v) -> int | None:
+    return None if v is None else round(float(v) * 100)
+
+def apply_liabilities(user_id: str, liab: dict, accts: dict[str, dict]) -> int:
+    """Statement balance, minimum payment, due date and rates for cards; rate and next payment for student loans."""
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    for c in liab.get("credit") or []:
+        a = accts.get(c.get("account_id"))
+        if not a:
+            continue
+        purchase = next((x for x in c.get("aprs") or [] if x.get("apr_type") == "purchase_apr"), None) or next(iter(c.get("aprs") or []), None)
+        rest().update("accounts", {"id": a["id"], "user_id": user_id}, {
+            "statement_balance_cents": _cents(c.get("last_statement_balance")), "minimum_payment_cents": _cents(c.get("minimum_payment_amount")),
+            "next_payment_due_date": c.get("next_payment_due_date"), "last_statement_date": c.get("last_statement_issue_date"),
+            "last_payment_cents": _cents(c.get("last_payment_amount")), "last_payment_date": c.get("last_payment_date"),
+            "apr_bps": None if not purchase or purchase.get("apr_percentage") is None else round(float(purchase["apr_percentage"]) * 100),
+            "liabilities_updated_at": now})
+        n += 1
+    for s_ in liab.get("student") or []:
+        a = accts.get(s_.get("account_id"))
+        if not a:
+            continue
+        rest().update("accounts", {"id": a["id"], "user_id": user_id}, {
+            "interest_rate_bps": None if s_.get("interest_rate_percentage") is None else round(float(s_["interest_rate_percentage"]) * 100),
+            "minimum_payment_cents": _cents(s_.get("minimum_payment_amount")), "next_payment_cents": _cents(s_.get("minimum_payment_amount")),
+            "next_payment_due_date": s_.get("next_payment_due_date"), "last_payment_cents": _cents(s_.get("last_payment_amount")),
+            "last_payment_date": s_.get("last_payment_date"), "liabilities_updated_at": now})
+        n += 1
+    return n
+
+def pair_transfers(user_id: str, days: int = 60) -> int:
+    """Mark internal transfers for the last [days] (see transfers.py). Idempotent; never touches rows whose flow the person edited."""
+    from . import transfers
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    raw = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{since}",
+                        select="id,account_id,amount_cents,occurred_at,merchant_clean,merchant_raw,flow,category_id,transfer_pair_id,user_edited")
+    _, id_to_name = store.category_maps(user_id)
+    types = {a["id"]: a["type"] for a in rest().select("accounts", user_id=f"eq.{user_id}", select="id,type")}
+    patches = transfers.pair(transfers.rows_from_db(raw, id_to_name), types)
+    transfer_cat = {v: k for k, v in id_to_name.items()}.get("Transfer")
+    for tid, patch in patches.items():
+        if patch.get("flow") == "transfer" and transfer_cat:
+            row = next(r for r in raw if r["id"] == tid)
+            if "category" not in (row.get("user_edited") or []):
+                patch = {**patch, "category_id": transfer_cat}
+        rest().update("transactions", {"id": tid, "user_id": user_id}, patch)
+    return len(patches)
 
 def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """A positive transaction near an expected paycheck/refund/IOU of about the same size marks it landed."""
@@ -283,7 +379,12 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
-        accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token))
+        accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token), conn.get("institution"))
+        if "liabilities" in (conn.get("products") or []):
+            try:
+                apply_liabilities(user_id, prov.liabilities(token), accts)
+            except PlaidError:
+                pass                                      # cards still show owed, limit and utilisation from /accounts/get
         while True:
             page = prov.sync_page(token, cursor)
             items = page.get("added", []) + page.get("modified", [])
@@ -332,6 +433,10 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             if not page.get("has_more"):
                 break
         _ai_categorise(user_id, uncategorised, name_to_id)
+        try:
+            pair_transfers(user_id)
+        except Exception:
+            pass                                          # pairing is re-run on the next sync; never block the cursor
         rest().update("connections", {"id": conn["id"]}, {"cursor": cursor, "last_synced_at": datetime.now(timezone.utc).isoformat(), "status": "active", "error_code": None})
     except PlaidError as e:
         status = "login_required" if e.code in ("ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION") else "error"
@@ -431,11 +536,12 @@ def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True, p
                 created.append(existing[0])
                 continue
             inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
+            products = prov.item_products(access) if hasattr(prov, "item_products") else ["transactions"]
             record_item(user_id, item_id, inst, link_token_value)
             sid = rest().rpc("tick_vault_upsert", {"secret_name": f"plaid-{item_id}", "secret_value": access})
             try:
                 conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id,
-                                                     "vault_secret_id": sid, "status": "active"})[0]
+                                                     "vault_secret_id": sid, "status": "active", "products": products})[0]
             except httpx.HTTPStatusError as e:
                 if e.response.status_code != 409:
                     raise

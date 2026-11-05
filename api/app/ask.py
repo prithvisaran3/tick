@@ -191,10 +191,10 @@ def load_ledger(user_id: str) -> Ledger:
     today = datetime.now(ET).date()
     since = (today - timedelta(days=400)).isoformat()
     cats = {c["id"]: c["name"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
-    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "id,merchant_clean,merchant_raw,amount_cents,occurred_at,category_id,tags,account_id"), ("limit", "5000")])
+    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "id,merchant_clean,merchant_raw,amount_cents,occurred_at,category_id,tags,account_id,flow"), ("limit", "5000")])
     r.raise_for_status()
     txns = [{"id": x["id"], "merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date(),
-             "category": cats.get(x["category_id"]), "tags": x["tags"] or [], "account": x["account_id"]} for x in r.json()]
+             "category": "Transfer" if x.get("flow") == "transfer" else cats.get(x["category_id"]), "tags": x["tags"] or [], "account": x["account_id"]} for x in r.json()]
     rec = [{"merchant": x["merchant"], "cadence": x["cadence"], "expected_cents": x["expected_cents"], "next_date": date.fromisoformat(x["next_date"])} for x in rest().select("recurring", user_id=f"eq.{user_id}", status="eq.active")]
     exp = [{"label": x["label"], "kind": x["kind"], "amount_cents": x["amount_cents"], "date": date.fromisoformat(x["expected_date"])} for x in rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected")]
     acc = rest().select("accounts", user_id=f"eq.{user_id}", select="name,type,balance_cents,available_cents")

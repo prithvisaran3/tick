@@ -45,6 +45,7 @@ class Candidate:
     account_id: str | None = None
     category_id: str | None = None
     time_precise: bool = True         # False for date-only timestamps (Plaid posting dates)
+    flow: str | None = None           # 'transfer' (between my own accounts) | 'bill' (loan payment) | None
 
     def __post_init__(self) -> None:
         if self.occurred_at.tzinfo is None:
@@ -69,6 +70,7 @@ class Txn:
     account_id: str | None = None
     category_id: str | None = None
     user_edited: set[str] = field(default_factory=set)   # fields the user changed: 'merchant', 'category', 'amount', 'tags', 'note'
+    flow: str | None = None
 
     @property
     def best_priority(self) -> int:
@@ -212,6 +214,8 @@ def merge_fields(t: Txn, c: Candidate, reason: str) -> dict[str, Any]:
         f["account_id"] = c.account_id
     if c.category_id and not t.category_id and "category" not in t.user_edited:
         f["category_id"] = c.category_id
+    if c.flow and not t.flow and "flow" not in t.user_edited:
+        f["flow"] = c.flow                    # the bank knows a card payment is a transfer; a Wallet capture never does
     # Corroboration: independent sources agreeing means the capture is trustworthy.
     conf = max(t.confidence, c.confidence)
     if t.sources and c.source != "manual" and reason in ("heuristic", "tip", "pending_to_posted"):
@@ -228,7 +232,7 @@ def new_txn_fields(c: Candidate, *, user_review_threshold: float = REVIEW_THRESH
         "amount_cents": c.amount_cents, "occurred_at": c.occurred_at, "merchant_raw": c.merchant_raw, "merchant_clean": c.merchant_clean or c.merchant_raw,
         "card_last4": c.card_last4, "status": c.status, "sources": [_source_entry(c)], "plaid_transaction_id": c.plaid_transaction_id,
         "plaid_pending_id": c.plaid_pending_id, "confidence": c.confidence, "needs_review": c.confidence < user_review_threshold,
-        "account_id": c.account_id, "category_id": c.category_id,
+        "account_id": c.account_id, "category_id": c.category_id, "flow": c.flow,
     }
 
 def decide(cand: Candidate, txns: list[Txn], *, category_names: dict[str, str] | None = None) -> Action:
@@ -248,7 +252,8 @@ def apply_action(txns: list[Txn], a: Action, new_id: str) -> None:
         f = a.fields
         txns.append(Txn(id=new_id, amount_cents=f["amount_cents"], occurred_at=f["occurred_at"], merchant_raw=f["merchant_raw"], merchant_clean=f["merchant_clean"],
                         card_last4=f["card_last4"], status=f["status"], sources=f["sources"], plaid_transaction_id=f["plaid_transaction_id"],
-                        plaid_pending_id=f["plaid_pending_id"], confidence=f["confidence"], needs_review=f["needs_review"], account_id=f["account_id"], category_id=f["category_id"]))
+                        plaid_pending_id=f["plaid_pending_id"], confidence=f["confidence"], needs_review=f["needs_review"], account_id=f["account_id"], category_id=f["category_id"],
+                        flow=f.get("flow")))
     elif a.kind == "update":
         t = next(x for x in txns if x.id == a.txn_id)
         for k, v in a.fields.items():
@@ -265,7 +270,7 @@ def _without(t: Txn, e: dict) -> Txn:
     best = max(rest, key=lambda x: (priority(x["source"], x.get("status", "posted")), x["source"])) if rest else None
     r = Txn(id=t.id, amount_cents=best["amount_cents"] if best else t.amount_cents, occurred_at=t.occurred_at, merchant_raw=t.merchant_raw,
             merchant_clean=t.merchant_clean, card_last4=t.card_last4, status=t.status, sources=rest, confidence=t.confidence, needs_review=t.needs_review,
-            account_id=t.account_id, category_id=t.category_id, user_edited=set(t.user_edited))
+            account_id=t.account_id, category_id=t.category_id, user_edited=set(t.user_edited), flow=t.flow)
     if e["source"] != "plaid":
         r.plaid_transaction_id, r.plaid_pending_id = t.plaid_transaction_id, t.plaid_pending_id
     return r
@@ -332,4 +337,5 @@ def apply_plaid_removed(txns: list[Txn], removed_ids: list[str]) -> list[Action]
     return out
 
 def total_spend(txns: list[Txn]) -> int:
-    return sum(-t.amount_cents for t in txns if t.amount_cents < 0)
+    """Money out, never counting internal transfers (a card payment is not spending; the card purchases already were)."""
+    return sum(-t.amount_cents for t in txns if t.amount_cents < 0 and t.flow != "transfer")

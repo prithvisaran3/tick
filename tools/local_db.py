@@ -48,11 +48,15 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "test"
     if cmd == "test":
         fresh()
-        r = psql(file=ROOT / "supabase/tests/rls.sql", check=False)
-        out = r.stdout + r.stderr
-        if "RLS_TESTS_PASSED" in out:
-            print("RLS tests passed (local)"); sys.exit(0)
-        print(out[-3000:]); sys.exit(1)
+        ok = True
+        for f in sorted((ROOT / "supabase/tests").glob("*.sql")):
+            r = psql(file=f, check=False)
+            out = r.stdout + r.stderr
+            if "_TESTS_PASSED" in out and "_TESTS_FAILED" not in out:
+                print(f"{f.name}: passed (local)")
+            else:
+                ok = False; print(f"{f.name}: FAILED\n{out[-3000:]}")
+        sys.exit(0 if ok else 1)
     elif cmd == "fresh":
         fresh()
     elif cmd == "sql":

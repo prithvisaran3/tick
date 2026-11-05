@@ -171,7 +171,7 @@ def ai_status(user_id: str = Depends(current_user)):
 
 def _txns_for(user_id: str, days: int) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
+    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("or", "(flow.is.null,flow.neq.transfer)"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
     r.raise_for_status()
     return [{"merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date()} for x in r.json()]
 

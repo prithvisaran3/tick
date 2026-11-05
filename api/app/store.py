@@ -16,7 +16,7 @@ def row_to_txn(r: dict) -> Txn:
     return Txn(id=r["id"], amount_cents=r["amount_cents"], occurred_at=_dt(r["occurred_at"]), merchant_raw=r.get("merchant_raw") or "", merchant_clean=r.get("merchant_clean") or "",
                card_last4=r.get("card_last4"), status=r["status"], sources=r.get("sources") or [], plaid_transaction_id=r.get("plaid_transaction_id"),
                plaid_pending_id=r.get("plaid_pending_id"), confidence=float(r.get("confidence") or 1), needs_review=bool(r.get("needs_review")),
-               account_id=r.get("account_id"), category_id=r.get("category_id"), user_edited=set(r.get("user_edited") or []))
+               account_id=r.get("account_id"), category_id=r.get("category_id"), user_edited=set(r.get("user_edited") or []), flow=r.get("flow"))
 
 def window(user_id: str, around: datetime) -> list[Txn]:
     lo, hi = (around - WINDOW).isoformat(), (around + WINDOW).isoformat()
