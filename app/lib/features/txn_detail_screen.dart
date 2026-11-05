@@ -51,6 +51,7 @@ class TxnDetailScreen extends ConsumerWidget {
         ]),
         if (t.needsReview) ...[
           const SizedBox(height: 8),
+          if (t.amountCents < 0 && !t.isTransfer) ...[PillButton('Split with friends', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')), const SizedBox(height: 8)],
           PillButton('Looks right', style: PillStyle.inverse, icon: 'check', onTap: () => ref.read(ledgerProvider.notifier).markLooksRight(t.id)),
         ],
       ]),

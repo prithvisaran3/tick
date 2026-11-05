@@ -14,6 +14,8 @@ import 'features/activity_screen.dart';
 import 'features/import_screen.dart';
 import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
+import 'features/tally_group_screen.dart';
+import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
 import 'features/caught_screen.dart';
 import 'features/gallery_screen.dart';
@@ -82,6 +84,8 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
         GoRoute(path: '/card/:id', pageBuilder: (c, s) => _page(s, CardScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
+        GoRoute(path: '/tally/split/:txnId', pageBuilder: (c, s) => _page(s, TallySplitScreen(txnId: s.pathParameters['txnId']!))),
+        GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],

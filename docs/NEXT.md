@@ -107,3 +107,5 @@ Unchanged from the last session:
 
 ## Splitwise, APNs, Sign in with Apple, opening Tick to others
 See the plans in the git history of this file (`git show main:docs/NEXT.md`) and `docs/IDEAS.md` #6 and #14.
+
+- [x] Part 6 Tally: schema/RLS/RPCs, share links + public page, app screens (tab, group, split sheet, "Split with friends" on a purchase, Today "You're owed", square-up moment). On-device: create a tally, split a purchase from Activity, share the link via Messages, tap "I paid" on the page, confirm in the app, watch the tally marks + heartbeat.

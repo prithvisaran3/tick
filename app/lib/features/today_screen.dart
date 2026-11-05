@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
+import '../data/nav.dart';
 import '../data/settings.dart';
+import '../data/tally_store.dart';
 import '../design/motion.g.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -94,6 +96,16 @@ class TodayScreen extends ConsumerWidget {
               ])),
             ),
           ],
+        ],
+        if (ref.watch(tallyProvider.select((t) => t.totals.owedToMe)) case final owed when owed > 0) ...[
+          const SizedBox(height: 12),
+          TickCard(
+            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => ref.read(shellTabProvider.notifier).go(3),
+            child: Semantics(label: 'You\'re owed ${formatCents(owed)}. Open Tally.', excludeSemantics: true, child: Row(children: [
+              Expanded(child: Text('You\'re owed', style: context.ts(TickType.title, size: 15.5))),
+              Text(formatCents(owed), style: context.ts(TickType.mono, color: c.moneyIn)),
+            ])),
+          ),
         ],
         if (paydayNear && sts != null) ...[
           const SizedBox(height: 12),

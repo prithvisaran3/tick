@@ -6,6 +6,11 @@ import 'package:tick/features/cards.dart';
 import 'package:tick/features/ask_button.dart';
 import 'package:tick/features/ask_screen.dart';
 import 'package:tick/features/tally_screen.dart';
+import 'package:tick/features/tally_group_screen.dart';
+import 'package:tick/features/tally_square.dart';
+import 'package:tick/features/tally_expense_sheet.dart';
+import 'package:tick/domain/tally.dart';
+import 'package:tick/design/theme.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
@@ -27,6 +32,9 @@ void main() {
     'activity': (() => const ActivityScreen(), 1),
     'insights': (() => const InsightsScreen(), 2),
     'tally': (() => const TallyScreen(), 3),
+    'tally-group': (() => const TallyGroupScreen(id: 'g-room'), null),
+    'tally-square': (() => const _InSheet(SquareUpMoment()), null),
+    'tally-expense': (() => const _InSheet(ExpenseSheet(group: TallyGroup(id: 'g-room', name: 'Roommates', memberIds: ['p-k', 'p-j']), description: 'Dinner', cents: 8750)), null),
     'ask-tick': (() => const AskSheet(), null),
     'ask-tick-answer': (() => const AskSheet(), null),
     'caught': (() => const CaughtScreen(), null),
@@ -72,4 +80,12 @@ class _SeededAsk extends AskNotifier {
           {'kind': 'txns', 'ids': ['demo-2', 'demo-4']},
         ]),
       ];
+}
+
+/// Sheets get their background and gutters from the sheet host in the app; give them the same here.
+class _InSheet extends StatelessWidget {
+  const _InSheet(this.child);
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => ColoredBox(color: context.c.bg, child: Padding(padding: const EdgeInsets.fromLTRB(20, 60, 20, 0), child: Align(alignment: Alignment.topCenter, child: child)));
 }

@@ -31,8 +31,8 @@ MAX_LINKS_PER_GROUP = 5
 def simplify(net: dict[str | None, int]) -> list[tuple[str | None, str | None, int]]:
     """Minimum-ish transfers that settle everyone: greedy largest debtor pays largest creditor. net: person -> cents, positive = is owed.
     Same algorithm and tie-breaking as app/lib/domain/tally.dart (shared test vectors keep them identical)."""
-    cred = sorted(((p, c) for p, c in net.items() if c > 0), key=lambda x: (-x[1], str(x[0])))
-    debt = sorted(((p, -c) for p, c in net.items() if c < 0), key=lambda x: (-x[1], str(x[0])))
+    cred = sorted(((p, c) for p, c in net.items() if c > 0), key=lambda x: (-x[1], "me" if x[0] is None else str(x[0])))
+    debt = sorted(((p, -c) for p, c in net.items() if c < 0), key=lambda x: (-x[1], "me" if x[0] is None else str(x[0])))
     cred, debt = [list(x) for x in cred], [list(x) for x in debt]
     out: list[tuple[str | None, str | None, int]] = []
     i = j = 0
