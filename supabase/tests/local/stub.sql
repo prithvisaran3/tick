@@ -16,7 +16,7 @@ create schema if not exists auth;
 grant usage on schema auth to anon, authenticated, service_role;
 create table if not exists auth.users (
   id uuid primary key, instance_id uuid, aud text, role text, email text, raw_user_meta_data jsonb default '{}',
-  raw_app_meta_data jsonb default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+  raw_app_meta_data jsonb default '{}', last_sign_in_at timestamptz, created_at timestamptz default now(), updated_at timestamptz default now());
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(coalesce(current_setting('request.jwt.claim.sub', true), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')), '')::uuid $$;
 create or replace function auth.role() returns text language sql stable as $$
