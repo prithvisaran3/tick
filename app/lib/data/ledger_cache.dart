@@ -14,6 +14,7 @@ class LedgerCache {
     try {
       final f = await _file();
       if (!await f.exists()) return null;
+      if (await f.length() > 4 * 1024 * 1024) { await f.delete(); return null; }       // never let a runaway file slow launch
       final raw = await f.readAsString();
       final out = await compute(_decode, raw);
       return out == null ? null : (userId: out.$1, state: out.$2);

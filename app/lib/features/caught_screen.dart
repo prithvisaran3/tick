@@ -95,6 +95,8 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
     final c = context.c;
     final queue = l.needsReview.where((t) => !_done.contains(t.id)).toList();
     final progress = (_drag.dx.abs() / TickMotion.caughtCommitPx).clamp(0.0, 1.0);
+    final scale = MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 2.0);
+    final cardH = 410 + (scale - 1) * 380;        // the card grows with Dynamic Type instead of overflowing
     return TickScreen(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ScreenTitle('Caught', onBack: () => context.pop(), trailing: Text(queue.isEmpty ? '' : '${queue.length} to check', style: context.ts(TickType.body, color: c.textSecondary))),
@@ -107,7 +109,7 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
                   for (var i = math.min(queue.length, 3) - 1; i >= 0; i--)
                     Positioned(
                       left: 0, right: 0, top: 16,
-                      child: i == 0 ? _top(queue[0], progress) : Transform.translate(offset: Offset(0, 16.0 * i - 8 * progress), child: Transform.scale(scale: 1 - 0.05 * i + 0.02 * progress, child: Transform.rotate(angle: (i.isOdd ? 0.035 : -0.035), child: Opacity(opacity: 1 - 0.25 * i, child: _CardBody(t: queue[i], ledger: l, plain: true))))),
+                      child: i == 0 ? _top(queue[0], progress, cardH) : Transform.translate(offset: Offset(0, 16.0 * i - 8 * progress), child: Transform.scale(scale: 1 - 0.05 * i + 0.02 * progress, child: Transform.rotate(angle: (i.isOdd ? 0.035 : -0.035), child: Opacity(opacity: 1 - 0.25 * i, child: _CardBody(t: queue[i], ledger: l, plain: true, height: cardH))))),
                     ),
                 ]),
         ),
@@ -124,9 +126,9 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
     );
   }
 
-  Widget _top(Txn t, double progress) => GestureDetector(
+  Widget _top(Txn t, double progress, double cardH) => GestureDetector(
         onPanUpdate: _update, onPanEnd: (d) => _end(d, t),
-        child: Transform.translate(offset: _drag, child: Transform.rotate(angle: _drag.dx / 900, child: _CardBody(t: t, ledger: ref.read(ledgerProvider), plain: false))),
+        child: Transform.translate(offset: _drag, child: Transform.rotate(angle: _drag.dx / 900, child: _CardBody(t: t, ledger: ref.read(ledgerProvider), plain: false, height: cardH))),
       );
 }
 
@@ -151,7 +153,8 @@ class _Act extends StatelessWidget {
 }
 
 class _CardBody extends StatelessWidget {
-  const _CardBody({required this.t, required this.ledger, required this.plain});
+  const _CardBody({required this.t, required this.ledger, required this.plain, this.height = 410});
+  final double height;
   final Txn t;
   final LedgerState ledger;
   final bool plain;
@@ -161,7 +164,7 @@ class _CardBody extends StatelessWidget {
     final cat = ledger.category(t.categoryId);
     final acct = ledger.account(t.accountId);
     return Container(
-      height: 410, padding: const EdgeInsets.all(24),
+      height: height, padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(TickRadius.card), border: Border.all(color: c.hairline), boxShadow: plain ? null : const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 30), spreadRadius: -24)]),
       child: plain ? null : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('${sourceLabel(t.source)} · ${DateFormat('h:mm a').format(t.occurredAt)}', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),

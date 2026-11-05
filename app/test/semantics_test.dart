@@ -50,7 +50,9 @@ void main() {
         }
         n.visitChildren((c) { walk(c); return true; });
       }
-      walk(tester.binding.rootPipelineOwner.semanticsOwner!.rootSemanticsNode!);
+      // The semantics owner still hangs off the (deprecated) per-view pipeline owner in flutter_test; there is no replacement accessor yet.
+      // ignore: deprecated_member_use
+      walk(tester.binding.pipelineOwner.semanticsOwner!.rootSemanticsNode!);
       expect(missing, isEmpty, reason: 'tappable nodes without a label on ${e.key}');
       handle.dispose();
     });

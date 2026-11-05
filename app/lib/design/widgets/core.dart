@@ -209,16 +209,21 @@ class TickChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final text = Text(label, textAlign: TextAlign.center, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: on ? c.bg : c.text, decoration: TextDecoration.none));
     return Pressable(
       onTap: onTap, semanticLabel: label,
-      child: Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Container(
-        height: 36, padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(color: on ? c.text : c.surface1, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[TickIcon(icon!, size: 18, color: on ? c.bg : c.text), const SizedBox(width: 6)],
-          Text(label, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w700, fontSize: 13.5, color: on ? c.bg : c.text, decoration: TextDecoration.none)),
-        ]),
-      )),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 36), padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(color: on ? c.text : c.surface1, borderRadius: BorderRadius.circular(18), border: on ? null : Border.all(color: c.hairline)),
+          // Inside a Wrap the chip may wrap its text at large Dynamic Type; in a horizontal list (unbounded width) it stays on one line.
+          child: LayoutBuilder(builder: (context, cs) => Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[TickIcon(icon!, size: 18, color: on ? c.bg : c.text), const SizedBox(width: 6)],
+            if (cs.maxWidth.isFinite) Flexible(child: text) else text,
+          ])),
+        ),
+      ),
     );
   }
 }
@@ -280,7 +285,7 @@ class TickToggle extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: () => onChanged(!on),
         child: SizedBox(width: 56, height: 44, child: Center(child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
+          duration: context.reduceMotion ? Duration.zero : const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(color: on ? c.accent : c.surface2, borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: c.hairline)),
           alignment: on ? Alignment.centerRight : Alignment.centerLeft,

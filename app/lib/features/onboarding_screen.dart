@@ -94,6 +94,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final tight = MediaQuery.textScalerOf(context).scale(1.0) > 1.25;      // large Dynamic Type: let the page scroll instead of overflowing
     final now = ref.watch(clockProvider)();
     final dots = Row(mainAxisSize: MainAxisSize.min, children: [
       for (var i = 0; i < 3; i++) Container(margin: const EdgeInsets.only(left: 6), width: i == _step ? 24 : 8, height: 8, decoration: BoxDecoration(color: i == _step ? c.text : c.hairline, borderRadius: BorderRadius.circular(8))),
@@ -110,7 +111,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         Text('Know where you stand in three seconds.', style: context.ts(TickType.displayL, size: 42)),
         const SizedBox(height: 16),
         Text('Tick catches every purchase and tells you what is safe to spend until payday.', style: context.ts(TickType.bodyL, color: c.textSecondary)),
-        const Spacer(),
+        if (tight) const SizedBox(height: 24) else const Spacer(),
         if (_error == null) Center(child: Text('Your data stays yours. Only you can read it.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
         const SizedBox(height: 8),
         if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Semantics(liveRegion: true, child: Text(_error!, textAlign: TextAlign.center, style: context.ts(TickType.body, color: _failure == AuthFailureKind.cancelled ? c.textSecondary : c.alert)))),
@@ -143,7 +144,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ])),
         const SizedBox(height: 8),
         NumberPad(onKey: (k) => _key(k, () => _amount, (v) => _amount = v)),
-        const Spacer(),
+        if (tight) const SizedBox(height: 24) else const Spacer(),
         PillButton('Add', onTap: (parseCents(_amount) ?? 0) > 0 ? () => setState(() => _step = 2) : null),
         const SizedBox(height: 28),
       ]);
@@ -170,7 +171,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             scale: 1,
             child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
               Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c.hairline, width: 1.5)), child: TickIcon('plus', size: 20, color: c.text)),
-              const SizedBox(width: 12), Text('Add a bill or subscription', style: context.ts(TickType.title, size: 16, color: c.textSecondary)),
+              const SizedBox(width: 12), Expanded(child: Text('Add a bill or subscription', style: context.ts(TickType.title, size: 16, color: c.textSecondary))),
             ])),
           ),
           const Hairline(),
@@ -178,7 +179,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         ])),
         const SizedBox(height: 8),
         NumberPad(onKey: (k) => _field == 0 ? _key(k, () => _rent, (v) => _rent = v) : _key(k, () => _savings, (v) => _savings = v)),
-        const Spacer(),
+        if (tight) const SizedBox(height: 24) else const Spacer(),
         ActionButton('Add', onPressed: () => _finish()),
         const SizedBox(height: 8),
         ActionButton('Start with demo data', style: PillStyle.ghost, height: 52, onPressed: () => _finish(demo: true)),
@@ -187,7 +188,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
     return TickScreen(child: Column(children: [
       SizedBox(height: 52, child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Wordmark(size: 24), dots])),
-      Expanded(child: body),
+      Expanded(child: tight ? SingleChildScrollView(child: body) : body),
     ]));
   }
 

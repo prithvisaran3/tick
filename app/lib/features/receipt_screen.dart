@@ -110,10 +110,11 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
       horizontal: 28,
       child: Column(children: [
         SizedBox(height: 52, child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Semantics(header: true, child: Text('Morning Receipt', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),
+          Flexible(child: Semantics(header: true, child: Text('Morning Receipt', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)))),
           Text('Yesterday', style: context.ts(TickType.bodyS, color: c.textSecondary)),
         ])),
         const SizedBox(height: 8),
+        Expanded(child: SingleChildScrollView(physics: const ClampingScrollPhysics(), child: Column(children: [
         GestureDetector(
           onVerticalDragUpdate: (d) => setState(() => _tear = (_tear + d.delta.dy).clamp(-260.0, 0.0)),
           onVerticalDragEnd: (_) { if (_tear < -TickMotion.receiptLineIntervalMs - 0 && _tear.abs() > 120) { _tearOff(); } else { setState(() => _tear = 0); } },
@@ -135,11 +136,13 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                       const SizedBox(height: 6), const _Dash(), const SizedBox(height: 12),
                       Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                         Text('Total spent', style: context.ts(TickType.monoS, color: TickPalette.graphite)),
-                        Text(formatCents(r.totalCents), style: context.ts(TickType.hero, color: ink, size: 44)),
+                        const SizedBox(width: 8),
+                        Flexible(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: Text(formatCents(r.totalCents), style: context.ts(TickType.hero, color: ink, size: 44)))),
                       ]),
                       const SizedBox(height: 8),
                       Row(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        Text('Safe to spend', style: context.ts(TickType.monoS, color: TickPalette.graphite)),
+                        Flexible(child: Text('Safe to spend', style: context.ts(TickType.monoS, color: TickPalette.graphite))),
+                        const SizedBox(width: 8),
                         Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2), decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(99)), child: Text(sts == null ? '—' : formatDollars(sts.cents), style: context.ts(TickType.monoL, color: ink))),
                       ]),
                       const SizedBox(height: 16),
@@ -160,7 +163,8 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
         ),
         const SizedBox(height: 24),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary))]),
-        const Spacer(),
+        const SizedBox(height: 16),
+        ]))),
         Padding(padding: const EdgeInsets.only(bottom: 44), child: PillButton('Show me today', onTap: () => context.go('/'))),
       ]),
     );

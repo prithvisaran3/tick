@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/design/widgets/more.dart';
 import 'package:tick/features/caught_screen.dart';
-import 'package:tick/data/ledger.dart';
 import 'package:tick/features/today_screen.dart';
 import 'package:tick/services/haptics.dart';
 import 'golden_harness.dart';
@@ -12,7 +11,7 @@ void main() {
   setUpAll(loadFonts);
 
   testWidgets('Today plays COUNT-UP and PRICE WEIGHT + capture pop sound for a fresh capture (under 2 minutes old)', (tester) async {
-    final c = await demoContainer(overrides: [clockProvider.overrideWithValue(() => DateTime(2026, 11, 4, 9, 13))]);
+    final c = await demoContainer(now: DateTime(2026, 11, 4, 9, 13));
     addTearDown(c.dispose);
     TickHaptics.instance.log.clear();
     await pumpGolden(tester, frame(c, const TodayScreen(), dark: true, tab: 0));
