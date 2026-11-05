@@ -226,3 +226,24 @@ begin
     execute format('grant execute on function %s to service_role', f.sig);
   end loop;
 end $$;
+
+
+-- A confirmed settlement linked to a bank row (the Zelle in Activity) makes that row a settlement: excluded from spending and income,
+-- because Tally already tracks it. Rejecting/deleting the settlement (or unlinking) puts the row back to ordinary.
+create or replace function public.tally_settlement_flow() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op in ('UPDATE', 'DELETE') and old.transaction_id is not null then
+    update public.transactions t set flow = null
+     where t.id = old.transaction_id and t.user_id = old.user_id and t.flow = 'settlement'
+       and not exists (select 1 from public.tally_settlements s where s.transaction_id = old.transaction_id and s.user_id = old.user_id
+                       and s.status = 'confirmed' and s.deleted_at is null and (tg_op = 'DELETE' and s.id <> old.id or tg_op = 'UPDATE' and s.id <> old.id));
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and new.transaction_id is not null and new.status = 'confirmed' and new.deleted_at is null then
+    update public.transactions t set flow = 'settlement', user_edited = case when 'flow' = any(t.user_edited) then t.user_edited else array_append(t.user_edited, 'flow') end
+     where t.id = new.transaction_id and t.user_id = new.user_id;
+  end if;
+  return coalesce(new, old);
+end $$;
+revoke all on function public.tally_settlement_flow() from public, anon, authenticated;
+drop trigger if exists tally_settlement_flow_t on public.tally_settlements;
+create trigger tally_settlement_flow_t after insert or update or delete on public.tally_settlements for each row execute function public.tally_settlement_flow();

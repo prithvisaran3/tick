@@ -94,7 +94,7 @@ def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), 
         return {**base, "needs_account": True}
     existing = _existing(user_id, parsed.rows)
     imported = {e["external_ref"] for e in existing if e.get("external_ref")}
-    live = [e for e in existing if not e.get("external_ref")]
+    live = existing                      # fuzzy pass sees earlier imports too (CSV then OFX of the same account must not double up)
     p = ST.plan(parsed.rows, live, imported, acct["id"])
     summary = {**base, "needs_account": False, "account_id": acct["id"], "new": len(p.inserts), "duplicates": len(p.duplicates), "already_imported": p.already_imported,
                "sample": [{"date": r.when.isoformat(), "merchant": r.merchant, "cents": r.amount_cents} for r in sorted(p.inserts, key=lambda r: r.when, reverse=True)[:SAMPLE]]}

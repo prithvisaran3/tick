@@ -29,7 +29,9 @@ class TallyGroup {
 
 class TallyExpense {
   const TallyExpense({required this.id, required this.groupId, required this.description, required this.amountCents, required this.paidBy,
-      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note});
+      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note, this.weights = const {}});
+  /// What was typed per person (percent, share count) so editing shows it again; empty for equal and exact.
+  final Map<String, num> weights;
   final String id;
   final String groupId;
   final String description;
@@ -163,5 +165,5 @@ bool looksLikeSettlement({required Transfer t, required String personFirstName, 
   if (iPay ? txnCents != -t.cents : txnCents != t.cents) return false;
   if (txnAt.isBefore(since) || txnAt.difference(since).inDays > days + 30) return false;
   final m = merchant.toLowerCase();
-  return m.contains('zelle') || m.contains('venmo') || m.contains('cash app') || m.contains(personFirstName.toLowerCase());
+  return m.contains(personFirstName.toLowerCase()); // the right person, not just any Zelle of the right amount
 }

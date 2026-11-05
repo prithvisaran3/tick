@@ -64,7 +64,8 @@ class TallyNotifier extends Notifier<TallyState> {
       final members = <String, List<String>>{};
       for (final m in res[2]) { (members[m['group_id'] as String] ??= []).add(m['person_id'] as String); }
       final shares = <String, Map<String, int>>{};
-      for (final s in res[4]) { (shares[s['expense_id'] as String] ??= {})[_id(s['person_id']) ?? me] = (s['owed_cents'] as num).toInt(); }
+      final weights = <String, Map<String, num>>{};
+      for (final s in res[4]) { (shares[s['expense_id'] as String] ??= {})[_id(s['person_id']) ?? me] = (s['owed_cents'] as num).toInt(); if (s['weight'] != null) { (weights[s['expense_id'] as String] ??= {})[_id(s['person_id']) ?? me] = s['weight'] as num; } }
       state = TallyState(
         people: [for (final j in res[0]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', phone: j['phone'] as String?)],
         groups: [for (final j in res[1]) TallyGroup(id: j['id'] as String, name: j['name'] as String, emoji: j['emoji'] as String?, direct: j['kind'] == 'direct', colorKey: (j['color_key'] as String?) ?? 'shop', memberIds: members[j['id']] ?? const [])],
@@ -72,7 +73,7 @@ class TallyNotifier extends Notifier<TallyState> {
           for (final j in res[3])
             TallyExpense(id: j['id'] as String, groupId: j['group_id'] as String, description: j['description'] as String, amountCents: (j['amount_cents'] as num).toInt(),
                 paidBy: _id(j['paid_by']) ?? me, shares: shares[j['id']] ?? const {}, spentOn: DateTime.parse(j['spent_on'] as String),
-                splitType: SplitType.values.firstWhere((t) => t.name == j['split_type'], orElse: () => SplitType.equal), transactionId: _id(j['transaction_id']), note: _id(j['note'])),
+                splitType: SplitType.values.firstWhere((t) => t.name == j['split_type'], orElse: () => SplitType.equal), transactionId: _id(j['transaction_id']), note: _id(j['note']), weights: weights[j['id']] ?? const {}),
         ],
         settlements: [
           for (final j in res[5])
@@ -102,7 +103,9 @@ class TallyNotifier extends Notifier<TallyState> {
   Future<TallyGroup> addGroup(String name, List<String> memberIds, {String? emoji, bool direct = false}) async {
     var g = TallyGroup(id: _local(), name: name.trim(), memberIds: memberIds, emoji: emoji, direct: direct);
     final r = _remote;
-    if (r != null) {
+    if (r != null && memberIds.any((m) => m.startsWith('local-'))) {
+      state = state.copyWith(offline: true);   // a friend that never reached the server can't join a server group; keep it on this phone
+    } else if (r != null) {
       try {
         final j = await r.db.from('tally_groups').insert({'name': g.name, 'emoji': emoji, 'kind': direct ? 'direct' : 'group'}).select().single();
         final gid = j['id'] as String;
@@ -125,14 +128,14 @@ class TallyNotifier extends Notifier<TallyState> {
           'id': e.id.startsWith('local-') ? null : e.id, 'group_id': e.groupId, 'description': e.description, 'amount_cents': e.amountCents,
           'paid_by': e.paidBy == me ? null : e.paidBy, 'split_type': e.splitType.name, 'spent_on': e.spentOn.toIso8601String().substring(0, 10),
           'note': e.note, 'transaction_id': e.transactionId,
-          'shares': [for (final s in e.shares.entries) {'person_id': s.key == me ? null : s.key, 'owed_cents': s.value}],
+          'shares': [for (final s in e.shares.entries) {'person_id': s.key == me ? null : s.key, 'owed_cents': s.value, 'weight': e.weights[s.key]}],
         }});
         saved = TallyExpense(id: id as String, groupId: e.groupId, description: e.description, amountCents: e.amountCents, paidBy: e.paidBy, shares: e.shares, spentOn: e.spentOn,
-            splitType: e.splitType, transactionId: e.transactionId, note: e.note);
+            splitType: e.splitType, transactionId: e.transactionId, note: e.note, weights: e.weights);
       } catch (_) { state = state.copyWith(offline: true); return false; }
     } else if (e.id.isEmpty) {
       saved = TallyExpense(id: _local(), groupId: e.groupId, description: e.description, amountCents: e.amountCents, paidBy: e.paidBy, shares: e.shares, spentOn: e.spentOn,
-          splitType: e.splitType, transactionId: e.transactionId, note: e.note);
+          splitType: e.splitType, transactionId: e.transactionId, note: e.note, weights: e.weights);
     }
     state = state.copyWith(expenses: [...state.expenses.where((x) => x.id != saved.id), saved]);
     return true;

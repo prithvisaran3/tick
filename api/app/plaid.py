@@ -508,7 +508,11 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             old_enough = datetime.now(timezone.utc) - datetime.fromisoformat(str(created).replace("Z", "+00:00")) > timedelta(minutes=15)
         except ValueError:
             old_enough = True
-    complete = bool(conn.get("historical_complete")) or old_enough
+    try:                                   # the HISTORICAL_UPDATE webhook may have finished while this long first pass was running
+        fresh = bool(rest().select("connections", id=f"eq.{conn['id']}", select="historical_complete")[0].get("historical_complete"))
+    except Exception:
+        fresh = False
+    complete = bool(conn.get("historical_complete")) or fresh or old_enough
     mark(conn["id"], sync_state="ok" if complete else "syncing", last_error=None, status="active", error_code=None, last_synced_at=done,
          last_attempt_at=done, initial_complete=True, historical_complete=complete or bool(conn.get("historical_complete")), last_added=counts.get("added", 0))
     return counts

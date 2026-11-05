@@ -56,6 +56,15 @@ begin
         'shares', jsonb_build_array(jsonb_build_object('person_id', null, 'owed_cents', 3000), jsonb_build_object('person_id', pj, 'owed_cents', 3000))));
   select count(*) into n from public.tally_shares where expense_id = e1;                if n <> 2 then fails := fails || format('edit left %s shares; ', n); end if;
 
+  -- a confirmed settlement linked to a bank row turns that row into a settlement (excluded), and rejecting it restores the row
+  reset role; insert into public.transactions (user_id, amount_cents, occurred_at, merchant_raw) values (a, 6000, now(), 'Zelle from Kaarthik') returning id into tx;
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true); set local role authenticated;
+  insert into public.tally_settlements (group_id, from_person, to_person, amount_cents, transaction_id) values (ga, pk, null, 6000, tx) returning id into st;
+  select count(*) into n from public.transactions where id = tx and flow = 'settlement';  if n <> 1 then fails := fails || 'settlement does not mark the row; '; end if;
+  update public.tally_settlements set status = 'rejected' where id = st;
+  select count(*) into n from public.transactions where id = tx and flow is null;          if n <> 1 then fails := fails || 'reject does not restore the row; '; end if;
+  delete from public.tally_settlements where id = st;
+
   -- ---------- user B attacks ----------
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   -- B cannot link their expense/settlement to A's transaction (composite FK)

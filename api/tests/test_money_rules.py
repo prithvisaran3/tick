@@ -107,3 +107,16 @@ def test_the_generated_sql_fixture_is_fresh():
     import subprocess, sys
     r = subprocess.run([sys.executable, str(pathlib.Path(__file__).parents[2] / "tools/gen_money_sql.py"), "--check"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_wallet_refund_is_not_income(monkeypatch):
+    import datetime
+    from app import ingest
+    from app.parsers import ParsedAlert
+    monkeypatch.setattr(ingest.store, "category_maps", lambda u: ({"Income": "c-inc", "Shopping": "c-shop"}, {}))
+    monkeypatch.setattr(ingest.store, "learned_rules", lambda u: [])
+    p = ParsedAlert(merchant_raw="Apple Store", amount_cents=4000, confidence=0.9, card_last4=None)
+    cand, tags = ingest.build_candidate("u", "applepay", "r1", p, datetime.datetime.now())
+    assert "refund" in tags and cand.category_id != "c-inc"
+    cand, tags = ingest.build_candidate("u", "sms", "r2", p, datetime.datetime.now())
+    assert cand.category_id == "c-inc"

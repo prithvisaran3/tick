@@ -55,7 +55,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
   }
 
   Future<void> _print() async {
-    final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)());
+    final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)(), cats: {for (final c in ref.read(ledgerProvider).categories) c.id: c}, accounts: {for (final a in ref.read(ledgerProvider).accounts) a.id: a});
     _fetchAdvice(r);
     final n = r.lines.length + (r.moreCount > 0 ? 1 : 0);
     if (!widget.animate || context.reduceMotion) { setState(() { _shown = n; _stamped = true; }); return; }
@@ -97,7 +97,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
     final now = ref.watch(clockProvider)();
     final sts = ref.watch(safeToSpendProvider);
     final c = context.c;
-    final r = buildReceipt(l.txns, now);
+    final r = buildReceipt(l.txns, now, cats: {for (final c in l.categories) c.id: c}, accounts: {for (final a in l.accounts) a.id: a});
     final paper = context.isDark ? TickPalette.paper : TickPalette.paper2;
     final advice = widget.advice ?? _serverAdvice ?? fallbackAdvice(r, sts?.cents ?? 0, sts?.daysToPayday ?? 1);
     final lines = <Widget>[

@@ -74,3 +74,15 @@ def test_pairing_is_idempotent():
 def test_total_spend_ignores_internal_transfers():
     txns = [Txn("a", -5000, T0), Txn("b", -45000, T0, flow="transfer"), Txn("c", -40000, T0, flow="bill")]
     assert total_spend(txns) == 45000
+
+
+def test_savings_transfer_does_not_steal_a_card_payment_credit():
+    from datetime import datetime, timezone
+    from app import transfers as T
+    def r(i, acct, cents, merchant, day):
+        return T.Row(id=i, account_id=acct, amount_cents=cents, occurred_at=datetime(2026, 11, day, 15, tzinfo=timezone.utc), merchant=merchant, flow=None, category=None, pair=None)
+    rows = [r("o1", "chk", -50000, "ONLINE TRANSFER TO SAV", 2), r("o2", "chk", -50000, "CHASE CREDIT CRD AUTOPAY", 3),
+            r("i2", "card", 50000, "AUTOMATIC PAYMENT - THANK YOU", 3), r("i1", "sav", 50000, "ONLINE TRANSFER FROM CHK", 4)]
+    p = T.pair(rows, {"chk": "checking", "sav": "savings", "card": "credit"})
+    assert p["o1"]["transfer_pair_id"] and p["i1"]["flow"] == "transfer"          # savings deposit is a transfer, not income
+    assert p["o2"]["flow"] == "transfer" and p["i2"]["flow"] == "transfer"

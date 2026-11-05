@@ -9,8 +9,9 @@ import '../domain/money.dart';
 import '../domain/tally.dart';
 import '../services/haptics.dart';
 
-/// A one-line text field in the app's own look (no Material).
-class TallyField extends StatelessWidget {
+/// A one-line text field in the app's own look (no Material). Owns its FocusNode: creating one inside build would drop focus (and the
+/// keyboard) on every keystroke.
+class TallyField extends StatefulWidget {
   const TallyField({super.key, required this.controller, required this.hint, this.onChanged, this.keyboard, this.autofocus = false, this.label});
   final TextEditingController controller;
   final String hint;
@@ -19,16 +20,24 @@ class TallyField extends StatelessWidget {
   final TextInputType? keyboard;
   final bool autofocus;
   @override
+  State<TallyField> createState() => _TallyFieldState();
+}
+
+class _TallyFieldState extends State<TallyField> {
+  final FocusNode _focus = FocusNode();
+  @override
+  void dispose() { _focus.dispose(); super.dispose(); }
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
     return Semantics(
-      textField: true, label: label ?? hint,
+      textField: true, label: widget.label ?? widget.hint,
       child: Container(
         constraints: const BoxConstraints(minHeight: 52), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(color: c.surface1, borderRadius: BorderRadius.circular(TickRadius.card)),
         child: Stack(alignment: Alignment.centerLeft, children: [
-          ListenableBuilder(listenable: controller, builder: (_, _) => controller.text.isEmpty ? IgnorePointer(child: Text(hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body, color: c.textSecondary))) : const SizedBox.shrink()),
-          EditableText(controller: controller, focusNode: FocusNode(), autofocus: autofocus, keyboardType: keyboard, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline, onChanged: onChanged),
+          ListenableBuilder(listenable: widget.controller, builder: (_, _) => widget.controller.text.isEmpty ? IgnorePointer(child: Text(widget.hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body, color: c.textSecondary))) : const SizedBox.shrink()),
+          EditableText(controller: widget.controller, focusNode: _focus, autofocus: widget.autofocus, keyboardType: widget.keyboard, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline, onChanged: widget.onChanged),
         ]),
       ),
     );
@@ -72,7 +81,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
     _in = e != null ? e.shares.keys.toSet() : _everyone.toSet();
     _paidBy = e?.paidBy ?? me;
     if (e != null && _type != SplitType.equal) {
-      for (final s in e.shares.entries) { _w[s.key] = TextEditingController(text: _type == SplitType.exact ? formatCents(s.value, symbol: false, raw: true) : ''); }
+      for (final s in e.shares.entries) { _w[s.key] = TextEditingController(text: _type == SplitType.exact ? formatCents(s.value, symbol: false, raw: true) : (e.weights[s.key]?.toString().replaceFirst(RegExp(r'\.0$'), '') ?? '')); }
     }
   }
 
@@ -122,7 +131,8 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
     setState(() => _busy = true);
     final ok = await ref.read(tallyProvider.notifier).saveExpense(TallyExpense(
         id: widget.edit?.id ?? '', groupId: widget.group.id, description: _desc.text.trim(), amountCents: _total, paidBy: _paidBy, shares: shares,
-        spentOn: widget.edit?.spentOn ?? widget.on ?? DateTime.now(), splitType: _type, transactionId: widget.edit?.transactionId ?? widget.transactionId));
+        spentOn: widget.edit?.spentOn ?? widget.on ?? DateTime.now(), splitType: _type,
+        weights: _type == SplitType.percent || _type == SplitType.shares ? {for (final p in shares.keys) p: num.tryParse(_ctl(p).text) ?? 0} : const {}, transactionId: widget.edit?.transactionId ?? widget.transactionId));
     if (!mounted) return;
     if (ok) { TickHaptics.instance.confirm(); Navigator.of(context).pop(); } else { setState(() => _busy = false); }
   }

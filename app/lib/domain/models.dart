@@ -59,7 +59,8 @@ class Account {
     if (s <= 0) return true;
     if (lastPaymentCents == null || lastPaymentDate == null) return false;
     final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
-    final after = from == null || !lastPaymentDate!.isBefore(from);
+    if (from == null) return false; // no statement or due date to anchor on: never claim "paid" from an undated payment
+    final after = !lastPaymentDate!.isBefore(from);
     return after && lastPaymentCents! >= s;
   }
 

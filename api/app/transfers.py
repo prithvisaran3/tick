@@ -129,6 +129,9 @@ def pair(rows: list[Row], acct_types: dict[str, str], acct_inst: dict[str, str] 
             pool = [i for i in pool if acct_types.get(i.account_id or "") == "loan"]
         elif kind == "card":
             pool = [i for i in pool if acct_types.get(i.account_id or "") in ("credit", "loan")]
+        else:
+            # An ordinary own-account transfer lands in cash: it must never take a card or loan payment credit (that credit belongs to the card payment).
+            pool = [i for i in pool if acct_types.get(i.account_id or "") not in ("credit", "loan")]
         dist = lambda i: abs((i.occurred_at - o.occurred_at).total_seconds())
         match: list[Row] = []
         exact = sorted((i for i in pool if i.amount_cents == want), key=lambda i: (dist(i), i.id))
