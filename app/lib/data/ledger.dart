@@ -129,6 +129,24 @@ class LedgerNotifier extends Notifier<LedgerState> {
     }
   }
 
+  /// After signing in on a fresh install: pick up the payday rule saved earlier. Returns true if the person is already set up.
+  Future<bool> restoreSetup() async {
+    // The auth stream delivers the new session a moment after sign-in returns; wait briefly for the provider to catch up.
+    for (var i = 0; i < 25 && ref.read(remoteProvider) == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    final remote = ref.read(remoteProvider);
+    if (remote == null) return false;
+    try {
+      final rule = await remote.loadPaydayRule();
+      if (rule == null) return false;
+      ref.read(settingsProvider.notifier).update((s) => s.copyWith(rule: rule, onboardingDone: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _pushLocal(List<Txn> pending) async {
     final remote = ref.read(remoteProvider);
     if (remote == null) return;

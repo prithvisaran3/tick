@@ -53,6 +53,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       await ref.read(authServiceProvider).signInWithGoogle();
       final name = ref.read(authServiceProvider).displayName;
       ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
+      // A returning person (reinstall, new phone) already has a payday rule saved: skip the setup questions.
+      final done = await ref.read(ledgerProvider.notifier).restoreSetup();
+      if (done && mounted) { context.go('/'); return; }
       if (mounted) setState(() { _step = 1; _busy = false; });
     } on AuthFailure catch (f) {
       if (mounted) setState(() { _failure = f.kind; _error = f.message; _busy = false; });

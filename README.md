@@ -29,4 +29,12 @@ python3 tools/e2e_deployed.py                        # live Railway API
 Secrets are environment variables only (names in `.env.example`). `tools/commit.sh "message"` secret-scans the staged diff, commits and pushes.
 
 ## Running the app
-See `docs/RUN_ON_MAC.md`.
+Needs **Flutter 3.44 or newer** (Dart 3.12+). Beginner steps in `docs/RUN_ON_MAC.md`; what was audited and fixed in `docs/AUDIT.md`.
+
+## Release build
+```bash
+cd app && flutter build ipa --release \
+  --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_PUBLISHABLE_KEY=... --dart-define=API_BASE_URL=https://tick-api-production.up.railway.app \
+  --obfuscate --split-debug-info=build/symbols
+```
+Bump `version:` in `app/pubspec.yaml` (`1.0.0+1`) for each upload. `test/`, `design/` and `docs/` are not app assets, so nothing from them ships; the debug gallery is compiled out of release behaviour (`kDebugMode`). Only public client config is passed with `--dart-define`.

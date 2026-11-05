@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 import 'package:local_auth/local_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/env.dart';
+import 'web_auth.dart';
 
 enum AuthFailureKind { cancelled, offline, notConfigured, failed }
 
@@ -45,7 +45,7 @@ class AuthService {
     String callback;
     try {
       final res = await auth.getOAuthSignInUrl(provider: OAuthProvider.google, redirectTo: redirect, queryParams: const {'prompt': 'select_account'});
-      callback = await FlutterWebAuth2.authenticate(url: res.url, callbackUrlScheme: 'tick');
+      callback = await webAuthenticate(res.url);
     } on PlatformException catch (e) {
       throw AuthFailure(e.code == 'CANCELED' ? AuthFailureKind.cancelled : AuthFailureKind.failed);
     } on SocketException {

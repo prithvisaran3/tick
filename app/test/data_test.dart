@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +15,7 @@ import 'package:tick/domain/models.dart';
 import 'package:tick/services/api.dart';
 import 'package:tick/services/auth.dart';
 import 'package:tick/services/haptics.dart';
+import 'package:tick/services/web_auth.dart';
 import 'golden_harness.dart';
 
 void main() {
@@ -153,6 +155,25 @@ void main() {
       final api = Api(client: MockClient((r) async { calls++; return http.Response('{"detail":"token expired"}', 401); }));
       await expectLater(api.get('/x'), throwsA(isA<ApiException>().having((e) => e.status, 'status', 401)));
       expect(calls, 2);
+    });
+  });
+
+  group('web auth channel', () {
+    const channel = MethodChannel('tick/webauth');
+    tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+
+    test('returns the callback url from the native session', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'authenticate');
+        expect((call.arguments as Map)['scheme'], 'tick');
+        return 'tick://login-callback?code=abc';
+      });
+      expect(await webAuthenticate('https://example.com/auth'), 'tick://login-callback?code=abc');
+    });
+
+    test('a closed sheet surfaces as CANCELED', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async => throw PlatformException(code: 'CANCELED'));
+      await expectLater(webAuthenticate('https://example.com/auth'), throwsA(isA<PlatformException>().having((e) => e.code, 'code', 'CANCELED')));
     });
   });
 

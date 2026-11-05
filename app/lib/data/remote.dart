@@ -113,6 +113,20 @@ class Remote {
   Future<void> deleteRule(String id) => db.from('rules').delete().eq('id', id);
   Future<void> recordPayday(int moved) => db.from('paydays').upsert({'day': DateTime.now().toIso8601String().substring(0, 10), 'moved_cents': moved}, onConflict: 'user_id,day');
 
+  /// The payday rule saved by an earlier install, if any (so a reinstall does not ask again).
+  Future<PaydayRule?> loadPaydayRule() async {
+    final j = await db.from('settings').select('payday_rule').maybeSingle();
+    final r = j?['payday_rule'];
+    if (r is! Map) return null;
+    try {
+      return PaydayRule(
+        frequency: PayFrequency.values.firstWhere((f) => f.name == r['frequency'], orElse: () => PayFrequency.biweekly),
+        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt());
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> savePaydayRule(Map<String, dynamic> rule) => db.from('settings').update({'payday_rule': rule}).eq('user_id', db.auth.currentUser!.id);
 
   /// Learned rule: the next purchase at this merchant gets this category (rules win over AI).

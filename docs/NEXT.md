@@ -1,16 +1,34 @@
 # NEXT — resume here
+_Updated by the production audit (`docs/AUDIT.md`)._
 Fresh session? Read CLAUDE.md, docs/FINAL_REPORT.md and this file, then continue unattended from "Open work".
 
+## What I must verify on the real iPhone (production-audit checklist)
+Nothing below could be run in the build sandbox (no Xcode, no device). Do them in order with `docs/RUN_ON_MAC.md`; tick each box.
+1. [ ] `flutter pub get` works on your Flutter (3.44+). If it prints an SDK error, `brew upgrade --cask flutter`.
+2. [ ] **Launch**: the Ink launch screen with the "tick" wordmark appears (no white flash), the app icon is the Ink + Volt checkmark, and the first screen is usable in under ~2 s. In Xcode's console there is no `fopen failed for data file` line; if there is, copy the whole line and the lines around it into an issue (all declared assets exist and are test-enforced, so it would point at something new).
+3. [ ] **Google sign-in** (onboarding > Continue with Google): the system sign-in sheet opens, you pick an account, it closes, you land on the paycheck step. Also test: close the sheet (calm "cancelled" text, button still works), airplane mode (calm "offline" text), then retry. Kill and relaunch: you are still signed in (Settings shows "Signed in with Google") and Today shows data immediately.
+4. [ ] **Freeze check**: switch tabs quickly, scroll Activity, pull down to refresh, background and reopen the app. Nothing should hang; the "System gesture gate timed out" log must not appear. If it does, note what you tapped just before.
+5. [ ] **Smoothness in `--release`** (or `--profile`): Activity scrolling and tab switches feel smooth (60 to 120 fps). With `--profile --dart-define=TICK_PERF=true` the overlay bars stay green.
+6. [ ] **Notifications**: the permission prompt appears about 2 s after onboarding (not at launch); a morning summary, a bill reminder (day before) and the Sunday review arrive; tapping the Payday notification opens the Payday plan.
+7. [ ] **Face ID**: Settings > Face ID lock turns on only after Face ID succeeds; backgrounding and reopening asks for Face ID; the privacy blur covers the app in the app switcher.
+8. [ ] **Haptics** (real iPhone, Settings > Haptics Full): the Pop at launch, Price weight when a purchase lands, Count-up on Safe to spend, Hold to confirm ramps and clicks, Caught swipes feel different per direction, Landed is a heavy stamp. Subtle is half strength; Off is silent.
+9. [ ] **Plaid** (once, see item below): Hold to link opens the Plaid sheet; closing it is not an error; after linking, rows appear within a minute.
+10. [ ] **Siri/Shortcuts**: "Log expense" opens Tick with the add sheet filled in; also try `tick://add?amount=18&merchant=Uber` from Safari.
+
+## Supabase migration to apply by hand (not applied by the audit)
+`supabase/migrations/20261105000001_indexes_and_cleanup.sql` adds indexes for the hot queries and three housekeeping cron jobs. It is safe to run. Apply when you are ready: `python3 tools/db.py push` (uses `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`), then `python3 tools/run_rls_tests.py`.
+
 ## Do these by hand (in order of importance)
-1. **Plaid OAuth redirect (Chase and other OAuth banks).** Hosted Link works for OAuth banks without any redirect URI (current Plaid docs: Hosted Link does not need Link re-initialisation), so linking should work as is. To be safe, and required if you ever hit an OAuth error, register this exact URI:
+1. **Plaid OAuth redirect (Chase and other OAuth banks).** Hosted Link works for OAuth banks without any redirect URI (current Plaid docs), so linking should work as is. If a bank refuses with an OAuth error, register this exact URI:
    `https://tick-api-production.up.railway.app/plaid/oauth-return`
-   Where: https://dashboard.plaid.com > Developers > API > **Allowed redirect URIs** > Add new URI > paste it > Save. Then on Railway (project `tick-api`, service `tick-api`, Variables) add `PLAID_REDIRECT_URI` with the same value and redeploy. Do NOT set the variable before registering the URI: Plaid rejects unregistered redirect URIs and linking would fail. Production OAuth institutions also need your Plaid application profile and (for some banks) questionnaire completed in the dashboard.
-2. **Run on your iPhone:** `docs/RUN_ON_MAC.md` (beginner steps). Swift (haptics plugin, widget, App Intent) is uncompiled and untested on a device.
+   Where: https://dashboard.plaid.com > Developers > API > **Allowed redirect URIs** > Add new URI > paste it > Save. Then on Railway (project `tick-api`, service `tick-api`, Variables) add `PLAID_REDIRECT_URI` with the same value and redeploy. Do NOT set the variable before registering the URI: Plaid rejects unregistered redirect URIs and linking would fail.
+2. **Run on your iPhone:** `docs/RUN_ON_MAC.md`. Swift (haptics, web-auth channel, App Intent) is uncompiled and untested on a device.
 3. **Link ONE bank** (you have 10 Items for life; production Items are only created by the Hold-to-link flow, never by tests or code).
-4. **AI** runs on OpenRouter FREE models only, with data_collection=deny. Free capacity rotates; see "AI status" below. Check Settings > AI on the phone for "AI today: N of 40" and the models in use.
+4. **AI** runs on OpenRouter FREE models only, with data_collection=deny (see "AI status"). Settings > AI shows "AI today: N of 40" and the models in use.
 5. Capture token + Shortcuts: `docs/SHORTCUTS_SETUP.md`.
 6. Optional: GitHub repo secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PLAID_CLIENT_ID`, `PLAID_SANDBOX_SECRET` so CI also runs the RLS and live integration jobs (they skip cleanly without them).
 7. Paste masked bank alerts into `tools/samples/*.txt` to tune the parsers.
+8. Home-screen widget: needs a paid Apple Developer account (App Groups). Steps are at the end of `docs/RUN_ON_MAC.md`.
 
 ## AI status (read this)
 - Provider: OpenRouter, only model ids ending in `:free`, chosen at runtime from `GET /api/v1/models` (cached 24h), top 3 sent as the `models` fallback array. Gemini code stays behind the `AIProvider` interface (`AI_PROVIDER=gemini` to re-enable, currently a stub); `GEMINI_API_KEY` is no longer required.

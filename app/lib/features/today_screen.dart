@@ -46,7 +46,7 @@ class TodayScreen extends ConsumerWidget {
           height: 52,
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Wordmark(),
-            Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
+            Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', minSize: 44, child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
           ]),
         ),
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),

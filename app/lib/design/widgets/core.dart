@@ -21,7 +21,9 @@ class TickIcon extends StatelessWidget {
 
 /// Scales down with a spring while pressed.
 class Pressable extends StatefulWidget {
-  const Pressable({super.key, required this.child, this.onTap, this.semanticLabel, this.scale = 0.96});
+  const Pressable({super.key, required this.child, this.onTap, this.semanticLabel, this.scale = 0.96, this.minSize = 0});
+  /// Minimum tap target (Apple asks for 44 pt). The visible child keeps its size; only the hit area grows.
+  final double minSize;
   final Widget child;
   final VoidCallback? onTap;
   final String? semanticLabel;
@@ -47,7 +49,10 @@ class _PressableState extends State<Pressable> with SingleTickerProviderStateMix
           onTapUp: (_) => _to(1),
           onTapCancel: () => _to(1),
           onTap: widget.onTap,
-          child: AnimatedBuilder(animation: _c, builder: (_, ch) => Transform.scale(scale: _c.value, child: ch), child: widget.child),
+          child: AnimatedBuilder(
+            animation: _c, builder: (_, ch) => Transform.scale(scale: _c.value, child: ch),
+            child: widget.minSize > 0 ? ConstrainedBox(constraints: BoxConstraints(minWidth: widget.minSize, minHeight: widget.minSize), child: Center(widthFactor: 1, heightFactor: 1, child: widget.child)) : widget.child,
+          ),
         ),
       );
 }

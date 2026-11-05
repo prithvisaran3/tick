@@ -172,7 +172,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
               EditableText(controller: _ctl, focusNode: _focus, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline, onChanged: (_) => setState(() {}), onSubmitted: (v) => _send()),
             ])),
             Pressable(
-              onTap: busy ? () => ref.read(askProvider.notifier).cancel() : _send, semanticLabel: busy ? 'Stop' : 'Send',
+              onTap: busy ? () => ref.read(askProvider.notifier).cancel() : _send, semanticLabel: busy ? 'Stop' : 'Send', minSize: 44,
               child: Container(width: 40, height: 40, decoration: BoxDecoration(color: _ctl.text.isEmpty && !busy ? c.surface1 : c.accent, shape: BoxShape.circle), alignment: Alignment.center, child: busy ? TickLoader(color: c.onAccent, size: 5) : TickIcon('arrow-up', size: 20, color: _ctl.text.isEmpty ? c.textSecondary : c.onAccent)),
             ),
           ]),
