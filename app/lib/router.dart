@@ -148,7 +148,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     final sts = ref.read(safeToSpendProvider);
     final now = ref.read(clockProvider)();
     if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
-    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts));
+    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts, utilisationAlerts: s.flag('statement_cycle')));
   }
 
   /// Ask for notification permission once, after onboarding, a moment after the first frame, never at launch of a blank app.

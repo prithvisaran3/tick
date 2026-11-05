@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/activity.dart';
 import '../data/ledger.dart';
+import '../data/settings.dart';
+import '../domain/ideas.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
@@ -249,6 +251,29 @@ class CardScreen extends ConsumerWidget {
           _KV('Available credit', a.availableCreditCents == null ? '—' : formatCents(a.availableCreditCents!)),
           if (apr != null) _KV('Purchase APR', apr),
         ])),
+        if (ref.watch(settingsProvider.select((x) => x.flag('statement_cycle'))))
+          if (statementCycle(a, now) case final cy?) ...[
+            const SectionLabel('Statement cycle'),
+            TickCard(child: Semantics(
+              label: 'Statement closes ${DateFormat('MMMM d').format(cy.closes)}. ${_cycleLine(a, cy, now)}', excludeSemantics: true,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Expanded(child: Text('Closes ${DateFormat('EEE MMM d').format(cy.closes)}', style: context.ts(TickType.title, size: 16))),
+                  Text(cy.daysToClose == 0 ? 'today' : 'in ${cy.daysToClose} ${cy.daysToClose == 1 ? 'day' : 'days'}', style: context.ts(TickType.monoS, color: c.textSecondary)),
+                ]),
+                const SizedBox(height: 6),
+                Text(_cycleLine(a, cy, now), style: context.ts(TickType.bodyS, color: cy.payForUnder30Cents > 0 ? c.alert : c.textSecondary)),
+                if (cy.dueDays != null && cy.statementDueCents > 0) ...[
+                  const SizedBox(height: 10),
+                  const Hairline(),
+                  const SizedBox(height: 10),
+                  Text(cy.dueDays! < 0 ? 'Statement was due ${-cy.dueDays!} ${cy.dueDays == -1 ? 'day' : 'days'} ago.'
+                      : 'Pay ${formatDollars(cy.statementDueCents)} in full within ${cy.dueDays} ${cy.dueDays == 1 ? 'day' : 'days'} and there is no interest.',
+                      style: context.ts(TickType.bodyS, color: c.textSecondary)),
+                ],
+              ]),
+            )),
+          ],
         const SectionLabel('Spent on this card'),
         switch (months) {
           AsyncData(:final value) when value.isEmpty => TickCard(child: Text('No purchases on this card yet.', style: context.ts(TickType.body, color: c.textSecondary))),
@@ -276,6 +301,10 @@ class CardScreen extends ConsumerWidget {
     );
   }
 }
+
+String _cycleLine(Account a, Cycle cy, DateTime now) => cy.payForUnder30Cents > 0
+    ? 'Pay ${formatDollars(cy.payForUnder30Cents)} by ${DateFormat('EEE MMM d').format(cy.bestPayDay)} and the statement reports under 30% of your limit.'
+    : 'Your balance is under 30% of the limit. Nothing to do before it closes.';
 
 class _KV extends StatelessWidget {
   const _KV(this.k, this.v);

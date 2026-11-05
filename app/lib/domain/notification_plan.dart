@@ -1,3 +1,4 @@
+import 'ideas.dart';
 import 'models.dart';
 import 'money.dart';
 import 'payday.dart';
@@ -28,6 +29,7 @@ List<PlannedNotification> planNotifications({
   required List<Recurring> recurring,
   required List<Goal> goals,
   List<Account> accounts = const [],
+  bool utilisationAlerts = false,
   int horizonDays = 7,
 }) {
   final out = <PlannedNotification>[];
@@ -62,6 +64,19 @@ List<PlannedNotification> planNotifications({
     if (!when.isAfter(now)) when = _at(due.subtract(const Duration(days: 1)), '09:00');
     if (when.isAfter(now)) {
       out.add(PlannedNotification(5000 + k++, '${a.shortLabel} is due ${DateFormat('EEEE').format(due)}', '${formatDollars(a.statementDueCents)} statement balance. Pay it from checking to skip interest.', when, payload: 'card:${a.id}'));
+    }
+  }
+  // Labs (statement cycle): a heads-up three days before a high-utilisation statement closes, 9:00.
+  if (utilisationAlerts) {
+    var u = 0;
+    for (final a in accounts.where((a) => a.isCard)) {
+      final cy = statementCycle(a, now);
+      if (cy == null || cy.payForUnder30Cents <= 0) continue;
+      final when = _at(cy.closes.subtract(const Duration(days: 3)), '09:00');
+      if (when.isAfter(now)) {
+        out.add(PlannedNotification(6000 + u++, '${a.shortLabel} closes ${DateFormat('EEEE').format(cy.closes)}',
+            'Paying ${formatDollars(cy.payForUnder30Cents)} before then keeps the reported balance under 30%.', when, payload: 'card:${a.id}'));
+      }
     }
   }
   // Payday plan on payday, 7:30.

@@ -103,6 +103,20 @@ class SettingsScreen extends ConsumerWidget {
             }),
           ],
         ])),
+        const SectionLabel('Labs'),
+        TickCard(padding: const EdgeInsets.fromLTRB(16, 4, 16, 4), child: Column(children: [
+          for (final (i, (id, title, desc)) in featureFlags.indexed) ...[
+            if (i > 0) const Hairline(),
+            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: context.ts(TickType.title, size: 16)),
+                Text(desc, style: context.ts(TickType.bodyS, color: c.textSecondary)),
+              ])),
+              const SizedBox(width: 12),
+              TickToggle(label: title, on: s.flag(id), onChanged: (v) => n.update((x) => x.copyWith(flagsOff: v ? ({...x.flagsOff}..remove(id)) : {...x.flagsOff, id}))),
+            ])),
+          ],
+        ])),
         const SizedBox(height: 16),
         HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
         Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick, including bank links. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
