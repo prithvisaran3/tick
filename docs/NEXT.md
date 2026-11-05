@@ -109,4 +109,4 @@ Unchanged from the last session:
 See the plans in the git history of this file (`git show main:docs/NEXT.md`) and `docs/IDEAS.md` #6 and #14.
 
 - [x] Part 6 Tally: schema/RLS/RPCs, share links + public page, app screens (tab, group, split sheet, "Split with friends" on a purchase, Today "You're owed", square-up moment). On-device: create a tally, split a purchase from Activity, share the link via Messages, tap "I paid" on the page, confirm in the app, watch the tally marks + heartbeat.
-- [x] Part 7 responsive matrix test + 320/430 goldens + ProMotion key. On-device: scroll Activity with a long history and confirm it feels 120 Hz (Xcode Instruments → Animation Hitches), turn on Reduce Motion and Larger Accessibility Sizes and look at Today, Activity, Tally.
+- [x] Part 7 responsive matrix test + 320/430 goldens (ProMotion key was already present). On-device: scroll Activity with a long history and confirm it feels 120 Hz (Xcode Instruments → Animation Hitches), turn on Reduce Motion and Larger Accessibility Sizes and look at Today, Activity, Tally.

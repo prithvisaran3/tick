@@ -90,5 +90,5 @@ Format: date · decision · why.
 ## Part 7: motion, haptics, responsive
 - **Responsive matrix as a test**: `test/dynamic_type_test.dart` renders every screen (including the three Tally ones) at 320, 375, 393 and 430 pt wide and text scale 1.0 / 1.6 / 2.35 (≈ accessibility XL) and fails on any overflow or exception (240 cases). It found and fixed: Caught card and action row at 320 pt / large type, Incoming and budget amounts, Banks action chip (drops under the text at large sizes), Morning Receipt stamp and footer.
 - **Goldens** at 320 and 430 pt (dark) for Today, Activity, Insights, Tally, Tally group, Settings, besides 393 dark+light for every screen.
-- **120 Hz**: `CADisableMinimumFrameRateLimit` added to Info.plist (ProMotion iPhones cap Flutter at 60 without it). Cannot be measured in the sandbox; on-device check listed in NEXT.md.
+- **120 Hz**: Info.plist already has `CADisableMinimumFrameDurationOnPhone` (what ProMotion iPhones need for Flutter to exceed 60 Hz); nothing to add. Cannot be measured in the sandbox; on-device check listed in NEXT.md.
 - **Reduce Motion**: the square-up marks appear finished, page transitions fade (existing), springs unchanged otherwise. 5,000-row Activity scroll test (existing) still passes with no exceptions.
