@@ -143,7 +143,7 @@ def _routes(rs):
 def test_every_user_route_requires_auth():
     routes = list(_routes(app.routes))
     assert len(routes) > 20
-    open_routes = {"/health", "/webhooks/plaid", "/plaid/oauth-return", "/ingest"} | {r.path for r in routes if r.path.startswith("/jobs/")}
+    open_routes = {"/health", "/webhooks/plaid", "/plaid/oauth-return", "/ingest", "/t/{token}", "/t/{token}/paid"} | {r.path for r in routes if r.path.startswith("/jobs/")}
     for r in routes:
         path = getattr(r, "path", "")
         if path in open_routes or path.endswith("-test") or not getattr(r, "methods", None):

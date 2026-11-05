@@ -122,7 +122,7 @@ def install(app: FastAPI) -> None:
                 pass
         for k, v in SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
-        if response.headers.get("content-type", "").startswith("text/html"):
+        if response.headers.get("content-type", "").startswith("text/html") and "content-security-policy" not in response.headers:
             response.headers["Content-Security-Policy"] = HTML_CSP
         if path != "/plaid/oauth-return":
             response.headers.setdefault("Cache-Control", "no-store")

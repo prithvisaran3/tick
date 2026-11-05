@@ -17,6 +17,7 @@ from .imports import router as imports_router
 
 from . import security
 from .account import router as account_router
+from .tally import router as tally_router
 
 log = logging.getLogger("tick")
 security.configure_logging()
@@ -33,6 +34,7 @@ app.include_router(ask_router)
 app.include_router(receipts_router)
 app.include_router(imports_router)
 app.include_router(account_router)
+app.include_router(tally_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 

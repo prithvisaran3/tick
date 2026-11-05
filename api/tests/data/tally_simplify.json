@@ -1,0 +1,8 @@
+[
+  {"name": "one debt", "net": {"me": 3000, "k": -3000}, "transfers": [["k", "me", 3000]]},
+  {"name": "roommates: two owe me", "net": {"me": 6000, "k": -3000, "j": -3000}, "transfers": [["j", "me", 3000], ["k", "me", 3000]]},
+  {"name": "chain collapses", "net": {"a": 1000, "b": 0, "c": -1000}, "transfers": [["c", "a", 1000]]},
+  {"name": "I owe two people", "net": {"me": -5000, "k": 3000, "j": 2000}, "transfers": [["me", "k", 3000], ["me", "j", 2000]]},
+  {"name": "uneven: minimum transfers", "net": {"a": 700, "b": 300, "c": -600, "d": -400}, "transfers": [["c", "a", 600], ["d", "a", 100], ["d", "b", 300]]},
+  {"name": "all square", "net": {"a": 0, "b": 0}, "transfers": []}
+]
