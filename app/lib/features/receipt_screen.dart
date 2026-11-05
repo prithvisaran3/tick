@@ -150,7 +150,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                       const SizedBox(height: 14),
                       Align(
                         alignment: Alignment.centerRight,
-                        child: SizedBox(height: 52, child: _stamped
+                        child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 52), child: _stamped
                             ? PopIn(fromScale: 1.15, fromTilt: 0.2, spring: TickSprings.pop, child: Transform.rotate(angle: -0.14, child: UnconstrainedBox(child: Container(padding: const EdgeInsets.symmetric(horizontal: 20), alignment: Alignment.center, decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(99), border: Border.all(color: ink, width: 3)), child: Text('Ticked.', style: context.ts(TickType.displayM, color: ink, size: 22))))))
                             : const SizedBox()),
                       ),
@@ -162,7 +162,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary))]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Flexible(child: Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary)))]),
         const SizedBox(height: 16),
         ]))),
         Padding(padding: const EdgeInsets.only(bottom: 44), child: PillButton('Show me today', onTap: () => context.go('/'))),

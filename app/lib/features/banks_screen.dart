@@ -182,6 +182,7 @@ class _BankTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final big = MediaQuery.textScalerOf(context).scale(1) > 1.4; // action chip drops below the text so it can't push it off screen
     final accts = ledger.accounts.where((a) => a.connectionId == conn.id).toList();
     final total = accts.fold<int>(0, (s, a) => s + (counts[a.id]?.count ?? 0));
     final st = bankStatus(conn, now, txnCount: total);
@@ -202,14 +203,16 @@ class _BankTile extends StatelessWidget {
               ]),
               if (st.detail != null) Text(st.detail!, style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
             ])),
-            if (st.actionLabel != null) ...[const SizedBox(width: 8), TickChip(st.actionLabel!, on: st.tone != BankTone.good, onTap: busy ? null : () => onAction(st.action))],
+            if (st.actionLabel != null && !big) ...[const SizedBox(width: 8), TickChip(st.actionLabel!, on: st.tone != BankTone.good, onTap: busy ? null : () => onAction(st.action))],
           ]),
+          if (st.actionLabel != null && big) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerLeft, child: TickChip(st.actionLabel!, on: st.tone != BankTone.good, onTap: busy ? null : () => onAction(st.action)))),
           if (accts.isNotEmpty) ...[
             const SizedBox(height: 10),
             for (final a in accts)
               Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
                 Expanded(child: Text(a.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS))),
-                Text(a.isLoan ? 'loan' : '${counts[a.id]?.count ?? 0} transactions', style: context.ts(TickType.monoS, size: 12, color: c.textSecondary)),
+                const SizedBox(width: 8),
+                Flexible(child: Text(a.isLoan ? 'loan' : '${counts[a.id]?.count ?? 0} transactions', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.monoS, size: 12, color: c.textSecondary))),
               ])),
           ],
         ]),

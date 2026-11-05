@@ -69,6 +69,21 @@ void main() {
       });
     }
   }
+
+  // The same key screens at the narrowest (SE-class, 320) and widest (Pro Max, 430) iPhone widths.
+  for (final k in ['today', 'activity', 'insights', 'tally', 'tally-group', 'settings']) {
+    for (final w in [320.0, 430.0]) {
+      testWidgets('golden $k ${w.toInt()}pt dark', (tester) async {
+        final c = await demoContainer();
+        addTearDown(c.dispose);
+        debugDisableShadows = false;
+        final e = screens[k]!;
+        await pumpGolden(tester, frame(c, e.$1(), dark: true, tab: e.$2), width: w, height: w == 320 ? 700 : 932);
+        await expectLater(find.byType(WidgetsApp), matchesGoldenFile('goldens/$k.${w.toInt()}.dark.png'));
+        debugDisableShadows = true;
+      });
+    }
+  }
 }
 
 class _SeededAsk extends AskNotifier {

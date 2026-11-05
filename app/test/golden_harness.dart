@@ -63,8 +63,8 @@ Widget frame(ProviderContainer c, Widget child, {required bool dark, int? tab}) 
   );
 }
 
-Future<void> pumpGolden(WidgetTester tester, Widget w) async {
-  tester.view.physicalSize = const Size(393 * 2, 852 * 2);
+Future<void> pumpGolden(WidgetTester tester, Widget w, {double width = 393, double height = 852}) async {
+  tester.view.physicalSize = Size(width * 2, height * 2);
   tester.view.devicePixelRatio = 2;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(w);

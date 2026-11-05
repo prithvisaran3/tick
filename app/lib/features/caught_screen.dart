@@ -96,7 +96,7 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
     final queue = l.needsReview.where((t) => !_done.contains(t.id)).toList();
     final progress = (_drag.dx.abs() / TickMotion.caughtCommitPx).clamp(0.0, 1.0);
     final scale = MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 2.0);
-    final cardH = 410 + (scale - 1) * 380;        // the card grows with Dynamic Type instead of overflowing
+    final cardH = 410 + (scale - 1) * 560;        // the card grows with Dynamic Type instead of overflowing
     return TickScreen(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         ScreenTitle('Caught', onBack: () => context.pop(), trailing: Text(queue.isEmpty ? '' : '${queue.length} to check', style: context.ts(TickType.body, color: c.textSecondary))),
@@ -116,11 +116,11 @@ class _CaughtScreenState extends ConsumerState<CaughtScreen> with SingleTickerPr
         if (queue.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 32, top: 8),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+            child: SizedBox(width: double.infinity, child: Wrap(alignment: WrapAlignment.spaceAround, runSpacing: 8, spacing: 4, children: [
               _Act('edit', 'Fix it', () => _commit(queue[0], const Offset(-600, 0), 'left'), false),
               _Act('briefcase', 'Business', () => _commit(queue[0], const Offset(0, -800), 'up'), false),
               _Act('check', 'Looks right', () => _commit(queue[0], const Offset(600, 0), 'right'), true),
-            ]),
+            ])),
           ),
       ]),
     );
@@ -167,6 +167,7 @@ class _CardBody extends StatelessWidget {
       height: height, padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(TickRadius.card), border: Border.all(color: c.hairline), boxShadow: plain ? null : const [BoxShadow(color: Color(0x99000000), blurRadius: 50, offset: Offset(0, 30), spreadRadius: -24)]),
       child: plain ? null : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: SingleChildScrollView(physics: const NeverScrollableScrollPhysics(), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('${sourceLabel(t.source)} · ${DateFormat('h:mm a').format(t.occurredAt)}', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 16),
         PopIn(onLanded: () => TickHaptics.instance.capturePop(t.amountCents), child: Sticker(hole: true, padding: const EdgeInsets.fromLTRB(52, 14, 40, 14), child: Text(formatCents(t.amountCents.abs()), style: context.ts(TickType.hero, color: c.onAccent, size: 54)))),
@@ -176,7 +177,8 @@ class _CardBody extends StatelessWidget {
         Text(acct?.label ?? 'Account not set', style: context.ts(TickType.body, color: c.textSecondary)),
         const SizedBox(height: 16),
         Wrap(spacing: 8, children: [TickChip(cat?.name ?? 'Other'), TickChip(t.isBusiness ? 'Business ✓' : '+ Business')]),
-        const Spacer(),
+        ]))),
+        const SizedBox(height: 8),
         Container(
           width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), decoration: BoxDecoration(color: c.surface1, borderRadius: BorderRadius.circular(TickRadius.card)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
