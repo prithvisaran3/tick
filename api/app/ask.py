@@ -29,6 +29,13 @@ class Ledger:
     payday: date | None = None
     today: date = field(default_factory=lambda: datetime.now(timezone.utc).date())
 
+def out(t: dict) -> int:
+    """Money out for a row. Production rows carry `out_cents` computed by the SQL money rules (tick_classified): this function never
+    re-derives them. The fallback only serves hand-built test ledgers."""
+    if "out_cents" in t:
+        return t["out_cents"]
+    return -t["amount_cents"] if t["amount_cents"] < 0 and t.get("category") != "Transfer" else 0
+
 def money(c: int) -> str:
     return f"${abs(c) / 100:,.2f}".replace(".00", "") if abs(c) % 100 == 0 else f"${abs(c) / 100:,.2f}"
 
@@ -56,15 +63,15 @@ class Tools:
         s, e = _d(start, self.l.today.replace(day=1)), _d(end, self.l.today)
         by: dict[str, int] = {}
         for t in self.l.txns:
-            if s <= t["date"] <= e and t["amount_cents"] < 0 and t["category"] not in ("Transfer", "Income"):
-                by[t["category"] or "Other"] = by.get(t["category"] or "Other", 0) - t["amount_cents"]
+            if s <= t["date"] <= e and out(t) != 0:
+                by[t["category"] or "Other"] = by.get(t["category"] or "Other", 0) + out(t)
         return {"start": s.isoformat(), "end": e.isoformat(), "total_cents": sum(by.values()), "categories": sorted(({"name": k, "cents": v} for k, v in by.items()), key=lambda x: -x["cents"])[:8]}
 
     def compare_periods(self, a_start: str, a_end: str, b_start: str, b_end: str, category: str = "") -> dict:
         """Compare spending in period A vs period B (optionally one category)."""
         def tot(s: str, e: str) -> int:
             ss, ee = _d(s, self.l.today), _d(e, self.l.today)
-            return -sum(t["amount_cents"] for t in self.l.txns if ss <= t["date"] <= ee and t["amount_cents"] < 0 and t["category"] not in ("Transfer",) and (not category or (t["category"] or "").lower() == category.lower()))
+            return sum(out(t) for t in self.l.txns if ss <= t["date"] <= ee and (not category or (t["category"] or "").lower() == category.lower()))
         a, b = tot(a_start, a_end), tot(b_start, b_end)
         return {"a_cents": a, "b_cents": b, "diff_cents": a - b, "pct": None if b == 0 else round((a - b) / b * 100, 1)}
 
@@ -102,8 +109,8 @@ class Tools:
     def business_total(self, month: str = "") -> dict:
         """Business-tagged spending for a month (YYYY-MM, default this month)."""
         y, m = (int(month[:4]), int(month[5:7])) if re.match(r"^\d{4}-\d{2}$", month or "") else (self.l.today.year, self.l.today.month)
-        rows = [t for t in self.l.txns if t["date"].year == y and t["date"].month == m and "business" in t["tags"] and t["amount_cents"] < 0]
-        return {"month": f"{y}-{m:02d}", "total_cents": -sum(t["amount_cents"] for t in rows), "count": len(rows), "items": [{"id": t["id"], "merchant": t["merchant"], "cents": t["amount_cents"]} for t in rows[:6]]}
+        rows = [t for t in self.l.txns if t["date"].year == y and t["date"].month == m and "business" in t["tags"] and out(t) > 0]
+        return {"month": f"{y}-{m:02d}", "total_cents": sum(out(t) for t in rows), "count": len(rows), "items": [{"id": t["id"], "merchant": t["merchant"], "cents": t["amount_cents"]} for t in rows[:6]]}
 
 # ----------------- deterministic fallback -----------------
 FOOD = {"Groceries", "Restaurants", "Coffee"}
@@ -114,7 +121,7 @@ def week_bars(l: Ledger, cats: set[str] | None = None) -> dict:
     vals = []
     for w in range(n_weeks):
         a, b = start + timedelta(days=7 * w), start + timedelta(days=7 * w + 6)
-        c = -sum(t["amount_cents"] for t in l.txns if a <= t["date"] <= min(b, l.today) and t["amount_cents"] < 0 and (cats is None or t["category"] in cats))
+        c = sum(out(t) for t in l.txns if a <= t["date"] <= min(b, l.today) and (cats is None or t["category"] in cats))
         vals.append({"label": f"Wk {w + 1}" if w < n_weeks - 1 else "Now", "cents": c})
     return {"kind": "bars", "values": vals}
 
@@ -124,8 +131,8 @@ def fallback_answer(q: str, l: Ledger) -> tuple[str, list[dict]]:
     first = l.today.replace(day=1)
     prev_end = first - timedelta(days=1)
     if re.search(r"\b(food|eat|restaurant|grocer|coffee|dining)\b", ql):
-        rows = [x for x in l.txns if x["category"] in FOOD and x["amount_cents"] < 0 and x["date"] >= first]
-        tot = -sum(x["amount_cents"] for x in rows)
+        rows = [x for x in l.txns if x["category"] in FOOD and out(x) > 0 and x["date"] >= first]
+        tot = sum(out(x) for x in rows)
         prev = t.compare_periods(prev_end.replace(day=1).isoformat(), (prev_end.replace(day=1) + timedelta(days=l.today.day - 1)).isoformat(), first.isoformat(), l.today.isoformat())  # a=last month same days, b=this month
         diff = tot - prev["a_cents"]
         txt = f"{money(tot)} on food so far this month." + (f" That's {money(abs(diff))} {'over' if diff > 0 else 'under'} last month at this point." if prev["a_cents"] else "")
@@ -192,10 +199,11 @@ def load_ledger(user_id: str) -> Ledger:
     today = datetime.now(ET).date()
     since = (today - timedelta(days=400)).isoformat()
     cats = {c["id"]: c["name"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
-    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "id,merchant_clean,merchant_raw,amount_cents,occurred_at,category_id,tags,account_id,flow"), ("limit", "5000")])
-    r.raise_for_status()
-    txns = [{"id": x["id"], "merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date(),
-             "category": "Transfer" if x.get("flow") == "transfer" else cats.get(x["category_id"]), "tags": x["tags"] or [], "account": x["account_id"]} for x in r.json()]
+    # The SQL money rules classify every row once (tick_classified): excluded transfers, refunds, Zelle to people, card purchases.
+    rows = rest().rpc("tick_classified", {"p_uid": user_id, "p_from": f"{since}T00:00:00+00:00", "p_to": None})
+    txns = [{"id": x["id"], "merchant": x["merchant"] or "", "amount_cents": x["amount_cents"], "out_cents": x["out_c"], "in_cents": x["in_c"],
+             "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date(),
+             "category": x["cat_name"], "tags": x["tags"] or [], "account": x["account_id"]} for x in rows]
     rec = [{"merchant": x["merchant"], "cadence": x["cadence"], "expected_cents": x["expected_cents"], "next_date": date.fromisoformat(x["next_date"])} for x in rest().select("recurring", user_id=f"eq.{user_id}", status="eq.active")]
     exp = [{"label": x["label"], "kind": x["kind"], "amount_cents": x["amount_cents"], "date": date.fromisoformat(x["expected_date"])} for x in rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected")]
     acc = rest().select("accounts", user_id=f"eq.{user_id}", select="name,type,balance_cents,available_cents")

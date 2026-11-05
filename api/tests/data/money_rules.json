@@ -1,0 +1,441 @@
+{
+ "accounts": {
+  "chase": {
+   "type": "checking",
+   "institution": "Chase",
+   "mask": "1173"
+  },
+  "sofi_chk": {
+   "type": "checking",
+   "institution": "SoFi",
+   "mask": "9923"
+  },
+  "sofi_sav": {
+   "type": "savings",
+   "institution": "SoFi",
+   "mask": "3264"
+  },
+  "sofi_loan": {
+   "type": "loan",
+   "institution": "SoFi",
+   "mask": "6393"
+  },
+  "boa_card": {
+   "type": "credit",
+   "institution": "Bank of America",
+   "mask": "5498"
+  },
+  "disc": {
+   "type": "credit",
+   "institution": "Discover",
+   "mask": "1545"
+  },
+  "cap1": {
+   "type": "credit",
+   "institution": "Capital One",
+   "mask": "8810"
+  },
+  "apple": {
+   "type": "credit",
+   "institution": "Apple Card",
+   "mask": "4421"
+  }
+ },
+ "me": "Prithvi Saran Sathyasaran",
+ "rows": [
+  {
+   "k": "payroll1",
+   "acct": "sofi_chk",
+   "cents": 89405,
+   "day": 29,
+   "desc": "INSTITUTE OF NUC PAYROLL",
+   "pfc": [
+    "INCOME",
+    "INCOME_WAGES"
+   ],
+   "flow": null,
+   "cat": "Income",
+   "out": 0,
+   "in": 89405
+  },
+  {
+   "k": "payroll2",
+   "acct": "sofi_sav",
+   "cents": 149008,
+   "day": 29,
+   "desc": "INSTITUTE OF NUC PAYROLL",
+   "pfc": [
+    "INCOME",
+    "INCOME_WAGES"
+   ],
+   "flow": null,
+   "cat": "Income",
+   "out": 0,
+   "in": 149008
+  },
+  {
+   "k": "chase_in",
+   "acct": "chase",
+   "cents": 120000,
+   "day": 2,
+   "desc": "SoFi Bank TRANSFER PSathyasaran WEB ID: 9039430511",
+   "pfc": [
+    "TRANSFER_IN",
+    "TRANSFER_IN_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "sofi_out",
+   "acct": "sofi_sav",
+   "cents": -120000,
+   "day": 2,
+   "desc": "JPMORGAN CHASE BANK, NA",
+   "pfc": [
+    "TRANSFER_OUT",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "zelle_out",
+   "acct": "chase",
+   "cents": -51146,
+   "day": 1,
+   "desc": "Zelle payment to KAARTHIK KUMAR 31446078428",
+   "pfc": [
+    "TRANSFER_OUT",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER"
+   ],
+   "flow": null,
+   "cat": "Friends and family",
+   "out": 51146,
+   "in": 0
+  },
+  {
+   "k": "zelle_in",
+   "acct": "chase",
+   "cents": 31200,
+   "day": 29,
+   "desc": "Zelle payment from ASWIN KAARTHIK SURESH KUMAR 31405259358",
+   "pfc": [
+    "TRANSFER_IN",
+    "TRANSFER_IN_ACCOUNT_TRANSFER"
+   ],
+   "flow": null,
+   "cat": "Friends and family",
+   "out": 0,
+   "in": 31200
+  },
+  {
+   "k": "zelle_me_in",
+   "acct": "chase",
+   "cents": 100000,
+   "day": 31,
+   "desc": "Zelle payment from Prithvi Saran Sathyasaran 0PE0ABS1MUQD",
+   "pfc": [
+    "TRANSFER_IN",
+    "TRANSFER_IN_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "zelle_me_out",
+   "acct": "sofi_chk",
+   "cents": -100000,
+   "day": 31,
+   "desc": "Zelle\u00ae Payment to Prithvi Chase",
+   "pfc": [
+    "TRANSFER_OUT",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "zelle_rent",
+   "acct": "chase",
+   "cents": -70422,
+   "day": 30,
+   "desc": "Zelle payment to Rent JPM99cr1tlu9",
+   "pfc": [
+    "TRANSFER_OUT",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER"
+   ],
+   "flow": null,
+   "cat": "Friends and family",
+   "out": 70422,
+   "in": 0
+  },
+  {
+   "k": "apple_pay_chase",
+   "acct": "chase",
+   "cents": -45000,
+   "day": 20,
+   "desc": "APPLECARD GSBANK PAYMENT 5800",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "apple_buy",
+   "acct": "apple",
+   "cents": -1260,
+   "day": 3,
+   "desc": "Blue Bottle Coffee",
+   "pfc": [
+    "FOOD_AND_DRINK",
+    "FOOD_AND_DRINK_COFFEE"
+   ],
+   "flow": null,
+   "cat": "Coffee",
+   "out": 1260,
+   "in": 0
+  },
+  {
+   "k": "disc_buy",
+   "acct": "disc",
+   "cents": -4210,
+   "day": 3,
+   "desc": "TRADER JOE'S #123",
+   "pfc": [
+    "FOOD_AND_DRINK",
+    "FOOD_AND_DRINK_GROCERIES"
+   ],
+   "flow": null,
+   "cat": "Groceries",
+   "out": 4210,
+   "in": 0
+  },
+  {
+   "k": "disc_pay_out",
+   "acct": "chase",
+   "cents": -64000,
+   "day": 20,
+   "desc": "DISCOVER E-PAYMENT 7203",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "disc_pay_in",
+   "acct": "disc",
+   "cents": 64000,
+   "day": 21,
+   "desc": "DIRECTPAY FULL BALANCE",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "boa_pay_out",
+   "acct": "chase",
+   "cents": -23410,
+   "day": 22,
+   "desc": "BANK OF AMERICA CREDIT CARD BILL PAYMENT",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "boa_pay_in",
+   "acct": "boa_card",
+   "cents": 23410,
+   "day": 23,
+   "desc": "PAYMENT - THANK YOU",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "cap_pay_out",
+   "acct": "chase",
+   "cents": -38000,
+   "day": 24,
+   "desc": "CAPITAL ONE MOBILE PMT",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "cap_pay_in",
+   "acct": "cap1",
+   "cents": 38000,
+   "day": 24,
+   "desc": "CAPITAL ONE MOBILE PYMT",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "loan_pay",
+   "acct": "sofi_chk",
+   "cents": -40000,
+   "day": 11,
+   "desc": "SoFi Loan Payment",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT"
+   ],
+   "flow": "bill",
+   "cat": "Loan payment",
+   "out": 40000,
+   "in": 0
+  },
+  {
+   "k": "loan_rcv",
+   "acct": "sofi_loan",
+   "cents": 40000,
+   "day": 11,
+   "desc": "PAYMENT RECEIVED",
+   "pfc": [
+    "LOAN_PAYMENTS",
+    "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "refund",
+   "acct": "boa_card",
+   "cents": 1999,
+   "day": 5,
+   "desc": "AMAZON REFUND",
+   "pfc": [
+    "GENERAL_MERCHANDISE",
+    "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES"
+   ],
+   "flow": null,
+   "cat": "Shopping",
+   "out": -1999,
+   "in": 0
+  },
+  {
+   "k": "interest_charge",
+   "acct": "disc",
+   "cents": -1236,
+   "day": 14,
+   "desc": "INTEREST CHARGE ON PURCHASES",
+   "pfc": [
+    "BANK_FEES",
+    "BANK_FEES_INTEREST_CHARGE"
+   ],
+   "flow": null,
+   "cat": "Fees and interest",
+   "out": 1236,
+   "in": 0
+  },
+  {
+   "k": "interest_earned",
+   "acct": "sofi_sav",
+   "cents": 53,
+   "day": 31,
+   "desc": "Interest earned",
+   "pfc": [
+    "INCOME",
+    "INCOME_INTEREST_EARNED"
+   ],
+   "flow": null,
+   "cat": "Income",
+   "out": 0,
+   "in": 53
+  },
+  {
+   "k": "sav_out",
+   "acct": "sofi_chk",
+   "cents": -5000,
+   "day": 8,
+   "desc": "Transfer to savings",
+   "pfc": [
+    "TRANSFER_OUT",
+    "TRANSFER_OUT_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "sav_in",
+   "acct": "sofi_sav",
+   "cents": 5000,
+   "day": 8,
+   "desc": "Transfer from checking",
+   "pfc": [
+    "TRANSFER_IN",
+    "TRANSFER_IN_ACCOUNT_TRANSFER"
+   ],
+   "flow": "transfer",
+   "cat": "Transfer",
+   "out": 0,
+   "in": 0
+  },
+  {
+   "k": "venmo_cashout",
+   "acct": "sofi_chk",
+   "cents": 2500,
+   "day": 9,
+   "desc": "VENMO CASHOUT",
+   "pfc": [
+    "TRANSFER_IN",
+    "TRANSFER_IN_ACCOUNT_TRANSFER"
+   ],
+   "flow": null,
+   "cat": "Friends and family",
+   "out": 0,
+   "in": 2500
+  }
+ ],
+ "totals": {
+  "in": 272166,
+  "out": 166275
+ }
+}

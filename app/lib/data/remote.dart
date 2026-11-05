@@ -76,7 +76,7 @@ class Remote {
     final row = await db.from('transactions').insert({
       'amount_cents': t.amountCents, 'occurred_at': t.occurredAt.toUtc().toIso8601String(), 'merchant_raw': t.merchant, 'merchant_clean': t.merchant,
       'category_id': _isUuid(t.categoryId) ? t.categoryId : null, 'account_id': _isUuid(t.accountId) ? t.accountId : null, 'tags': t.tags, 'note': t.note,
-      'confidence': t.confidence, 'needs_review': t.needsReview, 'sources': [{'source': t.source, 'at': DateTime.now().toUtc().toIso8601String()}],
+      'confidence': t.confidence, 'needs_review': t.needsReview, 'flow': t.flow, 'sources': [{'source': t.source, 'at': DateTime.now().toUtc().toIso8601String()}],
     }).select().single();
     return Txn.fromJson(row);
   }

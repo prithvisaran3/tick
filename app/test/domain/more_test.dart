@@ -40,7 +40,7 @@ void main() {
     final txns = [
       Txn(id: '1', amountCents: -10000, occurredAt: DateTime(2026, 11, 2), merchant: 'A', categoryId: 'cat-groceries'),
       Txn(id: '2', amountCents: -5000, occurredAt: DateTime(2026, 11, 3), merchant: 'Cursor', categoryId: 'cat-software', tags: const ['business']),
-      Txn(id: '3', amountCents: -99900, occurredAt: DateTime(2026, 11, 3), merchant: 'To savings', categoryId: 'cat-transfer'),
+      Txn(id: '3', amountCents: -99900, occurredAt: DateTime(2026, 11, 3), merchant: 'To savings', categoryId: 'cat-transfer', flow: 'transfer'),
       Txn(id: '4', amountCents: 200000, occurredAt: DateTime(2026, 11, 1), merchant: 'Payroll', categoryId: 'cat-income'),
       Txn(id: '5', amountCents: -7500, occurredAt: DateTime(2026, 10, 2), merchant: 'B', categoryId: 'cat-groceries'),
     ];

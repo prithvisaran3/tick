@@ -28,6 +28,7 @@ from .db import rest
 from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
+from . import transfers as transfers_mod
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
 ITEM_CAP = 10
@@ -271,8 +272,12 @@ def classify(t: dict, acct_type: str | None, cents: int) -> tuple[str | None, st
         return "Transfer", "transfer", []
     if primary == "LOAN_PAYMENTS" and cents < 0 and not credit_like:
         return "Loan payment", "bill", []
-    if primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or (acct_type == "loan" and cents < 0):
+    if cents > 0 and not credit_like and ("INTEREST" in detailed or "INTEREST" in name or primary == "INCOME"):
+        return "Income", None, []                # "Interest earned" on savings is income, not a fee
+    if cents < 0 and (primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or acct_type == "loan"):
         return "Fees and interest", None, []
+    if transfers_mod.is_p2p(name) and not credit_like:
+        return "Friends and family", None, []    # Zelle / Venmo / Cash App: money to or from PEOPLE is real money (never a transfer)
     if primary in ("TRANSFER_IN", "TRANSFER_OUT"):
         return "Transfer", None, []              # pairing decides later whether it went to one of my own accounts
     if cents > 0:
@@ -351,23 +356,48 @@ def apply_liabilities(user_id: str, liab: dict, accts: dict[str, dict]) -> int:
         n += 1
     return n
 
+def my_names(user_id: str) -> set[str]:
+    from . import transfers
+    prof = rest().select("profiles", user_id=f"eq.{user_id}", select="display_name")
+    return transfers.name_tokens(prof[0].get("display_name") if prof else None, os.environ.get("TICK_MY_NAMES", ""))
+
 def pair_transfers(user_id: str, days: int = 60) -> int:
-    """Mark internal transfers for the last [days] (see transfers.py). Idempotent; never touches rows whose flow the person edited."""
+    """Apply the money rules to recent rows (see MONEY_RULES.md and transfers.py): pair internal transfers across institutions, keep
+    Zelle and other person-to-person money as real money (category Friends and family), and mark both sides of a transfer excluded.
+    Idempotent; never touches rows whose flow or category the person edited."""
     from . import transfers
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     raw = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{since}",
                         select="id,account_id,amount_cents,occurred_at,merchant_clean,merchant_raw,flow,category_id,transfer_pair_id,user_edited")
-    _, id_to_name = store.category_maps(user_id)
-    types = {a["id"]: a["type"] for a in rest().select("accounts", user_id=f"eq.{user_id}", select="id,type")}
-    patches = transfers.pair(transfers.rows_from_db(raw, id_to_name), types)
-    transfer_cat = {v: k for k, v in id_to_name.items()}.get("Transfer")
+    return apply_money_rules(user_id, raw)
+
+def apply_money_rules(user_id: str, raw: list[dict], *, dry_run: bool = False) -> dict | int:
+    from . import transfers
+    name_to_id, id_to_name = store.category_maps(user_id)
+    accts = rest().select("accounts", user_id=f"eq.{user_id}", select="id,type,institution,name")
+    types = {a["id"]: a["type"] for a in accts}
+    insts = {a["id"]: next(iter(transfers.inst_keys(a.get("institution") or a.get("name"))), "") for a in accts}
+    patches = transfers.pair(transfers.rows_from_db(raw, id_to_name), types, insts, my_names(user_id))
+    by_id = {r["id"]: r for r in raw}
+    friends, transfer_cat = name_to_id.get("Friends and family"), name_to_id.get("Transfer")
+    plan: dict[str, dict] = {}
     for tid, patch in patches.items():
-        if patch.get("flow") == "transfer" and transfer_cat:
-            row = next(r for r in raw if r["id"] == tid)
-            if "category" not in (row.get("user_edited") or []):
-                patch = {**patch, "category_id": transfer_cat}
+        row = by_id[tid]
+        if patch.get("flow") == "transfer" and transfer_cat and "category" not in (row.get("user_edited") or []):
+            patch = {**patch, "category_id": transfer_cat}
+        plan[tid] = patch
+    # Person-to-person rows that are not (now) transfers: Zelle to Kaarthik is spending, labelled Friends and family, not "Transfer".
+    for r in raw:
+        text = r.get("merchant_clean") or r.get("merchant_raw") or ""
+        flow_after = plan.get(r["id"], {}).get("flow", r.get("flow"))
+        if (friends and transfers.is_p2p(text) and flow_after is None and id_to_name.get(r.get("category_id") or "") == "Transfer"
+                and "category" not in (r.get("user_edited") or [])):
+            plan[r["id"]] = {**plan.get(r["id"], {}), "category_id": friends}
+    if dry_run:
+        return plan
+    for tid, patch in plan.items():
         rest().update("transactions", {"id": tid, "user_id": user_id}, patch)
-    return len(patches)
+    return len(plan)
 
 def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """A positive transaction near an expected paycheck/refund/IOU of about the same size marks it landed."""

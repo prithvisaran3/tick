@@ -67,49 +67,59 @@ do $$ declare u uuid; begin
   for u in select id from auth.users loop perform public.seed_default_categories(u); end loop;
 end $$;
 
--- tick_filtered gains the flow column; tick_flows excludes ONLY flow in (transfer, settlement). A Transfer-kind CATEGORY no longer
--- hides money by itself (that is how "Zelle to Kaarthik" showed $0): the category is a label, the flow is the rule.
+-- THE money rules, in one place. Everything that totals money (Activity, Today, Insights, Tally, Ask Tick, demo parity tests) reads these
+-- columns instead of re-deriving them:
+--   excluded = flow in (transfer, settlement): never spending, never income. A Transfer-kind CATEGORY is only a label and hides nothing
+--              (that is how "Zelle to Kaarthik" used to show $0).
+--   out_c    = money leaving as a positive number (purchases, card purchases, Zelle/P2P to people, fees, interest, loan payments). A positive
+--              amount on a card or loan that is not an Income row is a refund: it makes out_c NEGATIVE (spending goes down), never income.
+--   in_c     = money arriving in a cash account (payroll, Zelle/P2P from people, interest) or anything categorised Income.
+create or replace function public.tick_classified(p_uid uuid, p_from timestamptz, p_to timestamptz)
+returns table (id uuid, occurred_at timestamptz, amount_cents bigint, category_id uuid, account_id uuid, flow text, tags text[], needs_review boolean,
+               merchant text, search text, note text, cat_kind text, cat_name text, acct_type text, excluded boolean, out_c bigint, in_c bigint)
+language sql stable security invoker set search_path = public as $$
+  select t.id, t.occurred_at, t.amount_cents, t.category_id, t.account_id, t.flow, t.tags, t.needs_review,
+         coalesce(nullif(t.merchant_clean, ''), t.merchant_raw, '') as merchant,
+         lower(coalesce(t.merchant_clean, '') || ' ' || coalesce(t.merchant_raw, '') || ' ' || coalesce(t.note, '')) as search,
+         t.note, c.kind, c.name, a.type,
+         (t.flow in ('transfer','settlement')) is true as excluded,
+         case when (t.flow in ('transfer','settlement')) is true then 0::bigint
+              when t.amount_cents < 0 then -t.amount_cents
+              when t.amount_cents > 0 and c.kind is distinct from 'income' and a.type in ('credit','loan') then -t.amount_cents
+              else 0::bigint end as out_c,
+         case when (t.flow in ('transfer','settlement')) is true then 0::bigint
+              when t.amount_cents > 0 and (c.kind = 'income' or coalesce(a.type, 'checking') not in ('credit','loan')) then t.amount_cents
+              else 0::bigint end as in_c
+  from public.transactions t
+  left join public.categories c on c.id = t.category_id
+  left join public.accounts a on a.id = t.account_id
+  where t.user_id = p_uid and (p_from is null or t.occurred_at >= p_from) and (p_to is null or t.occurred_at < p_to)
+$$;
+
 drop function if exists public.tick_filtered(timestamptz, timestamptz, text[], uuid[], uuid[], text, boolean, boolean);
 create or replace function public.tick_filtered(p_from timestamptz, p_to timestamptz, p_types text[], p_accounts uuid[], p_categories uuid[],
                                                 p_query text, p_business boolean, p_review boolean)
 returns table (id uuid, occurred_at timestamptz, amount_cents bigint, category_id uuid, account_id uuid, flow text, tags text[],
-               needs_review boolean, cat_kind text, acct_type text)
+               needs_review boolean, cat_kind text, acct_type text, excluded boolean, out_c bigint, in_c bigint)
 language sql stable security invoker set search_path = public, extensions as $$
-  select t.id, t.occurred_at, t.amount_cents, t.category_id, t.account_id, t.flow, t.tags, t.needs_review, c.kind, a.type
-  from public.transactions t
-  left join public.categories c on c.id = t.category_id
-  left join public.accounts a on a.id = t.account_id
-  where t.user_id = auth.uid()
-    and (p_from is null or t.occurred_at >= p_from)
-    and (p_to is null or t.occurred_at < p_to)
-    and (coalesce(cardinality(p_types), 0) = 0 or coalesce(a.type, 'checking') = any (p_types))
-    and (coalesce(cardinality(p_accounts), 0) = 0 or t.account_id = any (p_accounts))
-    and (coalesce(cardinality(p_categories), 0) = 0 or t.category_id = any (p_categories))
-    and (not coalesce(p_business, false) or 'business' = any (t.tags))
-    and (not coalesce(p_review, false) or t.needs_review)
-    and (coalesce(p_query, '') = '' or
-         lower(coalesce(t.merchant_clean, '') || ' ' || coalesce(t.merchant_raw, '') || ' ' || coalesce(t.note, '')) like '%' || replace(replace(replace(lower(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%'
-         or lower(coalesce(c.name, '')) like '%' || replace(replace(replace(lower(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%')
+  select k.id, k.occurred_at, k.amount_cents, k.category_id, k.account_id, k.flow, k.tags, k.needs_review, k.cat_kind, k.acct_type, k.excluded, k.out_c, k.in_c
+  from public.tick_classified(auth.uid(), p_from, p_to) k
+  where (coalesce(cardinality(p_types), 0) = 0 or coalesce(k.acct_type, 'checking') = any (p_types))
+    and (coalesce(cardinality(p_accounts), 0) = 0 or k.account_id = any (p_accounts))
+    and (coalesce(cardinality(p_categories), 0) = 0 or k.category_id = any (p_categories))
+    and (not coalesce(p_business, false) or 'business' = any (k.tags))
+    and (not coalesce(p_review, false) or k.needs_review)
+    and (coalesce(p_query, '') = '' or k.search like '%' || replace(replace(replace(lower(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%'
+         or lower(coalesce(k.cat_name, '')) like '%' || replace(replace(replace(lower(p_query), '\', '\\'), '%', '\%'), '_', '\_') || '%')
 $$;
-revoke all on function public.tick_filtered(timestamptz, timestamptz, text[], uuid[], uuid[], text, boolean, boolean) from public, anon;
-grant execute on function public.tick_filtered(timestamptz, timestamptz, text[], uuid[], uuid[], text, boolean, boolean) to authenticated;
 
 create or replace function public.tick_flows(p_from timestamptz, p_to timestamptz, p_types text[] default null, p_accounts uuid[] default null,
                                              p_categories uuid[] default null, p_query text default null, p_business boolean default false,
                                              p_review boolean default false)
 returns jsonb language sql stable security invoker set search_path = public as $$
-  with f as (
-    select *, (flow in ('transfer','settlement')) is true as excluded,
-           (occurred_at at time zone 'America/New_York')::date as day
+  with m as (
+    select *, (occurred_at at time zone 'America/New_York')::date as day
     from public.tick_filtered(p_from, p_to, p_types, p_accounts, p_categories, p_query, p_business, p_review)
-  ), m as (
-    select *,
-      case when not excluded and amount_cents < 0 then -amount_cents
-           when not excluded and amount_cents > 0 and cat_kind is distinct from 'income' and acct_type in ('credit','loan') then -amount_cents
-           else 0 end as out_c,
-      case when not excluded and amount_cents > 0 and (cat_kind = 'income' or coalesce(acct_type, 'checking') not in ('credit','loan')) then amount_cents
-           else 0 end as in_c
-    from f
   )
   select jsonb_build_object(
     'in', coalesce(sum(in_c), 0),
@@ -126,19 +136,11 @@ returns jsonb language sql stable security invoker set search_path = public as $
   ) from m
 $$;
 
--- Top merchants and per-category month-vs-last for Insights, from the same rules.
 create or replace function public.tick_top_merchants(p_from timestamptz, p_to timestamptz, p_limit int default 8)
 returns jsonb language sql stable security invoker set search_path = public as $$
   select coalesce(jsonb_agg(jsonb_build_object('merchant', m, 'cents', s, 'count', n) order by s desc), '[]'::jsonb) from (
-    select coalesce(nullif(t.merchant_clean, ''), t.merchant_raw, 'Unknown') m,
-           sum(case when t.amount_cents < 0 then -t.amount_cents when a.type in ('credit','loan') and c.kind is distinct from 'income' then -t.amount_cents else 0 end) s, count(*) n
-    from public.transactions t
-    left join public.accounts a on a.id = t.account_id
-    left join public.categories c on c.id = t.category_id
-    where t.user_id = auth.uid() and coalesce(t.flow, '') not in ('transfer','settlement')
-      and t.occurred_at >= p_from and t.occurred_at < p_to
-    group by 1 having sum(case when t.amount_cents < 0 then -t.amount_cents when a.type in ('credit','loan') and c.kind is distinct from 'income' then -t.amount_cents else 0 end) > 0
-    order by s desc limit least(greatest(p_limit, 1), 25)
+    select merchant m, sum(out_c) s, count(*) n from public.tick_classified(auth.uid(), p_from, p_to)
+    where out_c <> 0 group by merchant having sum(out_c) > 0 order by sum(out_c) desc limit least(greatest(p_limit, 1), 25)
   ) x
 $$;
 revoke all on function public.tick_top_merchants(timestamptz, timestamptz, int) from public, anon;
@@ -169,7 +171,7 @@ declare f record;
 begin
   for f in select p.oid::regprocedure as sig, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prokind = 'f' loop
     execute format('revoke execute on function %s from public, anon', f.sig);
-    if f.proname in ('tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used','tick_account_counts','tick_top_merchants') then
+    if f.proname in ('tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used','tick_account_counts','tick_top_merchants','tick_classified') then
       execute format('grant execute on function %s to authenticated', f.sig);
     else
       execute format('revoke execute on function %s from authenticated', f.sig);

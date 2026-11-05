@@ -182,12 +182,12 @@ class LedgerNotifier extends Notifier<LedgerState> {
   DateTime get _now => ref.read(clockProvider)();
 
   /// Adds a transaction (optimistic) and persists it.
-  Future<Txn> add({required int amountCents, required String merchant, DateTime? at, String? categoryId, List<String>? tags, String source = 'manual', String? note, String? accountId, double confidence = 1, bool needsReview = false}) async {
+  Future<Txn> add({required int amountCents, required String merchant, DateTime? at, String? categoryId, List<String>? tags, String source = 'manual', String? note, String? accountId, double confidence = 1, bool needsReview = false, String? flow}) async {
     final cat = categoryId ?? (amountCents > 0 ? 'cat-income' : categorizeLocal(merchant, rules: _rules()));
     final t = Txn(
       id: 'local-${_now.microsecondsSinceEpoch}-${_seq++}', amountCents: amountCents, occurredAt: at ?? _now, merchant: merchant, categoryId: state.category(cat) != null ? cat : state.categoryByName(_nameOf(cat))?.id ?? cat,
       accountId: accountId ?? state.accounts.where((a) => a.type == 'checking').firstOrNull?.id,
-      tags: tags ?? (amountCents < 0 && looksBusiness(merchant) ? const ['business'] : const []), source: source, note: note, confidence: confidence, needsReview: needsReview);
+      tags: tags ?? (amountCents < 0 && looksBusiness(merchant) ? const ['business'] : const []), source: source, note: note, confidence: confidence, needsReview: needsReview, flow: flow);
     state = state.copyWith(txns: [t, ...state.txns]..sort((a, b) => b.occurredAt.compareTo(a.occurredAt)));
     final remote = ref.read(remoteProvider);
     if (remote != null && !ref.read(settingsProvider).demoMode) {
@@ -294,7 +294,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
     for (final g in moves) {
       await saveGoal(Goal(id: g.id, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents + g.perPaydayCents, perPaydayCents: g.perPaydayCents));
     }
-    await add(amountCents: -total, merchant: 'Move to savings', categoryId: 'cat-transfer', source: 'manual', tags: const []);
+    await add(amountCents: -total, merchant: 'Move to savings', categoryId: 'cat-transfer', source: 'manual', tags: const [], flow: 'transfer');
     if (_live) { try { await ref.read(remoteProvider)!.recordPayday(total); } catch (_) {} }
   }
 
