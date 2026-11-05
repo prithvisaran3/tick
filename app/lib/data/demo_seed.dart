@@ -34,6 +34,13 @@ const defaultCategories = [
   Category(id: 'cat-other', name: 'Other', colorKey: 'shop', icon: 'card'),
 ];
 
+/// Demo payday rule without building the whole seed (it is read on every ledger change).
+PaydayRule demoPaydayRule(DateTime now) {
+  var next = dayOnly(now).add(const Duration(days: 1));
+  while (next.weekday != DateTime.friday) { next = next.add(const Duration(days: 1)); }
+  return PaydayRule(frequency: PayFrequency.biweekly, anchor: next, amountCents: 231000);
+}
+
 DemoData buildDemo(DateTime now) {
   final today = dayOnly(now);
   DateTime at(int daysAgo, int h, int m) => today.subtract(Duration(days: daysAgo)).add(Duration(hours: h, minutes: m));
@@ -83,10 +90,8 @@ DemoData buildDemo(DateTime now) {
   }
   txns.sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
 
-  // Next Friday strictly after today.
-  var next = today.add(const Duration(days: 1));
-  while (next.weekday != DateTime.friday) { next = next.add(const Duration(days: 1)); }
-  final rule = PaydayRule(frequency: PayFrequency.biweekly, anchor: next, amountCents: 231000);
+  final rule = demoPaydayRule(now);
+  final next = rule.anchor;
 
   final recurring = [
     Recurring(id: 'r-internet', merchant: 'Internet', cadence: Cadence.monthly, expectedCents: 6400, nextDate: today.add(const Duration(days: 1)), categoryId: 'cat-phone', priceHistory: const [6400, 6400]),

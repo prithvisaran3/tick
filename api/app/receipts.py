@@ -18,9 +18,10 @@ from .reconcile import Candidate, plan
 router = APIRouter()
 
 @router.post("/receipts/scan")
-async def scan(file: UploadFile = File(...), user_id: str = Depends(current_user)):
+def scan(file: UploadFile = File(...), user_id: str = Depends(current_user)):
+    # Plain `def`: FastAPI runs it in the threadpool, so the blocking storage upload and the AI call never stall the event loop.
     user_limiter.check(f"scan:{user_id}", 10, 60)
-    data = await file.read()
+    data = file.file.read(8_000_001)
     if len(data) > 8_000_000:
         raise HTTPException(413, "Photo too large")
     mime = file.content_type if (file.content_type or "").startswith("image/") else "image/jpeg"

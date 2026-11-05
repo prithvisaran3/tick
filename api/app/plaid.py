@@ -16,6 +16,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumbers, SECP256R1
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -429,6 +430,10 @@ def sync_one(connection_id: str, background: BackgroundTasks, user_id: str = Dep
 async def plaid_webhook(request: Request, background: BackgroundTasks, plaid_verification: str = Header(default="")):
     """Verify, then do the work in the background: Plaid expects an answer within seconds and retries slow ones."""
     body = await request.body()
+    # Verification and the lookups below are blocking network calls: run them in the threadpool, never on the event loop.
+    return await run_in_threadpool(_handle_webhook, body, plaid_verification, background)
+
+def _handle_webhook(body: bytes, plaid_verification: str, background: BackgroundTasks) -> dict:
     verify_webhook(body, plaid_verification)
     ev = json.loads(body)
     typ, code, item_id = ev.get("webhook_type"), ev.get("webhook_code"), ev.get("item_id")

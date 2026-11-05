@@ -65,3 +65,27 @@ def test_et_day_boundary_for_evening_purchases():
     from app.intel import ET
     late = datetime(2026, 11, 4, 1, 30, tzinfo=timezone.utc)     # 8:30pm on Nov 3 in Arlington
     assert late.astimezone(ET).date().isoformat() == "2026-11-03"
+
+
+def test_receipt_scan_is_a_plain_sync_route_and_works(monkeypatch):
+    from app import receipts
+    from app.auth import current_user
+    import inspect
+    assert not inspect.iscoroutinefunction(receipts.scan)          # runs in the threadpool: blocking I/O can't stall the event loop
+
+    class R:
+        status_code = 200
+    monkeypatch.setattr(receipts.httpx, "post", lambda *a, **k: R())
+    monkeypatch.setattr(receipts.ai, "receipt_extract", lambda *a, **k: None)
+    app.dependency_overrides[current_user] = lambda: "user-1"
+    try:
+        r = client.post("/receipts/scan", files={"file": ("r.jpg", b"\xff\xd8fake", "image/jpeg")})
+        assert r.status_code == 200 and r.json()["path"].startswith("user-1/") and r.json()["extracted"] is None
+        other = client.post("/receipts/confirm", json={"path": "someone-else/x.jpg", "merchant": "A", "total": 5})
+        assert other.status_code == 403 and other.json()["error"]["code"] == "forbidden"
+    finally:
+        app.dependency_overrides.clear()
+
+def test_plaid_webhook_runs_in_threadpool_and_rejects_bad_signature():
+    r = client.post("/webhooks/plaid", content=b"{}", headers={"Plaid-Verification": "garbage"})
+    assert r.status_code == 401

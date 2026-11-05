@@ -302,7 +302,7 @@ final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
   var rule = ref.watch(settingsProvider.select((s) => s.rule));
   final l = ref.watch(ledgerProvider);
   final now = ref.watch(clockProvider)();
-  if (demo) rule = buildDemo(now).rule;
+  if (demo) rule = demoPaydayRule(now);
   if (rule == null) return null;
   return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected);
 });
