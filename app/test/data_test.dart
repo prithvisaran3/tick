@@ -141,6 +141,20 @@ void main() {
       await expectLater(boom.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', allOf(contains('nothing was lost'), isNot(contains('secret'))))));
     });
 
+    test('non-idempotent Plaid POSTs are sent exactly once on 5xx, timeout and dropped connections', () async {
+      for (final fail in <Future<http.Response> Function()>[
+        () async => http.Response('{}', 502),
+        () async { await Future<void>.delayed(const Duration(milliseconds: 80)); return http.Response('{}', 200); },
+        () async => throw const SocketException('reset'),
+        () async => throw http.ClientException('closed'),
+      ]) {
+        var calls = 0;
+        final api = Api(client: MockClient((r) { calls++; return fail(); }));
+        await expectLater(api.post('/plaid/complete', {'link_token': 'link-x'}, const Duration(milliseconds: 20)), throwsA(isA<ApiException>()));
+        expect(calls, 1, reason: 'a retried /plaid/complete could race the webhook');
+      }
+    });
+
     test('offline and timeouts surface as offline errors after retries', () async {
       var calls = 0;
       final off = Api(client: MockClient((r) async { calls++; throw const SocketException('down'); }));

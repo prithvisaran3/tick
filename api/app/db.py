@@ -17,15 +17,19 @@ class Rest:
         r.raise_for_status()
         return r.json()
 
-    def insert(self, table: str, row: dict | list[dict], *, upsert_on: str | None = None, returning: bool = True) -> list[dict]:
-        h = {**self.h, "Prefer": ("return=representation" if returning else "return=minimal") + (",resolution=merge-duplicates" if upsert_on else "")}
+    def insert(self, table: str, row: dict | list[dict], *, upsert_on: str | None = None, returning: bool = True, ignore_duplicates: bool = False) -> list[dict]:
+        res = ",resolution=ignore-duplicates" if ignore_duplicates else (",resolution=merge-duplicates" if upsert_on else "")
+        h = {**self.h, "Prefer": ("return=representation" if returning else "return=minimal") + res}
         r = self.c.post(f"{self.base}/{table}", headers=h, json=row, params={"on_conflict": upsert_on} if upsert_on else None)
         r.raise_for_status()
         return r.json() if returning else []
 
-    def update(self, table: str, match: dict, patch: dict) -> list[dict]:
+    def update(self, table: str, match: dict, patch: dict, *, where: dict | None = None) -> list[dict]:
+        """PATCH rows matching `match` (equality) and `where` (raw PostgREST filters such as {"claimed_at": "is.null"}).
+        Returns the updated rows, so a conditional update doubles as an atomic compare-and-set."""
         h = {**self.h, "Prefer": "return=representation"}
-        r = self.c.patch(f"{self.base}/{table}", headers=h, json=patch, params={k: f"eq.{v}" for k, v in match.items()})
+        params = {k: f"eq.{v}" for k, v in match.items()} | (where or {})
+        r = self.c.patch(f"{self.base}/{table}", headers=h, json=patch, params=params)
         r.raise_for_status()
         return r.json()
 

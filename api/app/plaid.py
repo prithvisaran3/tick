@@ -24,6 +24,7 @@ from . import store
 from .auth import current_user, require_cron, user_limiter
 from .config import settings
 from .db import rest
+from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
@@ -176,16 +177,17 @@ def _b64(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 # ---------------- slots ----------------
-def slots_used(user_id: str) -> int:
-    rows = rest().select("plaid_slots", user_id=f"eq.{user_id}")
-    n_rows = len(rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid", select="id"))
-    return max(rows[0]["used"] if rows else 0, n_rows)
+def links_used(user_id: str) -> int:
+    """Distinct Plaid item_ids EVER created for this user, removed ones included (plaid_items is append-only).
+    Counting attempts or bumping a counter double-counted a link once (webhook + app raced on one session); a set of item_ids can't."""
+    items = {r["item_id"] for r in rest().select("plaid_items", user_id=f"eq.{user_id}", select="item_id")}
+    items |= {r["item_id"] for r in rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid", select="item_id") if r.get("item_id")}
+    return len(items)
 
-def take_slot(user_id: str) -> None:
-    used = slots_used(user_id)
-    if used >= ITEM_CAP:
-        raise HTTPException(409, "You have used all 10 bank links.")
-    rest().insert("plaid_slots", {"user_id": user_id, "used": used + 1}, upsert_on="user_id")
+def record_item(user_id: str, item_id: str, institution: str | None, link_token_value: str) -> None:
+    """Idempotent: the same item_id is recorded once no matter how many times it is exchanged."""
+    rest().insert("plaid_items", {"item_id": item_id, "user_id": user_id, "institution": institution, "link_token_prefix": link_token_value[:24]},
+                  returning=False, ignore_duplicates=True)
 
 # ---------------- mapping ----------------
 def plaid_candidate(t: dict, acct_by_pid: dict[str, dict], rules: dict[str, str], name_to_id: dict[str, str]) -> tuple[Candidate, list[str]]:
@@ -359,7 +361,7 @@ class LinkTokenBody(BaseModel):
 
 @router.get("/plaid/links")
 def links(user_id: str = Depends(current_user)):
-    used = slots_used(user_id)
+    used = links_used(user_id)
     return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used)}
 
 @router.post("/plaid/link-token")
@@ -370,7 +372,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         if not rows:
             raise HTTPException(404, "connection not found")
         token = rest().rpc("tick_vault_get", {"secret_id": rows[0]["vault_secret_id"]})
-    elif slots_used(user_id) >= ITEM_CAP:
+    elif links_used(user_id) >= ITEM_CAP:
         raise HTTPException(409, "You have used all 10 bank links.")
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
@@ -379,26 +381,74 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
     rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id}, upsert_on="link_token")
-    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - slots_used(user_id)}
+    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
 
 class CompleteBody(BaseModel):
     link_token: str
 
-def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -> list[dict]:
-    prov = provider()
-    publics = prov.link_token_result(link_token_value)
+CLAIM_STALE_S = 120          # a finisher that crashed mid-way releases its claim after two minutes
+WAIT_FOR_OTHER_S = 12.0      # the losing finisher waits this long for the winner's result
+
+def _claim(link_token_value: str, now: datetime | None = None) -> bool:
+    """Atomic compare-and-set on the link session: exactly one caller (webhook or app) gets True."""
+    now = now or datetime.now(timezone.utc)
+    stale = (now - timedelta(seconds=CLAIM_STALE_S)).isoformat()
+    rows = rest().update("plaid_link_sessions", {"link_token": link_token_value}, {"claimed_at": now.isoformat()},
+                         where={"finished_at": "is.null", "or": f"(claimed_at.is.null,claimed_at.lt.{stale})"})
+    return bool(rows)
+
+def _session_connections(link_token_value: str) -> list[dict] | None:
+    """The result a finished session recorded, or None while it is still in progress."""
+    sess = _session_for_link_token(link_token_value)
+    if not sess or not sess.get("finished_at"):
+        return None
+    ids = sess.get("connection_ids") or []
+    return [c for i in ids for c in rest().select("connections", id=f"eq.{i}")]
+
+def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True, prov: BankProvider | None = None,
+                wait_s: float = WAIT_FOR_OTHER_S) -> list[dict]:
+    """Exchange the session's public token(s) and create connections. Idempotent and race-safe:
+    - the session is claimed atomically first; a second caller waits for the first one's result and returns the SAME rows;
+    - an item_id that already has a connection is returned as is (no second slot, no second Vault entry);
+    - the slot counter is the set of item_ids, so even a double exchange counts once."""
+    prov = prov or provider()
+    if not _claim(link_token_value):
+        deadline = time.monotonic() + wait_s
+        while True:
+            done = _session_connections(link_token_value)
+            if done is not None:
+                return done
+            if time.monotonic() >= deadline:
+                return []                                          # still running elsewhere; the app sees it arrive through Realtime
+            time.sleep(0.4)
     created: list[dict] = []
-    for pt in publics:
-        access, item_id = prov.exchange(pt)
-        if rest().select("connections", item_id=f"eq.{item_id}", select="id"):
-            continue                                                        # webhook + app both finished the same session
-        take_slot(user_id)
-        sid = rest().rpc("tick_vault_put", {"secret_name": f"plaid-{item_id}", "secret_value": access})
-        inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
-        conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id, "vault_secret_id": sid, "status": "active"})[0]
-        if sync_now:
-            sync_connection(conn, prov)
-        created.append(conn)
+    try:
+        for pt in prov.link_token_result(link_token_value):
+            access, item_id = prov.exchange(pt)
+            existing = rest().select("connections", item_id=f"eq.{item_id}", provider="eq.plaid")
+            if existing:
+                record_item(existing[0]["user_id"], item_id, existing[0].get("institution"), link_token_value)
+                created.append(existing[0])
+                continue
+            inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
+            record_item(user_id, item_id, inst, link_token_value)
+            sid = rest().rpc("tick_vault_upsert", {"secret_name": f"plaid-{item_id}", "secret_value": access})
+            try:
+                conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id,
+                                                     "vault_secret_id": sid, "status": "active"})[0]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 409:
+                    raise
+                conn = rest().select("connections", item_id=f"eq.{item_id}", provider="eq.plaid")[0]
+            audit(user_id, "bank_linked", {"institution": inst})
+            if sync_now:
+                sync_connection(conn, prov)
+            created.append({**conn, "_new": True})          # only the finisher that created it schedules the first sync
+    except Exception:
+        rest().update("plaid_link_sessions", {"link_token": link_token_value}, {"claimed_at": None})     # let a retry try again
+        raise
+    rest().update("plaid_link_sessions", {"link_token": link_token_value},
+                  {"finished_at": datetime.now(timezone.utc).isoformat(), "connection_ids": [c["id"] for c in created]})
     return created
 
 @router.post("/plaid/complete")
@@ -407,14 +457,17 @@ def complete(body: CompleteBody, background: BackgroundTasks, user_id: str = Dep
     answer in a couple of seconds. The app sees rows arrive through Realtime and the connection's last_synced_at."""
     user_limiter.check(f"link:{user_id}", 5, 60)
     sess = _session_for_link_token(body.link_token)
-    if sess and sess["user_id"] != user_id:
+    if not sess:
+        raise HTTPException(404, "link session not found")
+    if sess["user_id"] != user_id:
         raise HTTPException(403, "not your link session")
     try:
         created = finish_link(user_id, body.link_token, sync_now=False)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     for conn in created:
-        background.add_task(_safe_sync, conn)
+        if conn.pop("_new", False):
+            background.add_task(_safe_sync, conn)
     return {"connections": [c["id"] for c in created], "syncing": bool(created), **links(user_id)}
 
 @router.post("/plaid/sync/{connection_id}")
@@ -453,8 +506,9 @@ def _handle_webhook(body: bytes, plaid_verification: str, background: Background
         lt = ev.get("link_token")
         sess = _session_for_link_token(lt)
         if sess and not sess.get("connection_id"):
-            for conn in finish_link(sess["user_id"], lt, sync_now=False):
-                background.add_task(_safe_sync, conn)
+            for conn in finish_link(sess["user_id"], lt, sync_now=False, wait_s=0):
+                if conn.pop("_new", False):
+                    background.add_task(_safe_sync, conn)
         elif sess and sess.get("connection_id"):
             cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
             if cs:
