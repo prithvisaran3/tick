@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import ai, store
 from .auth import current_user, require_cron
@@ -104,6 +104,7 @@ def weekly_text_fallback(s: dict) -> str:
     return f"{fmt(s['spent_cents'])} out this week, {cmp}. Biggest: {top}."
 
 class AdviceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     total_cents: int = Field(ge=0, le=10**10)
     safe_cents: int = Field(ge=-(10**10), le=10**10)
     days_to_payday: int = Field(ge=0, le=400)

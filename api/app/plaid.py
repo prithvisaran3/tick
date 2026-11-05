@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumb
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import store
 from .auth import current_user, require_cron, user_limiter
@@ -130,6 +130,10 @@ class PlaidProvider(BankProvider):
     def liabilities(self, access_token: str) -> dict:
         """Only called for Items that were granted Liabilities at link time."""
         return self._post("/liabilities/get", {"access_token": access_token}).get("liabilities") or {}
+
+    def remove_item(self, access_token: str) -> None:
+        """Only from the person's own "Delete all my data". Never automatic, never in tests (they use a fake provider)."""
+        self._post("/item/remove", {"access_token": access_token})
 
     def webhook_key(self, kid: str) -> dict:
         return self._post("/webhook_verification_key/get", {"key_id": kid})["key"]
@@ -462,7 +466,8 @@ def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, st
 
 # ---------------- routes ----------------
 class LinkTokenBody(BaseModel):
-    connection_id: str | None = None   # set for update mode (re-link)
+    model_config = ConfigDict(extra="forbid")
+    connection_id: str | None = Field(default=None, pattern=r"^[0-9a-f\-]{36}$")   # set for update mode (re-link)
 
 @router.get("/plaid/links")
 def links(user_id: str = Depends(current_user)):
@@ -489,7 +494,8 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
 
 class CompleteBody(BaseModel):
-    link_token: str
+    model_config = ConfigDict(extra="forbid")
+    link_token: str = Field(min_length=10, max_length=120, pattern=r"^link-(sandbox|development|production)-[A-Za-z0-9\-]+$")
 
 CLAIM_STALE_S = 120          # a finisher that crashed mid-way releases its claim after two minutes
 WAIT_FOR_OTHER_S = 12.0      # the losing finisher waits this long for the winner's result

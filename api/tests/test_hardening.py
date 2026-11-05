@@ -35,7 +35,10 @@ def test_cron_route_rejects_without_secret():
     assert client.post("/jobs/sync-all").status_code == 401
     assert client.post("/jobs/daily-advice", headers={"X-Cron-Secret": "wrong"}).status_code == 401
 
-def test_ingest_requires_token_and_validates_source():
+def test_ingest_requires_token_and_validates_source(monkeypatch):
+    from app import auth as A
+    from tests.fakerest import FakeRest
+    monkeypatch.setattr(A, "rest", lambda: FakeRest())             # never the real project from a unit test
     assert client.post("/ingest", json={"source": "sms", "text": "x"}).status_code == 401
     assert client.post("/ingest", json={"source": "bogus"}, headers={"X-Tick-Token": "tk_x"}).status_code in (401, 422)
 
@@ -79,7 +82,7 @@ def test_receipt_scan_is_a_plain_sync_route_and_works(monkeypatch):
     monkeypatch.setattr(receipts.ai, "receipt_extract", lambda *a, **k: None)
     app.dependency_overrides[current_user] = lambda: "user-1"
     try:
-        r = client.post("/receipts/scan", files={"file": ("r.jpg", b"\xff\xd8fake", "image/jpeg")})
+        r = client.post("/receipts/scan", files={"file": ("r.jpg", b"\xff\xd8\xfffake", "image/jpeg")})
         assert r.status_code == 200 and r.json()["path"].startswith("user-1/") and r.json()["extracted"] is None
         other = client.post("/receipts/confirm", json={"path": "someone-else/x.jpg", "merchant": "A", "total": 5})
         assert other.status_code == 403 and other.json()["error"]["code"] == "forbidden"

@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import ai, store
 from .auth import ingest_limiter, user_for_tick_token
@@ -19,6 +19,7 @@ from .reconcile import REVIEW_THRESHOLD, Candidate, plan
 router = APIRouter()
 
 class IngestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source: str = Field(pattern="^(sms|applepay)$")
     text: str | None = Field(default=None, max_length=2000)
     merchant: str | None = Field(default=None, max_length=200)

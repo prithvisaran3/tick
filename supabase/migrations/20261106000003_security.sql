@@ -86,3 +86,11 @@ begin
   end loop;
 end $$;
 
+
+-- ---------- Vault: delete a Plaid token (used by "Delete all my data" after /item/remove) ----------
+create or replace function public.tick_vault_delete(secret_id uuid) returns void
+language sql security definer set search_path = public, vault as $$
+  delete from vault.secrets where id = secret_id;
+$$;
+revoke all on function public.tick_vault_delete(uuid) from public, anon, authenticated;
+grant execute on function public.tick_vault_delete(uuid) to service_role;

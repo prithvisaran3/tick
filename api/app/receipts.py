@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import ai, store
 from .auth import current_user, user_limiter
@@ -24,7 +26,9 @@ def scan(file: UploadFile = File(...), user_id: str = Depends(current_user)):
     data = file.file.read(8_000_001)
     if len(data) > 8_000_000:
         raise HTTPException(413, "Photo too large")
-    mime = file.content_type if (file.content_type or "").startswith("image/") else "image/jpeg"
+    mime = sniff_image(data)
+    if mime is None:
+        raise HTTPException(415, "That isn't a photo Tick can read.")
     path = f"{user_id}/{uuid.uuid4().hex}.jpg"
     s = settings()
     r = httpx.post(f"{s.supabase_url.rstrip('/')}/storage/v1/object/receipts/{path}", content=data, headers={"apikey": s.supabase_secret_key, "Content-Type": mime}, timeout=30)
@@ -33,7 +37,20 @@ def scan(file: UploadFile = File(...), user_id: str = Depends(current_user)):
     ext = ai.receipt_extract(user_id, data, mime)      # None when Gemini is unavailable: the app lets the person type it in
     return {"path": path, "extracted": ext}
 
+def sniff_image(data: bytes) -> str | None:
+    """Trust the bytes, not the client's Content-Type."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"heif", b"mif1", b"msf1", b"hevc"):
+        return "image/heic"
+    return None
+
 class ConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     path: str | None = Field(default=None, max_length=200)
     merchant: str = Field(min_length=1, max_length=200)
     total: float = Field(gt=0, lt=1_000_000)
@@ -41,7 +58,7 @@ class ConfirmBody(BaseModel):
 
 @router.post("/receipts/confirm")
 def confirm(b: ConfirmBody, user_id: str = Depends(current_user)):
-    if b.path and not b.path.startswith(f"{user_id}/"):
+    if b.path and not re.fullmatch(rf"{re.escape(user_id)}/[0-9a-f]{{32}}\.jpg", b.path):
         raise HTTPException(403, "not yours")
     if b.total <= 0:
         raise HTTPException(422, "total must be positive")
