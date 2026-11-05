@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 from abc import ABC, abstractmethod
@@ -31,13 +32,14 @@ from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
 ITEM_CAP = 10
 router = APIRouter()
+log = logging.getLogger('tick.plaid')
 
 def base_url(env: str) -> str:
     return {"production": "https://production.plaid.com", "development": "https://development.plaid.com"}.get(env, "https://sandbox.plaid.com")
 
 class BankProvider(ABC):
     @abstractmethod
-    def create_link_token(self, user_id: str, *, access_token: str | None = None) -> dict: ...
+    def create_link_token(self, user_id: str, *, access_token: str | None = None, accounts: bool = False) -> dict: ...
     @abstractmethod
     def link_token_result(self, link_token: str) -> list[str]: ...
     @abstractmethod
@@ -68,7 +70,7 @@ class PlaidProvider(BankProvider):
             raise PlaidError(e.get("error_code", "UNKNOWN"), e.get("error_type", ""), r.status_code)
         return r.json()
 
-    def create_link_token(self, user_id: str, *, access_token: str | None = None) -> dict:
+    def create_link_token(self, user_id: str, *, access_token: str | None = None, accounts: bool = False) -> dict:
         body: dict[str, Any] = {"client_name": "Tick", "language": "en", "country_codes": ["US"], "user": {"client_user_id": user_id},
                                 "webhook": self.webhook, "hosted_link": {"completion_redirect_uri": "tick://plaid-complete"}}
         redirect = os.environ.get("PLAID_REDIRECT_URI", "")
@@ -76,6 +78,8 @@ class PlaidProvider(BankProvider):
             body["redirect_uri"] = redirect          # only after it is registered under Allowed redirect URIs in the Plaid dashboard
         if access_token:
             body["access_token"] = access_token          # update mode: re-authenticate the SAME Item, never a new one
+            if accounts:
+                body["update"] = {"account_selection_enabled": True}      # "Some accounts not shared": pick more accounts, still no new slot
             return self._post("/link/token/create", body)
         body["products"] = ["transactions"]
         body["transactions"] = {"days_requested": 365}
@@ -119,6 +123,10 @@ class PlaidProvider(BankProvider):
         except PlaidError:
             pass
         return None
+
+    def refresh(self, access_token: str) -> None:
+        """Ask the bank for fresh transactions now (/transactions/refresh). Best effort: callers swallow PlaidError."""
+        self._post("/transactions/refresh", {"access_token": access_token})
 
     def item_products(self, access_token: str) -> list[str]:
         try:
@@ -388,12 +396,94 @@ def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when
         expected.remove(best[1])
         rest().update("expected", {"id": best[1]["id"]}, {"status": "landed", "matched_transaction_id": txn_id})
 
+ROW_DEFAULTS = {"tags": [], "flow": None, "needs_review": False, "confidence": 1.0, "card_last4": None, "plaid_pending_id": None,
+                "account_id": None, "category_id": None, "merchant_clean": None, "merchant_raw": None, "status": "posted"}
+
+def _normalise(rows: list[dict]) -> list[dict]:
+    """PostgREST bulk inserts need every object to carry the same keys. A row that had no tags used to omit the key, and the whole
+    page then failed with a 400 (this is what left Discover and Bank of America with no transactions). Every row now has every key."""
+    keys: set[str] = set(ROW_DEFAULTS)
+    for r in rows:
+        keys |= set(r)
+    return [{k: r.get(k, ROW_DEFAULTS.get(k)) for k in sorted(keys)} for r in rows]
+
 def _flush(rows: list[dict]) -> None:
-    if rows:
-        rest().insert("transactions", list(rows), returning=False)          # one bulk insert instead of a request per transaction
-        rows.clear()
+    if not rows:
+        return
+    batch = _normalise(rows)
+    rows.clear()
+    try:
+        rest().insert("transactions", batch, returning=False, missing_default=True)       # one bulk insert instead of a request per transaction
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code not in (400, 409, 422):
+            raise
+        # One bad row must not lose the page: fall back to row by row and skip only the rows the database refuses.
+        for r in batch:
+            try:
+                rest().insert("transactions", r, returning=False, missing_default=True)
+            except httpx.HTTPStatusError as e2:
+                if e2.response.status_code not in (400, 409, 422):
+                    raise
+                log.warning("sync: skipped one row the database refused (%s)", e2.response.status_code)
+
+LOGIN_CODES = {"ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION", "PENDING_DISCONNECT", "USER_PERMISSION_REVOKED", "USER_ACCOUNT_REVOKED", "ITEM_LOCKED",
+               "ITEM_NOT_FOUND_ON_INSTITUTION_SIDE", "INVALID_CREDENTIALS", "INVALID_MFA", "ITEM_LOGIN_REQUIRED_OAUTH"}
+CONSENT_CODES = {"NEW_ACCOUNTS_AVAILABLE", "ADDITIONAL_CONSENT_REQUIRED", "ACCESS_NOT_GRANTED", "NO_ACCOUNTS", "NO_AUTH_ACCOUNTS"}
+BANK_CODES = {"INSTITUTION_DOWN", "INSTITUTION_NOT_RESPONDING", "INSTITUTION_NOT_AVAILABLE", "INSTITUTION_NO_LONGER_SUPPORTED", "INTERNAL_SERVER_ERROR",
+              "PLANNED_MAINTENANCE", "RATE_LIMIT_EXCEEDED", "TRANSACTIONS_LIMIT", "INSTITUTION_REGISTRATION_REQUIRED", "UNAUTHORIZED_INSTITUTION"}
+NOT_READY = {"PRODUCT_NOT_READY"}
+MUTATION = "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION"
+
+def state_for_error(code: str | None) -> str:
+    """Map a Plaid error code to the connection's sync_state shown on Banks."""
+    if code in LOGIN_CODES:
+        return "login_required"
+    if code in CONSENT_CODES:
+        return "partial"
+    if code in NOT_READY:
+        return "syncing"                      # the bank is still preparing the first history: not an error
+    if code in BANK_CODES:
+        return "bank_issue"
+    return "error"
+
+def mark(conn_id: str, **fields) -> None:
+    try:
+        rest().update("connections", {"id": conn_id}, fields)
+    except Exception:
+        log.warning("could not record sync state")
 
 def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
+    """Run one sync and record the outcome in `sync_state` (never leave a connection looking like it is syncing forever)."""
+    now = datetime.now(timezone.utc).isoformat()
+    mark(conn["id"], sync_state="syncing", sync_started_at=now, last_attempt_at=now)
+    counts: dict = {}
+    try:
+        counts = _sync_pages(conn, prov)
+    except PlaidError as e:
+        st = state_for_error(e.code)
+        legacy = "login_required" if st == "login_required" else ("active" if st == "syncing" else "error")
+        mark(conn["id"], sync_state=st, last_error=e.code, status=legacy, error_code=e.code, last_attempt_at=datetime.now(timezone.utc).isoformat())
+        return {**counts, "error": e.code}
+    except Exception as e:
+        mark(conn["id"], sync_state="error", last_error=type(e).__name__, status="error", error_code="SYNC_FAILED", last_attempt_at=datetime.now(timezone.utc).isoformat())
+        log.error("sync failed (%s)", type(e).__name__)
+        raise
+    done = datetime.now(timezone.utc).isoformat()
+    # A successful sync is "up to date" once Plaid says the full history is loaded (webhook flag) or the Item is no longer new.
+    # Before that, the first pass only returns recent days, so the honest state is "syncing your history".
+    created = conn.get("created_at")
+    old_enough = True
+    if created:
+        try:
+            old_enough = datetime.now(timezone.utc) - datetime.fromisoformat(str(created).replace("Z", "+00:00")) > timedelta(minutes=15)
+        except ValueError:
+            old_enough = True
+    complete = bool(conn.get("historical_complete")) or old_enough
+    mark(conn["id"], sync_state="ok" if complete else "syncing", last_error=None, status="active", error_code=None, last_synced_at=done,
+         last_attempt_at=done, initial_complete=True, historical_complete=complete or bool(conn.get("historical_complete")), last_added=counts.get("added", 0))
+    return counts
+
+def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
     """Pull /transactions/sync pages, reconcile into the ledger, advance the cursor only after everything persisted.
 
     Per page: ONE query loads the existing rows around the page's time range plus rows matching its Plaid ids, every candidate is reconciled
@@ -405,7 +495,8 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
     token = rest().rpc("tick_vault_get", {"secret_id": conn["vault_secret_id"]})
     if not token:
         raise HTTPException(500, "missing token")
-    cursor = conn.get("cursor")
+    cursor = start_cursor = conn.get("cursor")
+    restarts = 0
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
     expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date")
@@ -419,7 +510,14 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             except PlaidError:
                 pass                                      # cards still show owed, limit and utilisation from /accounts/get
         while True:
-            page = prov.sync_page(token, cursor)
+            try:
+                page = prov.sync_page(token, cursor)
+            except PlaidError as e:
+                if e.code == MUTATION and restarts < 3:
+                    restarts += 1
+                    cursor = start_cursor                  # the data changed under us mid-pagination: start the page set over (rows are idempotent)
+                    continue
+                raise
             items = page.get("added", []) + page.get("modified", [])
             cands = [plaid_candidate(t, accts, rules, name_to_id) for t in items]
             with store.user_lock(user_id):
@@ -470,11 +568,10 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             pair_transfers(user_id)
         except Exception:
             pass                                          # pairing is re-run on the next sync; never block the cursor
-        rest().update("connections", {"id": conn["id"]}, {"cursor": cursor, "last_synced_at": datetime.now(timezone.utc).isoformat(), "status": "active", "error_code": None})
-    except PlaidError as e:
-        status = "login_required" if e.code in ("ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION") else "error"
-        rest().update("connections", {"id": conn["id"]}, {"status": status, "error_code": e.code})
-        counts["error"] = e.code
+        rest().update("connections", {"id": conn["id"]}, {"cursor": cursor})          # only after EVERY page of the set persisted
+    except Exception:
+        counts["failed"] = True
+        raise
     return counts
 
 def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, str]) -> None:
@@ -496,6 +593,7 @@ def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, st
 # ---------------- routes ----------------
 class LinkTokenBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    accounts: bool = False             # update mode with account selection ("Some accounts not shared")
     connection_id: str | None = Field(default=None, pattern=r"^[0-9a-f\-]{36}$")   # set for update mode (re-link)
 
 @router.get("/plaid/links")
@@ -523,7 +621,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
             return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": ITEM_CAP - links_used(user_id)}
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
-        r = provider().create_link_token(user_id, access_token=token)
+        r = provider().create_link_token(user_id, access_token=token, accounts=body.accounts)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
@@ -626,7 +724,10 @@ def sync_one(connection_id: str, background: BackgroundTasks, user_id: str = Dep
     rows = rest().select("connections", id=f"eq.{connection_id}", user_id=f"eq.{user_id}")
     if not rows:
         raise HTTPException(404, "connection not found")
-    background.add_task(_safe_sync, rows[0])               # the app sees the result through Realtime
+    conn = rows[0]
+    mark(conn["id"], sync_state="syncing" if conn.get("sync_state") not in ("login_required",) else "login_required",
+         sync_started_at=datetime.now(timezone.utc).isoformat())
+    background.add_task(_safe_sync, conn, True)            # a real sync, after asking the bank for fresh data; the app sees it through Realtime
     return {"syncing": True}
 
 @router.post("/webhooks/plaid")
@@ -641,18 +742,43 @@ def _handle_webhook(body: bytes, plaid_verification: str, background: Background
     ev = json.loads(body)
     typ, code, item_id = ev.get("webhook_type"), ev.get("webhook_code"), ev.get("item_id")
     conns = rest().select("connections", item_id=f"eq.{item_id}") if item_id else []
-    if typ == "TRANSACTIONS" and code in ("SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE") and conns:
-        background.add_task(_safe_sync, conns[0])
-    elif typ == "ITEM" and conns:
-        if code == "ERROR":
-            err = (ev.get("error") or {}).get("error_code", "ERROR")
-            rest().update("connections", {"id": conns[0]["id"]}, {"status": "login_required" if err == "ITEM_LOGIN_REQUIRED" else "error", "error_code": err})
-        elif code in ("PENDING_EXPIRATION", "PENDING_DISCONNECT", "USER_PERMISSION_REVOKED"):
-            rest().update("connections", {"id": conns[0]["id"]}, {"status": "login_required", "error_code": code})
-        elif code == "LOGIN_REPAIRED":
-            rest().update("connections", {"id": conns[0]["id"]}, {"status": "active", "error_code": None})
-            background.add_task(_safe_sync, conns[0])
-    elif typ == "LINK" and code == "SESSION_FINISHED" and ev.get("status") == "success":
+    if conns:
+        conn = conns[0]
+        fields: dict = {"last_webhook_code": f"{typ}:{code}", "last_webhook_at": datetime.now(timezone.utc).isoformat()}
+        if typ == "TRANSACTIONS":
+            if code == "INITIAL_UPDATE":
+                fields["initial_complete"] = True
+            if code == "HISTORICAL_UPDATE":
+                fields["historical_complete"] = True
+            if "historical_update_complete" in ev:
+                fields["historical_complete"] = bool(ev["historical_update_complete"])
+            if "initial_update_complete" in ev:
+                fields["initial_complete"] = bool(ev["initial_update_complete"])
+            if "historical_complete" in fields:
+                conn["historical_complete"] = fields["historical_complete"]
+            mark(conn["id"], **fields)
+            if code in ("SYNC_UPDATES_AVAILABLE", "INITIAL_UPDATE", "HISTORICAL_UPDATE", "DEFAULT_UPDATE", "TRANSACTIONS_REMOVED"):
+                background.add_task(_safe_sync, conn)
+        elif typ == "ITEM":
+            err = (ev.get("error") or {}).get("error_code") or code
+            if code == "ERROR":
+                st = state_for_error(err)
+                mark(conn["id"], **fields, sync_state=st, last_error=err, status="login_required" if st == "login_required" else "error", error_code=err)
+            elif code in ("PENDING_EXPIRATION", "PENDING_DISCONNECT", "USER_PERMISSION_REVOKED", "USER_ACCOUNT_REVOKED"):
+                mark(conn["id"], **fields, sync_state="login_required", last_error=code, status="login_required", error_code=code)
+            elif code == "NEW_ACCOUNTS_AVAILABLE":
+                mark(conn["id"], **fields, sync_state="partial", last_error=code)        # more accounts can be shared: Fix -> update mode
+            elif code == "LOGIN_REPAIRED":
+                mark(conn["id"], **fields, sync_state="syncing", last_error=None, status="active", error_code=None)
+                background.add_task(_safe_sync, conn)
+            else:                                                                       # WEBHOOK_UPDATE_ACKNOWLEDGED and friends
+                mark(conn["id"], **fields)
+        elif typ == "LIABILITIES":
+            mark(conn["id"], **fields)
+            background.add_task(_safe_sync, conn)                                       # refreshes balances, due dates and statements too
+        else:
+            mark(conn["id"], **fields)
+    if typ == "LINK" and code == "SESSION_FINISHED" and ev.get("status") == "success":
         lt = ev.get("link_token")
         sess = _session_for_link_token(lt)
         if sess and not sess.get("connection_id"):
@@ -662,14 +788,23 @@ def _handle_webhook(body: bytes, plaid_verification: str, background: Background
         elif sess and sess.get("connection_id"):
             cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
             if cs:
+                mark(cs[0]["id"], sync_state="syncing", last_error=None, status="active", error_code=None)
                 background.add_task(_safe_sync, cs[0])                       # update mode finished: same Item, just sync
     return {"ok": True}
 
-def _safe_sync(conn: dict) -> None:
+def _safe_sync(conn: dict, refresh: bool = False) -> None:
+    """Background sync that never raises and always leaves an honest state behind (sync_connection records it)."""
     try:
+        if refresh and conn.get("vault_secret_id") and os.environ.get("PLAID_REFRESH", "1") != "0":
+            try:
+                token = rest().rpc("tick_vault_get", {"secret_id": conn["vault_secret_id"]})
+                if token:
+                    provider().refresh(token)                                  # type: ignore[attr-defined]
+            except Exception:
+                pass                                                           # not allowed or rate limited: sync what we already can
         sync_connection(conn)
     except Exception:
-        rest().update("connections", {"id": conn["id"]}, {"status": "error", "error_code": "SYNC_FAILED"})
+        pass                                                                   # state already recorded by sync_connection
 
 def _session_for_link_token(lt: str | None) -> dict | None:
     """SESSION_FINISHED carries only the link_token, so the owner is looked up from the session stored when the token was created."""
@@ -684,9 +819,21 @@ def oauth_return():
     return "<!doctype html><meta charset=utf-8><title>tick</title><body style='background:#0E0E12;color:#F5F3EC;font-family:system-ui;display:grid;place-items:center;height:100vh'>Returning to Tick..."
 
 @router.post("/jobs/sync-all", dependencies=[Depends(require_cron)])
-def sync_all(background: BackgroundTasks):
-    """pg_cron backstop every 6 hours. Returns at once; connections sync one after another in the background."""
+def sync_all(background: BackgroundTasks, stuck: bool = False):
+    """Safety net next to webhooks. Every 6 hours: every connection. Every 10 minutes (`?stuck=true`): only connections that are
+    not up to date and were last tried more than 10 minutes ago (webhooks missed, a sync that crashed, a bank that came back).
+    Connections that need a person (login_required, partial) are left alone. Returns at once; syncs run one after another."""
     conns = [c for c in rest().select("connections", provider="eq.plaid", status="neq.removed") if c.get("vault_secret_id")]
+    if stuck:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+        def due(c: dict) -> bool:
+            if c.get("sync_state") in ("ok", "login_required", "partial"):
+                return False
+            at = c.get("last_attempt_at")
+            return not at or datetime.fromisoformat(at.replace("Z", "+00:00")) < cutoff
+        conns = [c for c in conns if due(c)]
+    else:
+        conns = [c for c in conns if c.get("sync_state") != "login_required"]
     for c in conns:
         background.add_task(_safe_sync, c)
     return {"queued": len(conns)}

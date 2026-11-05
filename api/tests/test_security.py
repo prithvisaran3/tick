@@ -282,7 +282,7 @@ def test_F1_only_the_owner_can_start_a_new_bank_link(db, monkeypatch):
     monkeypatch.delenv("TICK_OWNER_USER_IDS", raising=False)
     db.insert("plaid_items", {"item_id": "item-owner", "user_id": U, "created_at": "2026-11-05T01:35:00+00:00"})
     class Prov:
-        def create_link_token(self, uid, access_token=None): return {"link_token": "link-production-new", "hosted_link_url": "https://hosted.plaid/x"}
+        def create_link_token(self, uid, access_token=None, accounts=False): return {"link_token": "link-production-new", "hosted_link_url": "https://hosted.plaid/x"}
     monkeypatch.setattr(P, "_provider", Prov())
     app.dependency_overrides[current_user] = lambda: OTHER                  # a stranger who signed up with Google
     try:
@@ -300,7 +300,7 @@ def test_F1_the_cap_counts_every_users_items(db):
 def test_F5_reopening_the_link_sheet_reuses_the_open_session(db, monkeypatch, signed_in):
     made = []
     class Prov:
-        def create_link_token(self, uid, access_token=None):
+        def create_link_token(self, uid, access_token=None, accounts=False):
             made.append(1); return {"link_token": f"link-production-{len(made)}", "hosted_link_url": f"https://hosted.plaid/{len(made)}"}
     monkeypatch.setattr(P, "_provider", Prov())
     from datetime import datetime, timezone

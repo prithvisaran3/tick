@@ -4,7 +4,8 @@ import '../domain/payday.dart';
 
 /// Realistic seed for a remote software engineer in Arlington, VA. Deterministic; dates relative to [now].
 class DemoData {
-  DemoData({required this.categories, required this.accounts, required this.txns, required this.recurring, required this.expected, required this.goals, required this.rule, this.budgets = const []});
+  DemoData({this.connections = const [], required this.categories, required this.accounts, required this.txns, required this.recurring, required this.expected, required this.goals, required this.rule, this.budgets = const []});
+  final List<Connection> connections;
   final List<Category> categories;
   final List<Account> accounts;
   final List<Txn> txns;
@@ -114,20 +115,28 @@ DemoData buildDemo(DateTime now) {
     Recurring(id: 'r-spotify', merchant: 'Spotify', cadence: Cadence.monthly, expectedCents: 1099, nextDate: today.add(const Duration(days: 28)), categoryId: 'cat-subscriptions', priceHistory: const [1099]),
     Recurring(id: 'r-apple', merchant: 'Apple Developer', cadence: Cadence.yearly, expectedCents: 9900, nextDate: today.add(const Duration(days: 140)), categoryId: 'cat-software', priceHistory: const [9900]),
   ];
+  final connections = [
+    Connection(id: 'c-chase', institution: 'Chase', status: 'active', syncState: 'ok', lastSyncedAt: now.subtract(const Duration(minutes: 5))),
+    Connection(id: 'c-sofi', institution: 'SoFi', status: 'active', syncState: 'ok', lastSyncedAt: now.subtract(const Duration(minutes: 5))),
+    Connection(id: 'c-disc', institution: 'Discover', status: 'active', syncState: 'ok', lastSyncedAt: now.subtract(const Duration(minutes: 12))),
+    Connection(id: 'c-boa', institution: 'Bank of America', status: 'active', syncState: 'partial', lastSyncedAt: now.subtract(const Duration(hours: 3))),
+    Connection(id: 'c-cap', institution: 'Capital One', status: 'active', syncState: 'syncing', syncStartedAt: now.subtract(const Duration(minutes: 2)), createdAt: now.subtract(const Duration(minutes: 2))),
+  ];
   return DemoData(
+    connections: connections,
     categories: defaultCategories,
     accounts: [
-      const Account(id: 'acc-chk', name: 'Chase Checking', institution: 'Chase', mask: '1173', type: 'checking', balanceCents: 58140, availableCents: 58140),
-      const Account(id: 'acc-sofi', name: 'SoFi Checking', institution: 'SoFi', mask: '2210', type: 'checking', balanceCents: 41500, availableCents: 41500),
-      const Account(id: 'acc-sav', name: 'SoFi Savings', institution: 'SoFi', mask: '9921', type: 'savings', balanceCents: 840000, availableCents: 840000, includeInSafe: false),
-      Account(id: 'acc-disc', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, creditLimitCents: 500000,
+      const Account(id: 'acc-chk', connectionId: 'c-chase', name: 'Chase Checking', institution: 'Chase', mask: '1173', type: 'checking', balanceCents: 58140, availableCents: 58140),
+      const Account(id: 'acc-sofi', connectionId: 'c-sofi', name: 'SoFi Checking', institution: 'SoFi', mask: '2210', type: 'checking', balanceCents: 41500, availableCents: 41500),
+      const Account(id: 'acc-sav', connectionId: 'c-sofi', name: 'SoFi Savings', institution: 'SoFi', mask: '9921', type: 'savings', balanceCents: 840000, availableCents: 840000, includeInSafe: false),
+      Account(id: 'acc-disc', connectionId: 'c-disc', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, creditLimitCents: 500000,
           statementBalanceCents: 64012, minimumPaymentCents: 3500, dueDate: today.add(const Duration(days: 3)), lastStatementDate: today.subtract(const Duration(days: 22)), aprBps: 2499),
-      Account(id: 'acc-boa', name: 'Customized Cash Rewards', institution: 'Bank of America', mask: '5567', type: 'credit', balanceCents: -23410, creditLimitCents: 300000,
+      Account(id: 'acc-boa', connectionId: 'c-boa', name: 'Customized Cash Rewards', institution: 'Bank of America', mask: '5567', type: 'credit', balanceCents: -23410, creditLimitCents: 300000,
           statementBalanceCents: 18800, minimumPaymentCents: 2500, dueDate: today.add(const Duration(days: 19)), lastStatementDate: today.subtract(const Duration(days: 6)), aprBps: 2324),
-      Account(id: 'acc-savor', name: 'Savor', institution: 'Capital One', mask: '8810', type: 'credit', balanceCents: -192300, creditLimitCents: 250000,
+      Account(id: 'acc-savor', connectionId: 'c-cap', name: 'Savor', institution: 'Capital One', mask: '8810', type: 'credit', balanceCents: -192300, creditLimitCents: 250000,
           statementBalanceCents: 142000, minimumPaymentCents: 4000, dueDate: today.add(const Duration(days: 8)), lastStatementDate: today.subtract(const Duration(days: 17)), aprBps: 2899),
       const Account(id: 'acc-card', name: 'Apple Card', institution: 'Apple Card', mask: '4421', type: 'credit', balanceCents: -31840, creditLimitCents: 400000),
-      Account(id: 'acc-loan', name: 'Student loan', institution: 'SoFi', mask: '9001', type: 'loan', subtype: 'student', balanceCents: -1825000,
+      Account(id: 'acc-loan', connectionId: 'c-sofi', name: 'Student loan', institution: 'SoFi', mask: '9001', type: 'loan', subtype: 'student', balanceCents: -1825000,
           interestRateBps: 550, nextPaymentCents: 40000, minimumPaymentCents: 40000, dueDate: today.add(const Duration(days: 20)), includeInSafe: false),
     ],
     txns: txns,

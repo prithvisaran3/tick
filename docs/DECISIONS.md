@@ -62,3 +62,8 @@ Format: date · decision · why.
   - No certificate pinning (rotation risk; reasoning in `docs/SECURITY.md`).
 - **Not done by me on purpose**: Supabase Auth config changes (`tools/auth_config.py --apply`), the GitHub repo security settings (the session's GitHub access can't set them), deploys and `db push`. All are in NEXT.md and SECURITY.md §5.
 - **Manual-step order**: `supabase db push` comes before `railway up`, because the new API needs the new tables. Every migration is additive, so the API that is running now keeps working against the new schema.
+
+## Final polish (branch feat/final-polish)
+- **Part 0 root cause**: PostgREST bulk inserts need identical keys per object; rows carried `tags` only when tagged, so pages mixing tagged and untagged rows (Discover 10/32, Bank of America 7/99; Chase and SoFi have none) failed with a 400 that `_safe_sync` swallowed. Details and the other findings: `docs/SYNC_DIAGNOSIS.md`. Diagnosed with the read-only `tools/plaid_doctor.py` against production (no Item created, nothing written).
+- A connection is "Up to date" only once Plaid says the full history is loaded or the Item is older than 15 minutes; before that it says "Syncing your history…", and after 10 minutes without progress "Taking longer than usual" with the reason and a retry. This is the "never a forever-spinner" rule and it is a unit test.
+- Manual pull-to-refresh calls `/transactions/refresh` best effort (rate-limited to the existing per-user limit; a refusal is ignored and the normal sync still runs).

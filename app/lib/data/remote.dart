@@ -18,7 +18,7 @@ class Remote {
       db.from('recurring').select().eq('status', 'active'),
       db.from('expected').select().eq('status', 'expected'),
       db.from('goals').select(),
-      db.from('connections').select('id,institution,status'),
+      db.from('connections').select('id,institution,status,sync_state,last_synced_at,sync_started_at,created_at,last_error,historical_complete,last_added'),
       db.from('budgets').select(),
       db.from('rules').select(),
       // Lifetime bank links = distinct Plaid Items ever created, removed ones included (append-only table).

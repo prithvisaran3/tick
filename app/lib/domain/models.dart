@@ -19,7 +19,8 @@ class Category {
 class Account {
   const Account({required this.id, required this.name, this.mask, this.type = 'checking', this.balanceCents, this.availableCents, this.includeInSafe = true, this.manual = false,
       this.institution, this.subtype, this.creditLimitCents, this.statementBalanceCents, this.minimumPaymentCents, this.dueDate, this.lastStatementDate,
-      this.aprBps, this.interestRateBps, this.nextPaymentCents, this.lastPaymentCents, this.lastPaymentDate});
+      this.aprBps, this.interestRateBps, this.nextPaymentCents, this.lastPaymentCents, this.lastPaymentDate, this.connectionId});
+  final String? connectionId;
   final bool manual; // typed in by hand (no bank link)
   final String id;
   final String name;
@@ -74,13 +75,13 @@ class Account {
       statementBalanceCents: (j['statement_balance_cents'] as num?)?.toInt(), minimumPaymentCents: (j['minimum_payment_cents'] as num?)?.toInt(),
       dueDate: _date(j['next_payment_due_date']), lastStatementDate: _date(j['last_statement_date']), aprBps: (j['apr_bps'] as num?)?.toInt(),
       interestRateBps: (j['interest_rate_bps'] as num?)?.toInt(), nextPaymentCents: (j['next_payment_cents'] as num?)?.toInt(),
-      lastPaymentCents: (j['last_payment_cents'] as num?)?.toInt(), lastPaymentDate: _date(j['last_payment_date']));
+      lastPaymentCents: (j['last_payment_cents'] as num?)?.toInt(), lastPaymentDate: _date(j['last_payment_date']), connectionId: j['connection_id'] as String?);
   Map<String, dynamic> toJson() => {
         'id': id, 'name': name, 'mask': mask, 'type': type, 'balance_cents': balanceCents, 'available_cents': availableCents, 'include_in_safe': includeInSafe,
         'is_manual': manual, 'institution': institution, 'subtype': subtype, 'credit_limit_cents': creditLimitCents, 'statement_balance_cents': statementBalanceCents,
         'minimum_payment_cents': minimumPaymentCents, 'next_payment_due_date': dueDate?.toIso8601String().substring(0, 10),
         'last_statement_date': lastStatementDate?.toIso8601String().substring(0, 10), 'apr_bps': aprBps, 'interest_rate_bps': interestRateBps,
-        'next_payment_cents': nextPaymentCents, 'last_payment_cents': lastPaymentCents, 'last_payment_date': lastPaymentDate?.toIso8601String().substring(0, 10)};
+        'next_payment_cents': nextPaymentCents, 'last_payment_cents': lastPaymentCents, 'last_payment_date': lastPaymentDate?.toIso8601String().substring(0, 10), 'connection_id': connectionId};
 }
 
 @immutable
@@ -178,12 +179,31 @@ class PaydayRule {
 
 @immutable
 class Connection {
-  const Connection({required this.id, required this.institution, required this.status});
+  const Connection({required this.id, required this.institution, required this.status, this.syncState = 'ok', this.lastSyncedAt, this.syncStartedAt, this.createdAt,
+      this.lastError, this.historicalComplete = true, this.lastAdded = 0});
   final String id;
   final String institution;
-  final String status; // active | login_required | error | removed
-  bool get needsRelink => status == 'login_required';
-  factory Connection.fromJson(Map<String, dynamic> j) => Connection(id: j['id'] as String, institution: (j['institution'] ?? 'Bank') as String, status: (j['status'] ?? 'active') as String);
+  final String status; // active | login_required | error | removed (legacy)
+  /// pending | syncing | ok | partial | login_required | bank_issue | error (see supabase migration 20261107000001)
+  final String syncState;
+  final DateTime? lastSyncedAt;
+  final DateTime? syncStartedAt;
+  final DateTime? createdAt;
+  final String? lastError;
+  final bool historicalComplete;
+  final int lastAdded;
+  bool get needsRelink => status == 'login_required' || syncState == 'login_required';
+  static DateTime? _d(Object? v) => v is String ? DateTime.tryParse(v)?.toLocal() : null;
+  factory Connection.fromJson(Map<String, dynamic> j) => Connection(
+      id: j['id'] as String, institution: (j['institution'] ?? 'Bank') as String, status: (j['status'] ?? 'active') as String,
+      syncState: (j['sync_state'] ?? ((j['last_synced_at'] != null && j['status'] != 'error') ? 'ok' : (j['status'] == 'login_required' ? 'login_required' : j['status'] == 'error' ? 'error' : 'pending'))) as String,
+      lastSyncedAt: _d(j['last_synced_at']), syncStartedAt: _d(j['sync_started_at']), createdAt: _d(j['created_at']), lastError: j['last_error'] as String?,
+      historicalComplete: (j['historical_complete'] ?? true) as bool, lastAdded: (j['last_added'] as num?)?.toInt() ?? 0);
+  Map<String, dynamic> toJson() => {'id': id, 'i': institution, 's': status, 'ss': syncState, 'ls': lastSyncedAt?.toUtc().toIso8601String(), 'st': syncStartedAt?.toUtc().toIso8601String(),
+        'ca': createdAt?.toUtc().toIso8601String(), 'le': lastError, 'hc': historicalComplete, 'la': lastAdded};
+  factory Connection.fromCache(Map<String, dynamic> j) => Connection(
+      id: j['id'] as String, institution: j['i'] as String, status: j['s'] as String, syncState: (j['ss'] ?? 'ok') as String, lastSyncedAt: _d(j['ls']), syncStartedAt: _d(j['st']),
+      createdAt: _d(j['ca']), lastError: j['le'] as String?, historicalComplete: (j['hc'] ?? true) as bool, lastAdded: (j['la'] as num?)?.toInt() ?? 0);
 }
 
 @immutable

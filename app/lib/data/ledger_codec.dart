@@ -18,7 +18,7 @@ Map<String, dynamic> encodeLedger(LedgerState l, {String? userId}) {
     'expected': [for (final e in l.expected) {'id': e.id, 'k': e.kind.name, 'l': e.label, 'a': e.amountCents, 'd': e.date.toIso8601String()}],
     'goals': [for (final g in l.goals) {'id': g.id, 'n': g.name, 't': g.targetCents, 's': g.savedCents, 'p': g.perPaydayCents}],
     'budgets': [for (final b in l.budgets) {'id': b.id, 'c': b.categoryId, 'cap': b.capCents}],
-    'connections': [for (final c in l.connections) {'id': c.id, 'i': c.institution, 's': c.status}],
+    'connections': [for (final c in l.connections) c.toJson()],
     'rules': [for (final r in l.rules) {'id': r.id, 'p': r.pattern, 'c': r.categoryId}],
   };
 }
@@ -43,7 +43,7 @@ LedgerState? decodeLedger(Map<String, dynamic> j) {
       expected: [for (final e in list('expected')) Expected(id: e['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == e['k'], orElse: () => ExpectedKind.refund), label: e['l'] as String, amountCents: (e['a'] as num).toInt(), date: DateTime.parse(e['d'] as String))],
       goals: [for (final g in list('goals')) Goal(id: g['id'] as String, name: g['n'] as String, targetCents: (g['t'] as num).toInt(), savedCents: (g['s'] as num).toInt(), perPaydayCents: (g['p'] as num).toInt())],
       budgets: [for (final b in list('budgets')) Budget(id: b['id'] as String, categoryId: b['c'] as String, capCents: (b['cap'] as num).toInt())],
-      connections: [for (final c in list('connections')) Connection(id: c['id'] as String, institution: c['i'] as String, status: c['s'] as String)],
+      connections: [for (final c in list('connections')) Connection.fromCache(c)],
       rules: [for (final r in list('rules')) LearnedRule(id: r['id'] as String, pattern: r['p'] as String, categoryId: r['c'] as String)],
       linksUsed: (j['linksUsed'] as num?)?.toInt() ?? 0,
     );

@@ -77,7 +77,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
 
     if (demo) {
       final d = buildDemo(now);
-      return LedgerState(categories: d.categories, accounts: d.accounts, txns: d.txns, recurring: d.recurring, expected: d.expected, goals: d.goals, linksUsed: 3, budgets: d.budgets);
+      return LedgerState(categories: d.categories, accounts: d.accounts, txns: d.txns, recurring: d.recurring, expected: d.expected, goals: d.goals, linksUsed: 5, connections: d.connections, budgets: d.budgets);
     }
     final cached = ref.read(initialLedgerProvider);
     final usable = cached != null && (cached.userId == uid || (resolving && cached.userId != null) || (uid == null && cached.userId == null)) ? cached.state : null;
