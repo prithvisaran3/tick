@@ -6,7 +6,7 @@ Default is READ-ONLY: it prints which settings differ from the target and never 
 import json, os, sys, urllib.request, urllib.error
 
 TARGET = {
-    "disable_signup": False,                     # Google sign-in must still create the first account
+    "disable_signup": True,                      # the owner's account exists: nobody else can sign up (hostile review F1)
     "external_email_enabled": False,             # no email/password sign-up or sign-in
     "external_phone_enabled": False,
     "external_anonymous_users_enabled": False,

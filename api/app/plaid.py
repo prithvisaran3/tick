@@ -176,14 +176,21 @@ def verify_webhook(body: bytes, token: str, prov: PlaidProvider | None = None, n
             raise HTTPException(401, "unknown key")
         _key_fetches[:] = [t for t in _key_fetches if t > now_t - 60]
         if len(_key_fetches) >= KEY_FETCHES_PER_MIN:             # garbage kids must not make us hammer Plaid
-            raise HTTPException(429, "too many key lookups")
-        _key_fetches.append(now_t)
-        try:
-            key = prov.webhook_key(kid)  # type: ignore[union-attr]
-        except PlaidError:
-            _bad_kids[kid] = now_t + 60
-            raise HTTPException(401, "unknown key")
-        _keys[kid] = (now_t + 3600, key)
+            if not cached:
+                raise HTTPException(429, "too many key lookups")
+            # A known key past its refresh time stays usable (Plaid's expired_at is still checked below), so a flood of
+            # random kids can never lock out Plaid's real webhooks.
+        else:
+            _key_fetches.append(now_t)
+            try:
+                key = prov.webhook_key(kid)  # type: ignore[union-attr]
+                _keys[kid] = (now_t + 3600, key)
+            except PlaidError:
+                if not cached:
+                    if len(_bad_kids) > 1000:
+                        _bad_kids.clear()
+                    _bad_kids[kid] = now_t + 60
+                    raise HTTPException(401, "unknown key")
     jwk = _keys[kid][1]
     if jwk.get("expired_at") is not None:
         raise HTTPException(401, "key expired")
@@ -210,6 +217,28 @@ def links_used(user_id: str) -> int:
     items = {r["item_id"] for r in rest().select("plaid_items", user_id=f"eq.{user_id}", select="item_id")}
     items |= {r["item_id"] for r in rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid", select="item_id") if r.get("item_id")}
     return len(items)
+
+def total_links_used() -> int:
+    """Plaid's Trial cap is per Plaid CLIENT, not per Tick user: count distinct item_ids across everyone."""
+    items = {r["item_id"] for r in rest().select("plaid_items", select="item_id")}
+    items |= {r["item_id"] for r in rest().select("connections", provider="eq.plaid", select="item_id") if r.get("item_id")}
+    return len(items)
+
+def owners() -> set[str]:
+    """Who may create NEW bank links. TICK_OWNER_USER_IDS (comma-separated) when set. Otherwise the user who made the first link
+    (fail closed for strangers who signed up later); with no link at all yet, anyone signed in (first run)."""
+    env = {x.strip() for x in os.environ.get("TICK_OWNER_USER_IDS", "").split(",") if x.strip()}
+    if env:
+        return env
+    rows = rest().select("plaid_items", select="user_id,created_at", order="created_at.asc", limit="1")
+    return {rows[0]["user_id"]} if rows else set()
+
+def require_link_owner(user_id: str) -> None:
+    allowed = owners()
+    if allowed and user_id not in allowed:
+        raise HTTPException(403, "Bank linking is limited to this Tick's owner.")
+
+OPEN_SESSION_MIN = 30
 
 def record_item(user_id: str, item_id: str, institution: str | None, link_token_value: str) -> None:
     """Idempotent: the same item_id is recorded once no matter how many times it is exchanged."""
@@ -482,15 +511,24 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         if not rows:
             raise HTTPException(404, "connection not found")
         token = rest().rpc("tick_vault_get", {"secret_id": rows[0]["vault_secret_id"]})
-    elif links_used(user_id) >= ITEM_CAP:
-        raise HTTPException(409, "You have used all 10 bank links.")
+    else:
+        require_link_owner(user_id)
+        if links_used(user_id) >= ITEM_CAP or total_links_used() >= ITEM_CAP:
+            raise HTTPException(409, "You have used all 10 bank links.")
+        # One open new-bank session at a time: re-opening the sheet reuses it, so parallel sessions can't each burn a slot.
+        since = (datetime.now(timezone.utc) - timedelta(minutes=OPEN_SESSION_MIN)).isoformat()
+        open_ = rest().select("plaid_link_sessions", user_id=f"eq.{user_id}", connection_id="is.null", finished_at="is.null",
+                              created_at=f"gte.{since}", select="link_token,hosted_link_url", order="created_at.desc")
+        if open_ and open_[0].get("hosted_link_url"):
+            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": ITEM_CAP - links_used(user_id)}
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
         r = provider().create_link_token(user_id, access_token=token)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
-    rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id}, upsert_on="link_token")
+    rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id,
+                                          "hosted_link_url": r.get("hosted_link_url")}, upsert_on="link_token")
     return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
 
 class CompleteBody(BaseModel):

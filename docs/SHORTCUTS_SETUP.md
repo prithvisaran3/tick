@@ -147,10 +147,10 @@ Testing first saves you from waiting for a real purchase.
 A good response looks like this:
 
 ```json
-{"ok":true,"action":"insert", ...}
+{"ok":true,"status":"received"}
 ```
 
-The response may include more fields. What matters is `"ok":true`.
+The response is the same whatever happened, so a leaked token can't be used to learn what is in your ledger.
 
 ### Check Tick
 

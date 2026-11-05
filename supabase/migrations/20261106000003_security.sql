@@ -51,13 +51,28 @@ alter table public.ingest_tokens add column if not exists scope text not null de
 alter table public.ingest_tokens drop constraint if exists ingest_tokens_scope_check;
 alter table public.ingest_tokens add constraint ingest_tokens_scope_check check (scope in ('ingest'));
 -- The app may list its tokens and revoke them; it can't mint one (the server generates the secret and stores only the hash).
+-- Revoking goes through the API (POST /tokens/{id}/revoke, /security/panic); the app has no write access at all, so a stolen session
+-- can't un-revoke a leaked token (hostile review F2). A revoked token also stays revoked for the server itself:
 revoke insert, update, truncate on public.ingest_tokens from authenticated;
-grant update (revoked_at) on public.ingest_tokens to authenticated;
+create or replace function public.ingest_tokens_stay_revoked() returns trigger language plpgsql as $$
+begin
+  if old.revoked_at is not null and new.revoked_at is distinct from old.revoked_at then
+    raise exception 'a revoked capture token stays revoked';
+  end if;
+  if new.token_hash is distinct from old.token_hash or new.user_id is distinct from old.user_id or new.scope is distinct from old.scope then
+    raise exception 'capture token identity is immutable';
+  end if;
+  return new;
+end $$;
+drop trigger if exists ingest_tokens_revoke_once on public.ingest_tokens;
+create trigger ingest_tokens_revoke_once before update on public.ingest_tokens for each row execute function public.ingest_tokens_stay_revoked();
 
 -- ---------- connections and Plaid ----------
 -- connections stays readable in full by its owner (Realtime needs whole-row SELECT). vault_secret_id is only a reference: the
 -- token itself is in Vault, readable through tick_vault_get, which only service_role may execute.
 revoke all on public.plaid_link_sessions from authenticated;
+-- The hosted Link URL of an open session, so re-opening the sheet reuses it instead of starting a second session (review F5).
+alter table public.plaid_link_sessions add column if not exists hosted_link_url text;
 revoke all on public.ai_cache from authenticated;
 
 -- ---------- storage: private, per-user folders, small images only ----------

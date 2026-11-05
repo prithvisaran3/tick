@@ -65,7 +65,7 @@ def test_request_size_limits(guard):
     def chunks():
         for _ in range(40):
             yield b"y" * 10_000
-    assert client.post("/plaid/complete", content=chunks(), headers={"Content-Type": "application/json"}).status_code == 413
+    assert client.post("/plaid/complete", content=chunks(), headers={"Content-Type": "application/json"}).status_code == 411   # never read an unbounded stream
     assert client.post("/ask", content=b"{}", headers={"Content-Length": "abc", "Content-Type": "application/json"}).status_code in (400, 413)
 
 def test_per_ip_rate_limit_and_spoofed_forwarded_for(monkeypatch):
@@ -274,3 +274,89 @@ def test_per_user_rate_limits(signed_in, db, monkeypatch):
     monkeypatch.setattr(account, "user_limiter", A.user_limiter)
     codes = [signed_in.post("/tokens", json={}).status_code for _ in range(7)]
     assert codes[:5] == [200] * 5 and codes[5:] == [429, 429]
+
+# ---------------- hostile review follow-ups ----------------
+OTHER = "22222222-2222-2222-2222-222222222222"
+
+def test_F1_only_the_owner_can_start_a_new_bank_link(db, monkeypatch):
+    monkeypatch.delenv("TICK_OWNER_USER_IDS", raising=False)
+    db.insert("plaid_items", {"item_id": "item-owner", "user_id": U, "created_at": "2026-11-05T01:35:00+00:00"})
+    class Prov:
+        def create_link_token(self, uid, access_token=None): return {"link_token": "link-production-new", "hosted_link_url": "https://hosted.plaid/x"}
+    monkeypatch.setattr(P, "_provider", Prov())
+    app.dependency_overrides[current_user] = lambda: OTHER                  # a stranger who signed up with Google
+    try:
+        assert TestClient(app).post("/plaid/link-token", json={}).status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", f"{OTHER}")                   # an explicit allow-list wins
+    assert P.owners() == {OTHER}
+
+def test_F1_the_cap_counts_every_users_items(db):
+    for i in range(10):
+        db.insert("plaid_items", {"item_id": f"i{i}", "user_id": OTHER if i % 2 else U})
+    assert P.links_used(U) == 5 and P.total_links_used() == 10
+
+def test_F5_reopening_the_link_sheet_reuses_the_open_session(db, monkeypatch, signed_in):
+    made = []
+    class Prov:
+        def create_link_token(self, uid, access_token=None):
+            made.append(1); return {"link_token": f"link-production-{len(made)}", "hosted_link_url": f"https://hosted.plaid/{len(made)}"}
+    monkeypatch.setattr(P, "_provider", Prov())
+    from datetime import datetime, timezone
+    first = signed_in.post("/plaid/link-token", json={}).json()
+    db.rows("plaid_link_sessions")[0]["created_at"] = datetime.now(timezone.utc).isoformat()
+    second = signed_in.post("/plaid/link-token", json={}).json()
+    assert len(made) == 1 and second["link_token"] == first["link_token"] and second["hosted_link_url"] == first["hosted_link_url"]
+
+def test_F4_random_kids_cannot_lock_out_plaids_real_key(monkeypatch):
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec
+    from tests.test_plaid import FakeProv, sign
+    P._keys.clear(); P._bad_kids.clear(); P._key_fetches.clear()
+    key = _ec.generate_private_key(_ec.SECP256R1()); prov = FakeProv(key); body = b'{"webhook_type":"TRANSACTIONS"}'
+    P.verify_webhook(body, sign(key, body), prov)                           # real kid cached
+    P._keys["k1"] = (time.time() - 1, P._keys["k1"][1])                     # its refresh time has passed
+    class Boom:
+        def webhook_key(self, kid): raise P.PlaidError("INVALID", "x", 400)
+    for i in range(P.KEY_FETCHES_PER_MIN):                                  # attacker burns the fetch budget
+        with pytest.raises(A.HTTPException):
+            P.verify_webhook(body, sign(key, body, kid=f"junk{i}"), Boom())
+    assert P.verify_webhook(body, sign(key, body), prov)["request_body_sha256"]   # Plaid's webhook still verifies
+
+def test_F6_one_account_cannot_spend_the_shared_ai_pool(monkeypatch):
+    ai._user_calls.clear()
+    monkeypatch.setattr(ai, "USER_DAILY_LIMIT", 3)
+    monkeypatch.setattr(ai, "CAPTURE_DAILY_LIMIT", 2)
+    assert [ai._user_quota_ok(U, "parse_alert") for _ in range(3)] == [True, True, False]
+    assert [ai._user_quota_ok(U, "ask") for _ in range(2)] == [True, False]
+    assert ai._user_quota_ok(OTHER, "ask")
+
+def test_F7_capture_responses_reveal_nothing(db, monkeypatch):
+    from app import ingest
+    tok = "tk_" + "Q" * 43
+    db.insert("ingest_tokens", {"user_id": U, "token_hash": hashlib.sha256(tok.encode()).hexdigest(), "last4": "QQQQ", "scope": "ingest", "revoked_at": None})
+    monkeypatch.setattr(ingest, "rest", lambda: db)
+    monkeypatch.setattr(ingest.store, "category_maps", lambda uid: ({}, {}))
+    monkeypatch.setattr(ingest.store, "learned_rules", lambda uid: {})
+    monkeypatch.setattr(ingest.store, "window", lambda uid, now: [])
+    monkeypatch.setattr(ingest.store, "persist", lambda uid, a, extra=None: "row")
+    monkeypatch.setattr(ingest.ai, "categorize_ai", lambda *a: None)
+    r = client.post("/ingest", json={"source": "applepay", "merchant": "Blue Bottle", "amount": "4.50"}, headers={"X-Tick-Token": tok})
+    assert r.status_code == 200 and r.json() == {"ok": True, "status": "received"}
+    assert client.post("/ingest", json={"source": "applepay", "merchant": "X", "amount": "1e13"}, headers={"X-Tick-Token": tok}).status_code == 422
+
+def test_F9_delete_all_never_orphans_a_live_plaid_token(signed_in, db, monkeypatch):
+    class Prov:
+        def remove_item(self, token): raise P.PlaidError("INTERNAL_SERVER_ERROR", "API_ERROR", 500)
+    monkeypatch.setattr(P, "provider", lambda: Prov())
+    sid = db.rpc("tick_vault_upsert", {"secret_name": "plaid-item-b", "secret_value": "access-sandbox-fake"})
+    db.insert("connections", {"user_id": U, "provider": "plaid", "item_id": "item-b", "vault_secret_id": sid, "status": "active"})
+    db.insert("profiles", {"user_id": U, "display_name": "P", "email": "owner@example.com"})
+    monkeypatch.setattr(account, "_delete_receipts", lambda uid: 0)
+    real = db.rpc
+    monkeypatch.setattr(db, "rpc", lambda fn, args: None if fn == "seed_default_categories" else real(fn, args))
+    r = signed_in.post("/me/delete", json={"confirm": "DELETE"}).json()
+    assert r["banks_failed"] == 1 and sid in db.vault                       # the token is kept, not orphaned
+    c = db.rows("connections")[0]
+    assert c["status"] == "removed" and c["error_code"] == "REMOVE_PENDING"
+    assert db.rows("profiles")[0]["email"] is None

@@ -23,8 +23,9 @@ Nothing was deployed and no migration was applied from the build session.
    `flutter_secure_storage`, no extra pods) and a new Swift file (`TickPrivacy.swift`), so run `cd app && flutter pub get`
    and let Xcode re-run `pod install`.
 7. **Lock down Supabase Auth**: `python3 tools/auth_config.py`, read the report, then `python3 tools/auth_config.py --apply`.
-   This turns email sign-in off, sets the redirect allow-list to exactly `tick://login-callback` and makes access tokens
-   15 minutes.
+   This closes new sign-ups (your account already exists; Google sign-in keeps working), turns email sign-in off, sets
+   the redirect allow-list to exactly `tick://login-callback` and makes access tokens 15 minutes. Also set
+   `TICK_OWNER_USER_IDS` in Railway to your user id (see `docs/SECURITY.md` §5).
 8. **Link banks one at a time**, and check the counter after each one (Settings > Bank connections, and Banks >
    "You have N of 10 bank links left"). Each link should cost exactly one.
    1. **SoFi** (one link covers checking, savings and the student loan; credentials, not OAuth).

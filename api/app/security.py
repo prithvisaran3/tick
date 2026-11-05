@@ -108,10 +108,10 @@ def install(app: FastAPI) -> None:
                     too_big = True
                 if too_big:
                     return JSONResponse(status_code=413, content={"detail": "That's too big to send.", "error": {"code": "too_large", "message": "That's too big to send."}})
-            elif request.headers.get("transfer-encoding", "").lower() == "chunked":
-                body = await request.body()                 # bounded read: starlette caches it for the route
-                if len(body) > limit:
-                    return JSONResponse(status_code=413, content={"detail": "That's too big to send.", "error": {"code": "too_large", "message": "That's too big to send."}})
+            elif "chunked" in request.headers.get("transfer-encoding", "").lower():
+                # A body without a declared length would have to be read before its size is known: refuse it. The app, Plaid
+                # and Shortcuts all send Content-Length.
+                return JSONResponse(status_code=411, content={"detail": "Send a Content-Length.", "error": {"code": "length_required", "message": "Send a Content-Length."}})
         response = await call_next(request)
         if response.status_code in (401, 403) and ip_guard.failed(ip):
             log.warning("bad-token burst: blocking an address for %ss", ip_guard.block_seconds)

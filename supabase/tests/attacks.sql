@@ -99,13 +99,19 @@ begin
   begin perform public.tick_vault_upsert('x', 'y'); fails := fails || 'B calls tick_vault_upsert; '; exception when insufficient_privilege then null; end;
   begin perform public.seed_default_categories(a); fails := fails || 'B seeds A categories; '; exception when insufficient_privilege then null; end;
   begin perform public.tick_call_api('/jobs/sync-all'); fails := fails || 'B calls tick_call_api; '; exception when insufficient_privilege then null; end;
-  -- B's own token: may revoke, nothing else.
+  -- B's own token: the app can't write it at all (revoke goes through the API), so it can never un-revoke one.
   reset role;
-  insert into public.ingest_tokens (user_id, token_hash, last4) values (b, 'hash-b', 'bbbb');
+  insert into public.ingest_tokens (user_id, token_hash, last4, revoked_at) values (b, 'hash-b', 'bbbb', now());
   set local role authenticated;
-  update public.ingest_tokens set revoked_at = now() where user_id = b; get diagnostics n = row_count;
-  if n <> 1 then fails := fails || 'B cannot revoke own token; '; end if;
+  begin update public.ingest_tokens set revoked_at = null where user_id = b; get diagnostics n = row_count;
+    if n <> 0 then fails := fails || 'app un-revokes a capture token; '; end if;
+  exception when insufficient_privilege then null; end;
   reset role;
+  -- Not even the server can bring a revoked token back or swap its hash.
+  begin update public.ingest_tokens set revoked_at = null where user_id = b; fails := fails || 'server un-revokes a token; ';
+  exception when raise_exception then null; end;
+  begin update public.ingest_tokens set token_hash = 'x' where user_id = a; fails := fails || 'token hash mutable; ';
+  exception when raise_exception then null; end;
 
   -- 8. anon: nothing readable, nothing callable.
   perform set_config('request.jwt.claims', '', true);

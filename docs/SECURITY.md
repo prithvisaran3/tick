@@ -64,14 +64,21 @@ live project after `supabase db push` (`python3 tools/run_rls_tests.py`; every s
 
 ### Auth configuration (Supabase)
 
-Target settings: Google only, email sign-up off, redirect allow-list exactly `tick://login-callback`, 15-minute access
-tokens, refresh-token rotation on (reuse interval 10 s), every unused provider off.
+Target settings:
+- Google only, email sign-in off, unused providers off.
+- **New sign-ups off.** Your account already exists; Google sign-in into an existing account keeps working.
+- Redirect allow-list exactly `tick://login-callback`.
+- 15-minute access tokens; refresh-token rotation on (reuse interval 10 s).
 
-`python3 tools/auth_config.py` checks them read-only. On 2026-11-06 three differ, and they are **not changed by me**
+`python3 tools/auth_config.py` checks them read-only. On 2026-11-06 four differ, and they are **not changed by me**
 (this is a production change; see Manual steps):
+- sign-up open;
 - email provider on;
 - allow-list has the wildcard `tick://**`;
 - JWT expiry 3600 s.
+
+Even with sign-up open, the API only lets the **owner** start a new bank link (`TICK_OWNER_USER_IDS`, or the user of the
+first Plaid Item). The 10-Item cap is counted across all users, because it is per Plaid client.
 
 ### API (FastAPI on Railway)
 
@@ -166,17 +173,40 @@ Rotate one key at a time. After each one, run `python3 tools/e2e_deployed.py`.
   - [ ] Settings → Actions → General: Workflow permissions = "Read repository contents".
   - [ ] Settings → Actions → General: allow only actions pinned by SHA (or GitHub-owned plus selected).
 - [ ] Locally, once: `git config core.hooksPath tools/hooks`.
+- [ ] Railway: set `TICK_OWNER_USER_IDS` to your Supabase user id (Supabase → Authentication → Users → your row → User UID).
+      Without it, the owner is the user of the first Plaid Item (you), so linking is already closed to anyone else.
 - [ ] CRON_SECRET: make sure it is 32 characters or more (rotate per section 3 if not).
 
 ## 6. Hostile review and open findings
 
-A separate reviewer with no context of this work attacked `api/`, `supabase/` and `app/`. Every high and medium finding was
-fixed and is listed in section 6a; the lows are in section 6b.
+A separate reviewer (strongest model, no context of this work) attacked `api/`, `supabase/` and `app/` statically, with the
+local Postgres and local pytest. It reported 9 confirmed findings and 3 speculative ones. Every high and medium is fixed,
+and each fix has a test.
 
-### 6a. Fixed (high and medium)
+### 6a. Fixed
 
-*(filled in after the review: see below)*
+| ID | Sev | Finding | Fix | Test |
+|---|---|---|---|---|
+| F1 | High | Sign-up is open, so any Google account could link 10 real Items of its own and use up the Plaid client's lifetime cap | Only the owner may start a new link (`TICK_OWNER_USER_IDS`, else the user of the first Item); the cap counts Items across **all** users; `auth_config.py` now targets `disable_signup=true` | `test_F1_*` |
+| F2 | Medium | The column grant let a stolen session set `revoked_at = null` and revive a leaked capture token | No app write access to `ingest_tokens` at all. A trigger keeps a revoked token revoked and its hash, user and scope immutable, even for the server | `attacks.sql` |
+| F3 | Medium | Chunked bodies were read into memory before the size check (memory DoS) | Bodies without Content-Length are refused with 411; declared lengths are checked before reading | `test_request_size_limits` |
+| F4 | Medium-low | Random webhook `kid`s could use up the key-fetch budget and lock out Plaid's real key after its hourly refresh | A known key stays usable past its refresh time (Plaid's `expired_at` still applies); random kids never block a cached one; the negative cache is bounded | `test_F4_*` |
+| F5 | Medium-low | Several link sessions could be opened at once, and each could finish and burn a slot | One open new-bank session per user: re-opening the sheet reuses its token and URL. The cap is checked across users | `test_F5_*` |
+| F6 | Low-medium | The AI budget was global, so one account or one leaked token could use up the day's free calls | Per-user daily AI budget (30), plus 10 a day for SMS parsing through capture | `test_F6_*` |
+| F7 | Low-medium | `/ingest` responses told a token holder whether a purchase matched an existing one (an oracle); amounts were unbounded | A constant `{"ok": true, "status": "received"}`; amounts over $100k are refused | `test_F7_*` |
+| F8 | Low | The AI categorisation cache was shared across users (cache poisoning) | Cache keys are per user | code review |
+| F9 | Low | Delete-all left profile and settings, more than 1,000 receipts, and could orphan a live Plaid token when `/item/remove` failed | Profile and payday rule cleared; receipts deleted page by page; on failure the connection is kept as `removed`/`REMOVE_PENDING` with its Vault token, so you can retry | `test_F9_*` |
 
-### 6b. Open lows
-
-*(filled in after the review: see below)*
+### 6b. Open lows (accepted for now)
+- **S1. Cross-user foreign keys.** RLS checks `user_id` only, so a user could point their own `transactions.account_id`
+  or `category_id` at another user's row id. No read path returns the foreign row: the embeds are blocked by RLS, and the
+  service-key embed in `learned_rules` only feeds the owner's own categoriser. It also needs the victim's UUIDs, and
+  sign-up is owner-only. Proper fix: composite foreign keys `(user_id, id)`, as a later migration.
+- **S2. Client IP and NAT.** The per-IP guard trusts the right-most `X-Forwarded-For` entry, which assumes Railway
+  appends to the header. Verify once in production by sending a forged `X-Forwarded-For` and reading the access log.
+  On a shared carrier NAT, a burst of bad tokens from someone else could block you for 15 minutes; lower
+  `TICK_BAD_TOKEN_BURST` or raise it if that ever happens.
+- **S3. Threadpool exhaustion.** `/ask` (up to 45 s) and `/plaid/complete` (up to 12 s) hold worker threads. With
+  sign-ups closed only you can call them; revisit before opening Tick to others.
+- A capture match can still raise a row's confidence (F7, second half). That's acceptable while capture tokens are
+  owner-only and revocable.

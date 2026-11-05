@@ -21,7 +21,7 @@ try:
     assert h.json() == {"ok": True} and h.headers.get("x-frame-options") == "DENY" and "strict-transport-security" in h.headers
     print("health + headers ok")
     r = httpx.post(BASE + "/ingest", json={"source": "sms", "text": "Chase: A $18.40 transaction was made at UBER *TRIP on card ending in 4421."}, headers={"X-Tick-Token": t}, timeout=30); print("ingest", r.status_code, r.json())
-    assert r.status_code == 200 and r.json()["action"] == "insert"
+    assert r.status_code == 200 and r.json() == {"ok": True, "status": "received"}
     r = httpx.post(BASE + "/ingest", json={"source": "sms", "text": "x"}, headers={"X-Tick-Token": "tk_wrong"}, timeout=30); print("bad token", r.status_code); assert r.status_code == 401
     r = httpx.get(BASE + "/plaid/links", headers={"Authorization": f"Bearer {tok}"}, timeout=30); print("links", r.status_code, r.json()); assert r.json()["cap"] == 10
     r = httpx.get(BASE + "/plaid/links", timeout=30); assert r.status_code == 401

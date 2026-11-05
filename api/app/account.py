@@ -52,8 +52,10 @@ def list_tokens(user_id: str = Depends(current_user)):
 
 @router.post("/tokens/{token_id}/revoke")
 def revoke_token(token_id: str, user_id: str = Depends(current_user)):
-    rows = rest().update("ingest_tokens", {"id": token_id, "user_id": user_id}, {"revoked_at": "now()"})
+    rows = rest().update("ingest_tokens", {"id": token_id, "user_id": user_id}, {"revoked_at": "now()"}, where={"revoked_at": "is.null"})
     if not rows:
+        if rest().select("ingest_tokens", id=f"eq.{token_id}", user_id=f"eq.{user_id}", select="id"):
+            return {"revoked": True}                                     # already revoked: revoked tokens stay revoked
         raise HTTPException(404, "token not found")
     auth.forget_tokens(user_id)
     audit(user_id, "token_revoked", {"token_last4": rows[0].get("last4")})
@@ -86,6 +88,7 @@ def delete_everything(body: DeleteBody, user_id: str = Depends(current_user)):
     user_limiter.check(f"delete:{user_id}", 3, 300)
     from .plaid import PlaidError, provider
     removed, failed = 0, 0
+    keep: list[str] = []            # connections whose Item could not be removed: kept (status removed) with their Vault token
     for c in rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid"):
         if not c.get("vault_secret_id"):
             continue
@@ -99,13 +102,26 @@ def delete_everything(body: DeleteBody, user_id: str = Depends(current_user)):
             if c.get("item_id"):
                 rest().update("plaid_items", {"item_id": c["item_id"]}, {"removed_at": "now()"})
         except (PlaidError, httpx.HTTPError):
-            failed += 1                                                    # keep going: the person asked for everything gone
+            failed += 1                                                    # keep going, but never orphan a live token
+            keep.append(c["id"])
     receipts = _delete_receipts(user_id)
     for t in USER_TABLES:
         try:
+            if t == "connections" and keep:
+                for c in rest().select("connections", user_id=f"eq.{user_id}", select="id"):
+                    if c["id"] in keep:
+                        rest().update("connections", {"id": c["id"], "user_id": user_id}, {"status": "removed", "error_code": "REMOVE_PENDING"})
+                    else:
+                        rest().delete("connections", {"id": c["id"], "user_id": user_id})
+                continue
             rest().delete(t, {"user_id": user_id})
         except httpx.HTTPError:
             log.warning("delete-all: could not clear a table")
+    for t, blank in (("profiles", {"display_name": None, "email": None}), ("settings", {"payday_rule": None, "onboarding_done": False})):
+        try:
+            rest().update(t, {"user_id": user_id}, blank)
+        except httpx.HTTPError:
+            pass
     try:
         rest().rpc("seed_default_categories", {"uid": user_id})          # a clean, usable account remains
     except httpx.HTTPError:
@@ -120,10 +136,14 @@ def _delete_receipts(user_id: str) -> int:
     base = s.supabase_url.rstrip("/") + "/storage/v1/object"
     h = {"apikey": s.supabase_secret_key, "Authorization": f"Bearer {s.supabase_secret_key}", "Content-Type": "application/json"}
     try:
-        r = httpx.post(f"{base}/list/receipts", headers=h, json={"prefix": f"{user_id}/", "limit": 1000}, timeout=20)
-        names = [f"{user_id}/{o['name']}" for o in (r.json() if r.status_code == 200 else []) if o.get("name")]
-        if names:
+        total = 0
+        for _ in range(100):                                        # pages of 1000; each pass deletes what it listed
+            r = httpx.post(f"{base}/list/receipts", headers=h, json={"prefix": f"{user_id}/", "limit": 1000, "offset": 0}, timeout=20)
+            names = [f"{user_id}/{o['name']}" for o in (r.json() if r.status_code == 200 else []) if o.get("name")]
+            if not names:
+                break
             httpx.request("DELETE", f"{base}/receipts", headers=h, json={"prefixes": names}, timeout=20)
-        return len(names)
+            total += len(names)
+        return total
     except (httpx.HTTPError, ValueError):
         return 0
