@@ -36,4 +36,4 @@ Format: date · decision · why.
 - Offline: snapshot at `<app support>/ledger_cache.json` (no tokens or secrets, capped at 1,200 purchases / 4 MB, atomic write, decoded off the UI isolate, keyed by user id, deleted on sign-out and Delete all data).
 - Realtime bursts are coalesced to one refresh per 1.5 s; the Plaid first sync moved to background tasks and a per-page bulk insert. `plan()`/reconcile logic itself was not changed in this audit (the batched sync only changes how rows are loaded and written).
 - Supabase migration `20261105000001_indexes_and_cleanup.sql` is written and **not applied**; `tools/db.py push` would apply it. The RLS test file was extended and run (it rolls back).
-- API deploy: the changes are backward compatible; deployed after tests and the live end-to-end checks passed.
+- API deploy: the changes are backward compatible and covered by the 127-test suite, but NOT deployed from this session (production deploy was not permitted). Deploy with `cd api && railway up --service tick-api --ci`, then run `python3 tools/e2e_deployed.py`.
