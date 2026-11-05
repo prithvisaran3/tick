@@ -3,6 +3,7 @@
 -- Tick never moves money: a settlement is a RECORD of money that moved somewhere else (Zelle, Venmo, cash).
 
 -- The existing people table (name, email) gains a phone number and a colour for the avatar.
+create unique index if not exists transactions_id_user_idx on public.transactions (id, user_id);
 alter table public.people add column if not exists phone text;
 alter table public.people add column if not exists color_key text not null default 'shop';
 alter table public.people add column if not exists archived_at timestamptz;
@@ -42,12 +43,13 @@ create table if not exists public.tally_expenses (
   category text,
   note text check (note is null or char_length(note) <= 500),
   receipt_path text,
-  transaction_id uuid references public.transactions(id) on delete set null,     -- "Split this" from Activity
+  transaction_id uuid,     -- "Split this" from Activity (composite FK below: only MY transactions)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
   foreign key (group_id, user_id) references public.tally_groups (id, user_id) on delete cascade,
-  foreign key (paid_by, user_id) references public.people (id, user_id) on delete restrict
+  foreign key (paid_by, user_id) references public.people (id, user_id) on delete restrict,
+  foreign key (transaction_id, user_id) references public.transactions (id, user_id) on delete set null (transaction_id)
 );
 create unique index if not exists tally_expenses_id_user_idx on public.tally_expenses (id, user_id);
 create index if not exists tally_expenses_group_idx on public.tally_expenses (group_id, spent_on desc);
@@ -74,12 +76,13 @@ create table if not exists public.tally_settlements (
   settled_on date not null default current_date,
   note text check (note is null or char_length(note) <= 300),
   status text not null default 'confirmed' check (status in ('confirmed','pending','rejected')),   -- pending = "I paid" from the share page, awaiting me
-  transaction_id uuid references public.transactions(id) on delete set null,     -- the Zelle row in Activity this settles
+  transaction_id uuid,     -- the Zelle row in Activity this settles (composite FK below)
   created_at timestamptz not null default now(),
   deleted_at timestamptz,
   foreign key (group_id, user_id) references public.tally_groups (id, user_id) on delete cascade,
   foreign key (from_person, user_id) references public.people (id, user_id) on delete restrict,
   foreign key (to_person, user_id) references public.people (id, user_id) on delete restrict,
+  foreign key (transaction_id, user_id) references public.transactions (id, user_id) on delete set null (transaction_id),
   check (from_person is distinct from to_person)
 );
 create index if not exists tally_settlements_group_idx on public.tally_settlements (group_id, settled_on desc);

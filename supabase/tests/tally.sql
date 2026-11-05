@@ -2,7 +2,7 @@
 do $$
 declare
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); fails text := '';
-  ga uuid; gb uuid; pk uuid; pj uuid; pb uuid; e1 uuid; n int; r record; j jsonb; st uuid;
+  tx uuid; ga uuid; gb uuid; pk uuid; pj uuid; pb uuid; e1 uuid; n int; r record; j jsonb; st uuid;
 begin
   insert into auth.users (id, aud, role, email) values (a, 'authenticated', 'authenticated', 'a@test.local'), (b, 'authenticated', 'authenticated', 'b@test.local');
   insert into public.people (user_id, name) values (a, 'Kaarthik') returning id into pk;
@@ -58,6 +58,11 @@ begin
 
   -- ---------- user B attacks ----------
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  -- B cannot link their expense/settlement to A's transaction (composite FK)
+  reset role; insert into public.transactions (user_id, amount_cents, occurred_at) values (a, -100, now()) returning id into tx;
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true); set local role authenticated;
+  begin insert into public.tally_expenses (group_id, description, amount_cents, transaction_id) values (gb, 'X', 100, tx); fails := fails || 'B links expense to A txn; ';
+  exception when foreign_key_violation then null; end;
   select count(*) into n from public.tally_groups where id = ga;                         if n <> 0 then fails := fails || 'B reads A group; '; end if;
   select count(*) into n from public.tally_expenses;                                     if n <> 0 then fails := fails || 'B reads A expenses; '; end if;
   select count(*) into n from public.tally_balances(a);                                  if n <> 0 then fails := fails || 'B reads A balances; '; end if;

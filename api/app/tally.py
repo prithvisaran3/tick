@@ -75,7 +75,9 @@ def create_link(group_id: str, body: LinkBody, request: Request, user_id: str = 
     exp = now + timedelta(days=body.days)
     row = rest().insert("tally_links", {"user_id": user_id, "group_id": group_id, "token_hash": hash_token(token), "expires_at": exp.isoformat()})[0]
     audit(user_id, "tally_share", {"scope": "link_created", "count": body.days})
-    base = (settings().public_base_url or str(request.base_url)).rstrip("/")
+    if not settings().public_base_url:
+        raise HTTPException(503, "Sharing isn't set up yet.")    # never build a link from the Host header
+    base = settings().public_base_url.rstrip("/")
     return {"id": row["id"], "url": f"{base}/t/{token}", "expires_at": exp.isoformat(), "note": "Shown once. Tick keeps only a fingerprint of it."}
 
 @router.get("/tally/groups/{group_id}/links")

@@ -2,6 +2,8 @@
 Signed-in users only; a few imports a minute. Each commit is ONE batch, so "Undo import" removes exactly what it added."""
 from __future__ import annotations
 
+import csv
+
 import json
 import re
 import uuid
@@ -78,7 +80,7 @@ def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), 
         parsed = ST.parse_statement(raw, file.filename or "", m)
     except (ST.StatementError, AC.ImportError_) as e:
         raise HTTPException(422, str(e))
-    except ValueError:
+    except (ValueError, csv.Error, OverflowError, IndexError, TypeError):
         raise HTTPException(422, "Check the details and try again.")
     if parsed.needs_mapping:
         return {"source": parsed.source, "label": parsed.label, "needs_mapping": parsed.needs_mapping}

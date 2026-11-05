@@ -360,3 +360,9 @@ def test_F9_delete_all_never_orphans_a_live_plaid_token(signed_in, db, monkeypat
     c = db.rows("connections")[0]
     assert c["status"] == "removed" and c["error_code"] == "REMOVE_PENDING"
     assert db.rows("profiles")[0]["email"] is None
+
+def test_share_link_tokens_are_redacted_from_logs():
+    from app.security import redact
+    tok = "GGy_vltyKyAbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    assert tok not in redact(f"GET /t/{tok} -> 200")
+    assert tok not in redact(f"POST /t/{tok}/paid -> 200")

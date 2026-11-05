@@ -36,6 +36,9 @@ class TallyRest(FakeRest):
 
 @pytest.fixture
 def world(monkeypatch):
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://tick.example")
+    from app import config
+    config.settings.cache_clear() if hasattr(config.settings, "cache_clear") else None
     f = TallyRest()
     for mod in (T, audit_mod):
         monkeypatch.setattr(mod, "rest", lambda: f)

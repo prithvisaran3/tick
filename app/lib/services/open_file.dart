@@ -50,7 +50,9 @@ Future<(List<int>, String)?> readIncoming(String path) async {
   try {
     final f = File(path);
     if (!await f.exists() || await f.length() > 5 * 1024 * 1024) return null;
-    return (await f.readAsBytes(), path.split('/').last.replaceFirst(RegExp(r'^[0-9a-f-]{36}-'), ''));
+    final bytes = await f.readAsBytes();
+    try { await f.delete(); } catch (_) {/* tmp is purged by iOS anyway */}   // don't leave a statement copy lying around
+    return (bytes, path.split('/').last.replaceFirst(RegExp(r'^[0-9a-f-]{36}-'), ''));
   } catch (_) {
     return null;
   }

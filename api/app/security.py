@@ -133,6 +133,7 @@ _REDACT = [
     (re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]+"), "Bearer [redacted]"),
     (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"), "[jwt]"),
     (re.compile(r"\btk_[A-Za-z0-9_\-]{8,}"), "[capture-token]"),
+    (re.compile(r"(?<=/t/)[A-Za-z0-9_\-]{20,}"), "[share-token]"),
     (re.compile(r"\b(access|public|link)-(sandbox|production|development)-[A-Za-z0-9\-]{8,}"), "[plaid-token]"),
     (re.compile(r"\b(sk-or-v1|sk-ant|sk-proj|sb_secret|sbp)[A-Za-z0-9_\-]{8,}"), "[api-key]"),
     (re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"), "[email]"),
