@@ -1,7 +1,4 @@
-import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,7 +8,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/env.dart';
 import '../data/ledger.dart';
-import '../data/remote.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -20,6 +16,7 @@ import '../design/widgets/more.dart';
 import '../design/widgets/pickers.dart';
 import '../domain/csv.dart';
 import '../services/ai_status.dart';
+import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
@@ -57,6 +54,17 @@ class SettingsScreen extends ConsumerWidget {
           })),
           const Hairline(),
           row('eye-off', 'Privacy blur', TickToggle(label: 'Privacy blur', on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v)))),
+          const Hairline(),
+          row('eye-off', 'Hide amounts', TickToggle(label: 'Hide amounts', on: s.hideAmounts, onChanged: (v) => n.update((x) => x.copyWith(hideAmounts: v)))),
+          if (s.faceIdLock) ...[
+            const Hairline(),
+            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Ask for Face ID after', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Segmented(options: const ['Always', '1 min', '5 min', '15 min'], index: const [0, 60, 300, 900].indexOf(s.lockAfterSeconds).clamp(0, 3),
+                  onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i]))),
+            ])),
+          ],
         ])),
         const SizedBox(height: 8),
         TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -117,9 +125,12 @@ class SettingsScreen extends ConsumerWidget {
             ])),
           ],
         ])),
+        const SectionLabel('If your phone or a token leaks'),
+        HoldToConfirm(label: 'Panic: lock everything', danger: true, onConfirmed: () => _panic(context, ref)),
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Turns off every capture token and signs out every device. Your data and bank links stay.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
         const SizedBox(height: 16),
         HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
-        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick, including bank links. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
+        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick and removes every bank link at Plaid. Removing a link never gives the slot back. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
       ]),
     );
   }
@@ -164,12 +175,57 @@ class SettingsScreen extends ConsumerWidget {
     await SharePlus.instance.share(ShareParams(files: [XFile(f.path)]));
   }
 
-  Future<void> _deleteAll(BuildContext context, WidgetRef ref) async {
-    final remote = ref.read(remoteProvider);
-    if (remote != null) {
-      for (final t in ['transactions', 'recurring', 'expected', 'goals', 'budgets', 'rules', 'insights', 'chats', 'snapshots']) {
-        try { await Supabase.instance.client.from(t).delete().neq('user_id', '00000000-0000-0000-0000-000000000000'); } catch (_) {}
+  /// Panic button: the server revokes every capture token (and audits it), then this device signs out EVERY session.
+  Future<void> _panic(BuildContext context, WidgetRef ref) async {
+    String? plaid;
+    var ok = true;
+    if (ref.read(userIdProvider) != null) {
+      try {
+        final j = await ref.read(apiProvider).post('/security/panic');
+        plaid = j['plaid'] as String?;
+      } catch (_) {
+        ok = false;
       }
+      try {
+        await Supabase.instance.client.auth.signOut(scope: SignOutScope.global);
+      } catch (_) {
+        ok = false;
+      }
+    }
+    await ref.read(ledgerProvider.notifier).wipeLocal();
+    ref.read(settingsProvider.notifier).update((x) => x.copyWith(onboardingDone: false));
+    if (!context.mounted) return;
+    await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(ok ? 'Everything is locked' : 'Partly locked', style: ctx.ts(TickType.displayM)),
+          const SizedBox(height: 8),
+          Text(ok ? 'Capture tokens are off and every device is signed out.' : 'This phone is signed out. Try again when you are online to turn off tokens and other devices.',
+              style: ctx.ts(TickType.body)),
+          const SizedBox(height: 8),
+          Text(plaid ?? 'To cut Plaid\'s access too, open my.plaid.com, sign in with your phone number and remove Tick.', style: ctx.ts(TickType.bodyS, color: ctx.c.textSecondary)),
+          const SizedBox(height: 16),
+          PillButton('Done', onTap: () => Navigator.of(ctx).pop()),
+        ]));
+    if (context.mounted) context.go('/onboarding');
+  }
+
+  /// Delete all my data, on the server: Plaid /item/remove for every bank, Vault tokens, every row and receipt photo.
+  Future<void> _deleteAll(BuildContext context, WidgetRef ref) async {
+    String? error;
+    if (ref.read(userIdProvider) != null && !ref.read(settingsProvider).demoMode) {
+      try {
+        await ref.read(apiProvider).post('/me/delete', {'confirm': 'DELETE'}, const Duration(seconds: 60));
+      } catch (_) {
+        error = 'That didn\'t go through, so nothing was deleted on the server. Try again when you are online.';
+      }
+    }
+    if (error != null) {
+      if (context.mounted) {
+        await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Not deleted yet', style: ctx.ts(TickType.displayM)), const SizedBox(height: 8),
+              Text(error!, style: ctx.ts(TickType.body, color: ctx.c.textSecondary)),
+            ]));
+      }
+      return;
     }
     ref.read(settingsProvider.notifier).update((x) => const AppSettings());
     await ref.read(ledgerProvider.notifier).wipeLocal();
@@ -194,14 +250,9 @@ class _TokenSheetState extends State<_TokenSheet> {
   String? _err;
   Future<void> _make() async {
     try {
-      final rnd = Random.secure();
-      final raw = List.generate(32, (_) => rnd.nextInt(256));
-      final token = 'tk_${base64Url.encode(raw).replaceAll('=', '')}';
-      final hash = sha256.convert(utf8.encode(token)).toString();
-      final db = Supabase.instance.client;
-      await db.from('ingest_tokens').update({'revoked_at': DateTime.now().toUtc().toIso8601String()}).isFilter('revoked_at', null);
-      await db.from('ingest_tokens').insert({'token_hash': hash, 'last4': token.substring(token.length - 4)});
-      setState(() => _token = token);
+      // The server makes the token (32 random bytes), keeps only its hash, turns older tokens off and records it in the audit log.
+      final j = await widget.ref.read(apiProvider).post('/tokens', {'label': 'Shortcuts', 'replace': true});
+      setState(() => _token = j['token'] as String?);
     } catch (_) {
       setState(() => _err = 'That didn\'t go through. Try again, nothing was lost.');
     }
@@ -220,7 +271,7 @@ class _TokenSheetState extends State<_TokenSheet> {
         const SizedBox(height: 8),
         PillButton('Copy token', style: PillStyle.quiet, onTap: () => Clipboard.setData(ClipboardData(text: _token!))),
         const SizedBox(height: 8),
-        Text('Shown once. Ingest URL: ${Env.apiBaseUrl}/ingest', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        Text('Shown once: Tick keeps only a fingerprint of it. Ingest URL: ${Env.apiBaseUrl}/ingest', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       ] else ...[
         ActionButton('Make new token', onPressed: _make),
         if (_err != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_err!, style: context.ts(TickType.body, color: c.alert))),

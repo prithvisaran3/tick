@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import '../services/privacy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/flows.dart';
 import '../domain/models.dart';
@@ -315,6 +316,7 @@ class ActivityCache {
       await tmp.writeAsString(jsonEncode({'v': 1, 'u': userId, 'rows': [for (final t in p.rows) encodeTxn(t)],
           'days': {for (final e in p.dayTotals.entries) e.key.toIso8601String().substring(0, 10): e.value}}), flush: true);
       await tmp.rename(f.path);
+      await Privacy.protect([f.path]);                   // file protection complete + no backups
     } catch (_) {}
   }
 

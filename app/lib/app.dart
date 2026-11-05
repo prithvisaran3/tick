@@ -8,6 +8,8 @@ import 'router.dart';
 import 'services/haptics.dart';
 import 'services/session.dart';
 import 'services/lock.dart';
+import 'services/privacy.dart';
+import 'domain/money.dart';
 
 class TickApp extends ConsumerStatefulWidget {
   const TickApp({super.key});
@@ -30,6 +32,8 @@ class _TickAppState extends ConsumerState<TickApp> {
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(settingsProvider);
+    ref.listen<bool>(amountsHiddenProvider, (_, hidden) => applyMoneyMask(context, hidden));
+    MoneyMask.hidden = ref.watch(amountsHiddenProvider);
     final platformDark = MediaQuery.maybePlatformBrightnessOf(context) != Brightness.light;
     final dark = switch (s.theme) { 'dark' => true, 'light' => false, _ => platformDark };
     return TickTheme(

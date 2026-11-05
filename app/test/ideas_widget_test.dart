@@ -1,5 +1,4 @@
 // Labs flags: every shipped idea shows by default and disappears when switched off in Settings.
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/data/settings.dart';
 import 'package:tick/features/cards.dart';

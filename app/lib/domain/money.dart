@@ -1,5 +1,12 @@
+/// "Hide amounts" (Settings) and screen recording: every amount on screen and in notifications reads as ••••.
+/// Set by the app shell; [raw] formats are for files the person exports, never for the screen.
+class MoneyMask {
+  static bool hidden = false;
+}
+
 /// All money is integer cents. Negative = money out.
-String formatCents(int cents, {bool sign = false, bool whole = false, bool symbol = true}) {
+String formatCents(int cents, {bool sign = false, bool whole = false, bool symbol = true, bool raw = false}) {
+  if (MoneyMask.hidden && !raw) return '${symbol ? '\$' : ''}••••';
   final neg = cents < 0;
   final abs = cents.abs();
   final dollars = abs ~/ 100;

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../motion.g.dart';
 import '../theme.dart';
+import '../../domain/money.dart';
 import '../tokens.g.dart';
 import '../../services/haptics.dart';
 
@@ -367,7 +368,7 @@ class _CountUpTextState extends State<CountUpText> with SingleTickerProviderStat
   void dispose() { _c.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
-    final f = widget.format ?? (v) => '\$${(v.abs() ~/ 100).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',')}';
+    final f = widget.format ?? (v) => MoneyMask.hidden ? '\$••••' : '\$${(v.abs() ~/ 100).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',')}';
     return AnimatedBuilder(
       animation: _c,
       builder: (_, _) {
