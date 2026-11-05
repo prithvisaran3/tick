@@ -13,7 +13,6 @@ import '../design/widgets/more.dart';
 import '../design/widgets/refresh.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
-import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'common.dart';
 

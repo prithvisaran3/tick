@@ -27,6 +27,7 @@ List<PlannedNotification> planNotifications({
   required SafeToSpend? sts,
   required List<Recurring> recurring,
   required List<Goal> goals,
+  List<Account> accounts = const [],
   int horizonDays = 7,
 }) {
   final out = <PlannedNotification>[];
@@ -50,6 +51,17 @@ List<PlannedNotification> planNotifications({
     for (final d in occ) {
       final when = _at(d.subtract(const Duration(days: 1)), '09:00');
       if (when.isAfter(now)) out.add(PlannedNotification(2000 + n++, 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.', when, payload: 'incoming'));
+    }
+  }
+  // Card due: one gentle reminder two days before, 9:00 (or the day before if that has passed). Never "pay now" buttons.
+  var k = 0;
+  for (final a in accounts.where((a) => a.isCard && a.dueDate != null && a.statementDueCents > 0)) {
+    final due = dayOnly(a.dueDate!);
+    if (due.isBefore(today) || due.difference(today).inDays > 15) continue;
+    var when = _at(due.subtract(const Duration(days: 2)), '09:00');
+    if (!when.isAfter(now)) when = _at(due.subtract(const Duration(days: 1)), '09:00');
+    if (when.isAfter(now)) {
+      out.add(PlannedNotification(5000 + k++, '${a.shortLabel} is due ${DateFormat('EEEE').format(due)}', '${formatDollars(a.statementDueCents)} statement balance. Pay it from checking to skip interest.', when, payload: 'card:${a.id}'));
     }
   }
   // Payday plan on payday, 7:30.

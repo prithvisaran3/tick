@@ -3,6 +3,8 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/features/activity_screen.dart';
+import 'package:tick/features/banks_screen.dart';
+import 'package:tick/features/cards.dart';
 import 'package:tick/features/ask_screen.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
@@ -32,6 +34,8 @@ void main() {
     'onboarding-3': (() => const OnboardingScreen(initialStep: 2), null),
     'budgets': (() => const BudgetsScreen(), null),
     'payday-plan': (() => const PaydayPlanScreen(), null),
+    'banks': (() => const BanksScreen(), null),
+    'card': (() => const CardScreen(id: 'acc-disc'), null),
     'categories': (() => const CategoriesScreen(), null),
   };
   for (final e in screens.entries) {

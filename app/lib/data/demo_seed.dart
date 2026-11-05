@@ -29,6 +29,8 @@ const defaultCategories = [
   Category(id: 'cat-phone', name: 'Phone and internet', colorKey: 'home', icon: 'bank'),
   Category(id: 'cat-health', name: 'Health', colorKey: 'shop', icon: 'goal'),
   Category(id: 'cat-fun', name: 'Fun', colorKey: 'shop', icon: 'card'),
+  Category(id: 'cat-loan', name: 'Loan payment', colorKey: 'home', icon: 'bank'),
+  Category(id: 'cat-fees', name: 'Fees and interest', colorKey: 'shop', icon: 'card'),
   Category(id: 'cat-transfer', name: 'Transfer', colorKey: 'shop', icon: 'repeat', kind: 'transfer'),
   Category(id: 'cat-income', name: 'Income', colorKey: 'inc', icon: 'arrow-in', kind: 'income'),
   Category(id: 'cat-other', name: 'Other', colorKey: 'shop', icon: 'card'),
@@ -45,16 +47,18 @@ DemoData buildDemo(DateTime now) {
   final today = dayOnly(now);
   DateTime at(int daysAgo, int h, int m) => today.subtract(Duration(days: daysAgo)).add(Duration(hours: h, minutes: m));
   var n = 0;
-  Txn t(int daysAgo, int h, int m, String merchant, int cents, String cat, {String src = 'plaid', String acct = 'acc-chk', double conf = 1, bool review = false, List<String> tags = const []}) =>
-      Txn(id: 'demo-${n++}', amountCents: cents, occurredAt: at(daysAgo, h, m), merchant: merchant, categoryId: cat, accountId: acct, source: src, confidence: conf, needsReview: review, tags: tags);
+  Txn t(int daysAgo, int h, int m, String merchant, int cents, String cat, {String src = 'plaid', String acct = 'acc-disc', double conf = 1, bool review = false, List<String> tags = const [], String? flow}) =>
+      Txn(id: 'demo-${n++}', amountCents: cents, occurredAt: at(daysAgo, h, m), merchant: merchant, categoryId: cat, accountId: acct, source: src, confidence: conf, needsReview: review, tags: tags, flow: flow);
+  // Mostly card spending, paid from checking (the real setup).
+  const cards = ['acc-disc', 'acc-disc', 'acc-boa', 'acc-savor', 'acc-savor', 'acc-card'];
 
   final txns = <Txn>[
     // Today
-    t(0, 9, 12, 'Uber', -1840, 'cat-rideshare', src: 'applepay', conf: 0.72, review: true),
-    t(0, 7, 41, 'Blue Bottle', -575, 'cat-coffee'),
+    t(0, 9, 12, 'Uber', -1840, 'cat-rideshare', src: 'applepay', conf: 0.72, review: true, acct: 'acc-card'),
+    t(0, 7, 41, 'Blue Bottle', -575, 'cat-coffee', acct: 'acc-savor'),
     // Yesterday (the Morning Receipt)
-    t(1, 18, 20, 'Whole Foods', -4218, 'cat-groceries'),
-    t(1, 14, 5, 'Cursor', -2200, 'cat-software', tags: const ['business']),
+    t(1, 18, 20, 'Whole Foods', -4218, 'cat-groceries', acct: 'acc-savor'),
+    t(1, 14, 5, 'Cursor', -2200, 'cat-software', tags: const ['business'], acct: 'acc-boa'),
     t(1, 12, 31, 'Chipotle', -1385, 'cat-restaurants', acct: 'acc-card'),
     t(1, 10, 2, "Trader Joe's", -1940, 'cat-groceries'),
     t(1, 6, 0, 'Spotify', -1099, 'cat-subscriptions', acct: 'acc-card'),
@@ -63,6 +67,14 @@ DemoData buildDemo(DateTime now) {
     t(3, 13, 44, 'SQ *BLUEBIRD', -1260, 'cat-coffee', src: 'sms', conf: 0.66, review: true),
     // Last payday
     Txn(id: 'demo-pay1', amountCents: 231000, occurredAt: at(12, 6, 0), merchant: 'Payroll', categoryId: 'cat-income', accountId: 'acc-chk', source: 'plaid'),
+    // Card payments from checking and the student loan: internal transfers, paired on both sides.
+    t(9, 9, 0, 'Discover payment', -45000, 'cat-transfer', acct: 'acc-chk', flow: 'transfer'),
+    t(8, 9, 0, 'Payment received', 45000, 'cat-transfer', acct: 'acc-disc', flow: 'transfer'),
+    t(10, 9, 0, 'Capital One payment', -38000, 'cat-transfer', acct: 'acc-chk', flow: 'transfer'),
+    t(9, 10, 0, 'Payment received', 38000, 'cat-transfer', acct: 'acc-savor', flow: 'transfer'),
+    t(11, 9, 0, 'SoFi student loan', -40000, 'cat-loan', acct: 'acc-chk', flow: 'bill'),
+    t(10, 11, 0, 'Payment received', 40000, 'cat-transfer', acct: 'acc-loan', flow: 'transfer'),
+    t(14, 9, 0, 'Interest charge', -1236, 'cat-fees', acct: 'acc-boa'),
   ];
   final rnd = Random(42);
   const pool = [
@@ -75,14 +87,14 @@ DemoData buildDemo(DateTime now) {
     for (var k = 0; k < 1 + rnd.nextInt(2); k++) {
       final p = pool[rnd.nextInt(pool.length)];
       final cents = p.$3 + rnd.nextInt(p.$4 - p.$3);
-      txns.add(t(d, 8 + rnd.nextInt(12), rnd.nextInt(60), p.$1, -cents, p.$2, tags: p.$1 == 'Cursor' ? const ['business'] : const []));
+      txns.add(t(d, 8 + rnd.nextInt(12), rnd.nextInt(60), p.$1, -cents, p.$2, tags: p.$1 == 'Cursor' ? const ['business'] : const [], acct: cards[rnd.nextInt(cards.length)]));
     }
   }
   for (var m = 0; m < 3; m++) {
     final base = DateTime(today.year, today.month - m, 1);
     final dAgo = today.difference(base.add(const Duration(days: 0))).inDays;
-    if (dAgo >= 4) txns.add(t(dAgo, 6, 0, 'Rent', -185000, 'cat-rent'));
-    if (dAgo + 8 >= 4) txns.add(t(dAgo + 8, 6, 0, 'Comcast Internet', -6400, 'cat-phone'));
+    if (dAgo >= 4) txns.add(t(dAgo, 6, 0, 'Rent', -185000, 'cat-rent', acct: 'acc-chk'));
+    if (dAgo + 8 >= 4) txns.add(t(dAgo + 8, 6, 0, 'Comcast Internet', -6400, 'cat-phone', acct: 'acc-boa'));
     if (dAgo + 14 >= 4) txns.add(t(dAgo + 14, 6, 0, 'Claude', -1800, 'cat-software', tags: const ['business']));
   }
   for (final k in [26, 40, 54]) {
@@ -104,10 +116,19 @@ DemoData buildDemo(DateTime now) {
   ];
   return DemoData(
     categories: defaultCategories,
-    accounts: const [
-      Account(id: 'acc-chk', name: 'Chase Checking', mask: '1180', type: 'checking', balanceCents: 67800, availableCents: 67800),
-      Account(id: 'acc-card', name: 'Apple Card', mask: '4421', type: 'credit', balanceCents: 0),
-      Account(id: 'acc-sav', name: 'Savings', mask: '9921', type: 'savings', balanceCents: 840000, availableCents: 840000, includeInSafe: false),
+    accounts: [
+      const Account(id: 'acc-chk', name: 'Chase Checking', institution: 'Chase', mask: '1173', type: 'checking', balanceCents: 58140, availableCents: 58140),
+      const Account(id: 'acc-sofi', name: 'SoFi Checking', institution: 'SoFi', mask: '2210', type: 'checking', balanceCents: 41500, availableCents: 41500),
+      const Account(id: 'acc-sav', name: 'SoFi Savings', institution: 'SoFi', mask: '9921', type: 'savings', balanceCents: 840000, availableCents: 840000, includeInSafe: false),
+      Account(id: 'acc-disc', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, creditLimitCents: 500000,
+          statementBalanceCents: 64012, minimumPaymentCents: 3500, dueDate: today.add(const Duration(days: 3)), lastStatementDate: today.subtract(const Duration(days: 22)), aprBps: 2499),
+      Account(id: 'acc-boa', name: 'Customized Cash Rewards', institution: 'Bank of America', mask: '5567', type: 'credit', balanceCents: -23410, creditLimitCents: 300000,
+          statementBalanceCents: 18800, minimumPaymentCents: 2500, dueDate: today.add(const Duration(days: 19)), lastStatementDate: today.subtract(const Duration(days: 6)), aprBps: 2324),
+      Account(id: 'acc-savor', name: 'Savor', institution: 'Capital One', mask: '8810', type: 'credit', balanceCents: -192300, creditLimitCents: 250000,
+          statementBalanceCents: 142000, minimumPaymentCents: 4000, dueDate: today.add(const Duration(days: 8)), lastStatementDate: today.subtract(const Duration(days: 17)), aprBps: 2899),
+      const Account(id: 'acc-card', name: 'Apple Card', institution: 'Apple Card', mask: '4421', type: 'credit', balanceCents: -31840, creditLimitCents: 400000),
+      Account(id: 'acc-loan', name: 'Student loan', institution: 'SoFi', mask: '9001', type: 'loan', subtype: 'student', balanceCents: -1825000,
+          interestRateBps: 550, nextPaymentCents: 40000, minimumPaymentCents: 40000, dueDate: today.add(const Duration(days: 20)), includeInSafe: false),
     ],
     txns: txns,
     recurring: recurring,

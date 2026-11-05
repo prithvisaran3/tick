@@ -201,4 +201,20 @@ void budgetAndPlanTests() {
     await n.renameCategory(pets.id, 'Pet care');
     expect(c.read(ledgerProvider).categories.any((x) => x.name == 'Pet care'), isTrue);
   });
+
+  test('card due within 3 days is a gentle nudge and a reminder two days before; paid statements stay quiet', () {
+    final now = DateTime(2026, 11, 10, 8);
+    final disc = Account(id: 'd', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, statementBalanceCents: 64012, dueDate: DateTime(2026, 11, 13));
+    final l = LedgerState(accounts: [disc]);
+    final n = pickNudge(l, null, now)!;
+    expect(n.kind, 'card');
+    expect(n.title, r'Discover ••1234: $640 due Friday.');
+    expect(n.route, '/card/d');
+    final plan = planNotifications(now: now, morningTime: '08:00', weeklyTime: '19:00', sts: null, recurring: const [], goals: const [], accounts: [disc]);
+    final card = plan.where((p) => p.payload == 'card:d').single;
+    expect(card.when, DateTime(2026, 11, 11, 9));
+    expect(card.body, isNot(contains('Pay now')));
+    final paid = Account(id: 'p', name: 'Paid', type: 'credit', balanceCents: 0, statementBalanceCents: 0, dueDate: DateTime(2026, 11, 12));
+    expect(pickNudge(LedgerState(accounts: [paid]), null, now), isNull);
+  });
 }

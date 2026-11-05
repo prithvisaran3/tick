@@ -80,6 +80,41 @@ void main() {
     });
   });
 
+  group('safe to spend with cards and loans', () {
+    final rule = PaydayRule(frequency: PayFrequency.biweekly, anchor: DateTime(2026, 11, 6), amountCents: 231000);  // next payday Nov 20
+    const checking = Account(id: 'a', name: 'Checking', type: 'checking', availableCents: 300000);
+    final today = DateTime(2026, 11, 10);
+    SafeToSpend run(List<Account> accts, {List<Recurring> rec = const []}) =>
+        computeSafeToSpend(today: today, rule: rule, accounts: [checking, ...accts], recurring: rec, goals: const []);
+
+    test('a card due before payday subtracts its statement balance; the rest of the balance is not due yet', () {
+      final r = run([Account(id: 'd', name: 'Discover it', type: 'credit', balanceCents: -81240, statementBalanceCents: 64012, dueDate: DateTime(2026, 11, 14))]);
+      expect((r.cardsDueCents, r.cardsLaterCents), (64012, 81240 - 64012));
+      expect(r.cents, 300000 - 64012);
+    });
+    test('a card due after payday is not subtracted', () {
+      final r = run([Account(id: 'b', name: 'BofA', type: 'credit', balanceCents: -23410, statementBalanceCents: 18800, dueDate: DateTime(2026, 11, 29))]);
+      expect((r.cardsDueCents, r.cents), (0, 300000));
+    });
+    test('a payment made after the statement lowers what is still due', () {
+      final r = run([Account(id: 'c', name: 'Savor', type: 'credit', balanceCents: -50000, statementBalanceCents: 40000, dueDate: DateTime(2026, 11, 15),
+          lastStatementDate: DateTime(2026, 10, 20), lastPaymentCents: 30000, lastPaymentDate: DateTime(2026, 11, 2))]);
+      expect(r.cardsDueCents, 10000);
+    });
+    test('unknown due date: the whole balance counts (conservative); a past-due card counts too', () {
+      expect(run([const Account(id: 'x', name: 'Apple Card', type: 'credit', balanceCents: -31840)]).cardsDueCents, 31840);
+      expect(run([Account(id: 'y', name: 'Late', type: 'credit', balanceCents: -5000, statementBalanceCents: 5000, dueDate: DateTime(2026, 11, 8))]).cardsDueCents, 5000);
+    });
+    test('loan payment before payday counts once, never twice when a recurring bill covers it', () {
+      final loan = Account(id: 'l', name: 'Student loan', institution: 'SoFi', type: 'loan', balanceCents: -1825000, nextPaymentCents: 40000, dueDate: DateTime(2026, 11, 18));
+      expect(run([loan]).loansDueCents, 40000);
+      final rec = [Recurring(id: 'r', merchant: 'SoFi loan', cadence: Cadence.monthly, expectedCents: 40000, nextDate: DateTime(2026, 11, 18))];
+      final r = run([loan], rec: rec);
+      expect((r.loansDueCents, r.billsCents), (0, 40000));
+      expect(run([Account(id: 'l2', name: 'Loan', type: 'loan', nextPaymentCents: 40000, dueDate: DateTime(2026, 12, 1))]).loansDueCents, 0);
+    });
+  });
+
   group('natural input', () {
     final now = DateTime(2026, 11, 4);
     test('uber 18', () {

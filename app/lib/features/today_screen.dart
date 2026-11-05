@@ -15,6 +15,7 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../services/haptics.dart';
+import 'cards.dart';
 import 'common.dart';
 import 'nudges.dart';
 import '../domain/budget_plan.dart';
@@ -52,7 +53,7 @@ class TodayScreen extends ConsumerWidget {
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),
         const SizedBox(height: 16),
         if (ledger.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
-        _Hero(sts: sts, loading: ledger.loading, needsBalance: !settings.demoMode && !ledger.loading && sts != null && !ledger.accounts.any((a) => a.includeInSafe && a.type != 'credit' && a.type != 'savings'), onAddBalance: () async {
+        _Hero(sts: sts, loading: ledger.loading, needsBalance: !settings.demoMode && !ledger.loading && sts != null && !ledger.accounts.any((a) => a.includeInSafe && a.isCash && a.type != 'savings'), onAddBalance: () async {
           final cents = await showAmountSheet(context, title: 'In your checking account');
           if (cents != null) ref.read(ledgerProvider.notifier).setManualBalance(cents);
         }),
@@ -61,6 +62,8 @@ class TodayScreen extends ConsumerWidget {
           SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
             _Pill('${formatDollars(sts.cashCents)} cash'), const SizedBox(width: 6),
             _Pill('${formatDollars(-sts.billsCents)} bills'), const SizedBox(width: 6),
+            if (sts.cardsDueCents > 0) ...[_Pill('${formatDollars(-sts.cardsDueCents)} cards due'), const SizedBox(width: 6)],
+            if (sts.loansDueCents > 0) ...[_Pill('${formatDollars(-sts.loansDueCents)} loan'), const SizedBox(width: 6)],
             _Pill('${formatDollars(-sts.goalsCents)} goals'),
           ])),
         if (paydayNear && sts != null) ...[
@@ -101,10 +104,11 @@ class TodayScreen extends ConsumerWidget {
           const SizedBox(width: 8),
           Expanded(child: _Strip(label: 'Upcoming', color: c.alert, amount: upcoming.isEmpty ? null : upcoming.first.expectedCents, sub: upcoming.isEmpty ? 'Nothing due this week' : '${upcoming.first.merchant} · ${weekdayName(upcoming.first.nextDate, now)}', onTap: () => context.push('/incoming'))),
         ]),
+        const CardsSection(compact: true),
         if (nudge != null) ...[
           const SizedBox(height: 8),
           TickCard(
-            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => context.push(nudge.kind == 'relink' ? '/banks' : '/incoming'),
+            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => context.push(nudge.route ?? (nudge.kind == 'relink' ? '/banks' : '/incoming')),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(nudge.title, style: context.ts(TickType.title, size: 15.5)),
