@@ -16,7 +16,7 @@ log = logging.getLogger("tick.security")
 
 # ---------- request size ----------
 DEFAULT_MAX_BODY = 256 * 1024
-MAX_BODY = {"/receipts/scan": 8_100_000, "/import/apple-card": 2_100_000, "/webhooks/plaid": 512 * 1024, "/ask": 64 * 1024}
+MAX_BODY = {"/receipts/scan": 8_100_000, "/import/statement": 5_100_000, "/webhooks/plaid": 512 * 1024, "/ask": 64 * 1024}
 
 def max_body(path: str) -> int:
     return MAX_BODY.get(path, DEFAULT_MAX_BODY)

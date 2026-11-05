@@ -14,126 +14,149 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/pickers.dart';
+import '../design/widgets/scaffold.dart';
 import '../domain/csv.dart';
 import '../services/ai_status.dart';
 import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
-import 'apple_card_import.dart';
 
+enum SettingsPage { root, appearance, data, labs, about }
+
+/// Settings, sparse: a profile header and a handful of grouped rows on the root; everything else lives on four quiet subpages.
 class SettingsScreen extends ConsumerWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.page = SettingsPage.root});
+  final SettingsPage page;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
     final n = ref.read(settingsProvider.notifier);
     final l = ref.watch(ledgerProvider);
     final c = context.c;
-    Widget row(String icon, String title, Widget right, {VoidCallback? onTap}) => Pressable(
+    Widget chevron() => TickIcon('chevron-right', size: 20, color: c.textSecondary);
+    Widget row(String icon, String title, Widget right, {VoidCallback? onTap, String? sub}) => Pressable(
           onTap: onTap, scale: 1, semanticLabel: title,
-          child: SizedBox(height: 52, child: Row(children: [TickIcon(icon, size: 22, color: c.text), const SizedBox(width: 12), Expanded(child: Text(title, style: context.ts(TickType.title, size: 16))), right])),
+          child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 52), child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [
+            TickIcon(icon, size: 22, color: c.text), const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: context.ts(TickType.title, size: 16)),
+              if (sub != null) Text(sub, style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            ])),
+            const SizedBox(width: 8), Flexible(child: Align(alignment: Alignment.centerRight, child: right)),
+          ]))),
         );
-    Widget val(String t) => Text(t, style: context.ts(TickType.bodyS, color: c.textSecondary));
-    return TickScreen(
-      child: ListView(padding: const EdgeInsets.only(bottom: 48), children: [
-        ScreenTitle('Settings', onBack: () => context.pop()),
-        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: Row(children: [
-          Avatar(s.name ?? 'P', 'biz', size: 48), const SizedBox(width: 16),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(s.name ?? 'Prithvi', style: context.ts(TickType.title, size: 18)),
-            Text(ref.watch(userIdProvider) != null ? 'Signed in with Google' : 'Not signed in', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-          ])),
-        ])),
-        const SizedBox(height: 8),
-        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
-          row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {
-            // Only turn the lock on if Face ID actually works, so you can never lock yourself out.
-            if (v && !await ref.read(authServiceProvider).unlock()) return;
-            n.update((x) => x.copyWith(faceIdLock: v));
-          })),
-          const Hairline(),
-          row('eye-off', 'Privacy blur', TickToggle(label: 'Privacy blur', on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v)))),
-          const Hairline(),
-          row('eye-off', 'Hide amounts', TickToggle(label: 'Hide amounts', on: s.hideAmounts, onChanged: (v) => n.update((x) => x.copyWith(hideAmounts: v)))),
-          if (s.faceIdLock) ...[
-            const Hairline(),
-            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Ask for Face ID after', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Segmented(options: const ['Always', '1 min', '5 min', '15 min'], index: const [0, 60, 300, 900].indexOf(s.lockAfterSeconds).clamp(0, 3),
-                  onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i]))),
-            ])),
-          ],
-        ])),
-        const SizedBox(height: 8),
-        TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
-          const SizedBox(height: 8),
-          SizedBox(height: 44, child: Row(children: [Expanded(child: Text('Sound', style: context.ts(TickType.title, size: 16))), TickToggle(label: 'Sound', on: s.sound, onChanged: (v) { n.update((x) => x.copyWith(sound: v)); if (v) TickHaptics.instance.sound('capture_pop'); })])),
-          const SizedBox(height: 4),
-          Text('Theme', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Segmented(options: const ['System', 'Dark', 'Light'], index: ['system', 'dark', 'light'].indexOf(s.theme), onChanged: (i) => n.update((x) => x.copyWith(theme: ['system', 'dark', 'light'][i]))),
-        ])),
-        const SizedBox(height: 8),
-        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
-          row('bank', 'Bank connections', val('${l.linksUsed} of 10 used'), onTap: () => context.push('/banks')),
-          const Hairline(),
-          row('receipt', 'Capture token', val('Shortcuts'), onTap: () => _tokenSheet(context, ref)),
-          const Hairline(),
-          row('goal', 'Budgets and goals', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => context.push('/budgets')),
-          const Hairline(),
-          row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
-          const Hairline(),
-          row('settings', 'Categories and rules', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => context.push('/categories')),
-        ])),
-        const SizedBox(height: 8),
-        TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
-          row('share', 'Export CSV', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _exportCsv(ref)),
-          const Hairline(),
-          row('card', 'Import Apple Card statement', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => importAppleCard(context, ref)),
-          const Hairline(),
-          row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
-          if (Env.hasSupabase && ref.watch(userIdProvider) == null) ...[
-            const Hairline(),
-            row('check', 'Sign in with Google', TickIcon('chevron-right', size: 20, color: c.textSecondary), onTap: () => _signIn(context, ref)),
-          ],
-          if (Env.hasSupabase && ref.watch(userIdProvider) != null) ...[
-            const Hairline(),
-            row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
-              await ref.read(authServiceProvider).signOut();
-              await ref.read(ledgerProvider.notifier).wipeLocal();           // nothing of a signed-out account stays on the phone
-              ref.read(settingsProvider.notifier).update((x) => x.copyWith(onboardingDone: false));
-              if (context.mounted) context.go('/onboarding');
-            }),
-          ],
-        ])),
-        const SectionLabel('Labs'),
-        TickCard(padding: const EdgeInsets.fromLTRB(16, 4, 16, 4), child: Column(children: [
-          for (final (i, (id, title, desc)) in featureFlags.indexed) ...[
-            if (i > 0) const Hairline(),
-            Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+    Widget val(String t) => Text(t, textAlign: TextAlign.right, style: context.ts(TickType.bodyS, color: c.textSecondary));
+    Widget group(List<Widget> rows) => TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [for (final (i, r) in rows.indexed) ...[if (i > 0) const Hairline(), r]]));
+    final signedIn = ref.watch(userIdProvider) != null;
+    switch (page) {
+      case SettingsPage.root:
+        return TickPage(title: 'Settings', onBack: () => context.pop(), children: [
+          TickCard(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Avatar(s.name ?? 'P', 'biz', size: 48), const SizedBox(width: 16),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: context.ts(TickType.title, size: 16)),
-                Text(desc, style: context.ts(TickType.bodyS, color: c.textSecondary)),
+                Text(s.name ?? 'Prithvi', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 18)),
+                Text(signedIn ? 'Signed in with Google' : 'Not signed in', style: context.ts(TickType.bodyS, color: c.textSecondary)),
               ])),
-              const SizedBox(width: 12),
-              TickToggle(label: title, on: s.flag(id), onChanged: (v) => n.update((x) => x.copyWith(flagsOff: v ? ({...x.flagsOff}..remove(id)) : {...x.flagsOff, id}))),
-            ])),
-          ],
-        ])),
-        const SectionLabel('If your phone or a token leaks'),
-        HoldToConfirm(label: 'Panic: lock everything', danger: true, onConfirmed: () => _panic(context, ref)),
-        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Turns off every capture token and signs out every device. Your data and bank links stay.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
-        const SizedBox(height: 16),
-        HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
-        Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick and removes every bank link at Plaid. Removing a link never gives the slot back. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
-      ]),
-    );
+            ]),
+            if (Env.hasSupabase && !signedIn) ...[const SizedBox(height: 12), PillButton('Sign in with Google', height: 48, onTap: () => _signIn(context, ref))],
+          ])),
+          const SectionLabel('Security'),
+          group([
+            row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {
+              // Only turn the lock on if Face ID actually works, so you can never lock yourself out.
+              if (v && !await ref.read(authServiceProvider).unlock()) return;
+              n.update((x) => x.copyWith(faceIdLock: v));
+            }), sub: s.faceIdLock ? 'Asks again after ${_lockLabel(s.lockAfterSeconds)}' : null, onTap: null),
+            row('eye-off', 'Privacy blur', TickToggle(label: 'Privacy blur', on: s.privacyBlur, onChanged: (v) => n.update((x) => x.copyWith(privacyBlur: v))), sub: 'Hides Tick in the app switcher'),
+          ]),
+          if (s.faceIdLock) Padding(padding: const EdgeInsets.only(top: 8), child: Segmented(options: const ['Always', '1 min', '5 min', '15 min'], index: const [0, 60, 300, 900].indexOf(s.lockAfterSeconds).clamp(0, 3),
+              onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i])))),
+          const SectionLabel('Banks and cards'),
+          group([
+            row('bank', 'Bank connections', val('${l.linksUsed} of 10 used'), onTap: () => context.push('/banks')),
+            row('receipt', 'Capture token and Shortcuts', chevron(), onTap: () => _tokenSheet(context, ref)),
+            row('import', 'Import statements', chevron(), onTap: () => context.push('/import')),
+          ]),
+          const SectionLabel('More'),
+          group([
+            row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
+            row('goal', 'Data', chevron(), onTap: () => context.push('/settings/data')),
+            row('heart-check', 'Labs', val('${featureFlags.where((f) => s.flag(f.$1)).length} on'), onTap: () => context.push('/settings/labs')),
+            row('info', 'About and safety', chevron(), onTap: () => context.push('/settings/about')),
+          ]),
+        ]);
+      case SettingsPage.appearance:
+        return TickPage(title: 'Appearance and feel', onBack: () => context.pop(), children: [
+          TickCard(padding: const EdgeInsets.fromLTRB(16, 12, 16, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Theme', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Segmented(options: const ['System', 'Dark', 'Light'], index: ['system', 'dark', 'light'].indexOf(s.theme), onChanged: (i) { TickHaptics.instance.selection(); n.update((x) => x.copyWith(theme: ['system', 'dark', 'light'][i])); }),
+            const SizedBox(height: 16),
+            Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
+          ])),
+          const SizedBox(height: 8),
+          group([
+            row('play', 'Sound', TickToggle(label: 'Sound', on: s.sound, onChanged: (v) { n.update((x) => x.copyWith(sound: v)); if (v) TickHaptics.instance.sound('capture_pop'); })),
+            row('eye-off', 'Hide amounts', TickToggle(label: 'Hide amounts', on: s.hideAmounts, onChanged: (v) => n.update((x) => x.copyWith(hideAmounts: v))), sub: 'Shows \$•••• instead. Also while the screen is recorded.'),
+          ]),
+        ]);
+      case SettingsPage.data:
+        return TickPage(title: 'Data', onBack: () => context.pop(), children: [
+          group([
+            row('settings', 'Categories and rules', chevron(), onTap: () => context.push('/categories')),
+            row('goal', 'Budgets and goals', chevron(), onTap: () => context.push('/budgets')),
+            row('share', 'Export CSV', chevron(), onTap: () => _exportCsv(ref)),
+          ]),
+          const SizedBox(height: 8),
+          Text('Export is the only place amounts are never hidden. Tick never moves money; nothing here can.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        ]);
+      case SettingsPage.labs:
+        return TickPage(title: 'Labs', onBack: () => context.pop(), subtitle: 'Small ideas, each on its own switch.', children: [
+          TickCard(padding: const EdgeInsets.fromLTRB(16, 4, 16, 4), child: Column(children: [
+            for (final (i, (id, title, desc)) in featureFlags.indexed) ...[
+              if (i > 0) const Hairline(),
+              Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, style: context.ts(TickType.title, size: 16)),
+                  Text(desc, style: context.ts(TickType.bodyS, color: c.textSecondary)),
+                ])),
+                const SizedBox(width: 12),
+                TickToggle(label: title, on: s.flag(id), onChanged: (v) => n.update((x) => x.copyWith(flagsOff: v ? ({...x.flagsOff}..remove(id)) : {...x.flagsOff, id}))),
+              ])),
+            ],
+          ])),
+        ]);
+      case SettingsPage.about:
+        return TickPage(title: 'About and safety', onBack: () => context.pop(), children: [
+          group([
+            row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
+            row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
+            if (Env.hasSupabase && signedIn)
+              row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
+                await ref.read(authServiceProvider).signOut();
+                await ref.read(ledgerProvider.notifier).wipeLocal();           // nothing of a signed-out account stays on the phone
+                ref.read(settingsProvider.notifier).update((x) => x.copyWith(onboardingDone: false));
+                if (context.mounted) context.go('/onboarding');
+              }),
+          ]),
+          const SectionLabel('If your phone or a token leaks'),
+          HoldToConfirm(label: 'Panic: lock everything', danger: true, onConfirmed: () => _panic(context, ref)),
+          Padding(padding: const EdgeInsets.only(top: 8), child: Text('Turns off every capture token and signs out every device. Your data and bank links stay.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
+          const SizedBox(height: 16),
+          HoldToConfirm(label: 'Delete all data', danger: true, onConfirmed: () => _deleteAll(context, ref)),
+          Padding(padding: const EdgeInsets.only(top: 8), child: Text('Deletes everything in Tick and removes every bank link at Plaid. Removing a link never gives the slot back. This can\'t be undone.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary))),
+          const SizedBox(height: 24),
+          Text('Tick 1.0.0 · Tick never moves money.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        ]);
+    }
   }
+
+  static String _lockLabel(int s) => s == 0 ? 'every time' : s < 120 ? '${s ~/ 60} min' : '${s ~/ 60} min';
 
   Future<void> _signIn(BuildContext context, WidgetRef ref) async {
     String? message;
@@ -287,9 +310,9 @@ class CategoriesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = ref.watch(ledgerProvider);
     final c = context.c;
-    return TickScreen(
-      child: ListView(padding: const EdgeInsets.only(bottom: 40), children: [
-        ScreenTitle('Categories', onBack: () => context.pop()),
+    return TickPage(
+      title: 'Categories', onBack: () => context.pop(),
+      children: [
         SectionLabel('Categories', trailing: TickChip('Add', icon: 'plus', onTap: () => _add(context, ref))),
         TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
           for (var i = 0; i < l.categories.length; i++) ...[
@@ -317,7 +340,7 @@ class CategoriesScreen extends ConsumerWidget {
               ])),
             ],
           ])),
-      ]),
+      ],
     );
   }
 

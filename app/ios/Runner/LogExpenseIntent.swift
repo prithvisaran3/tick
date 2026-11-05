@@ -33,5 +33,6 @@ struct LogExpenseIntent: AppIntent {
 struct TickShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
     AppShortcut(intent: LogExpenseIntent(), phrases: ["Log an expense in \(.applicationName)", "Add a purchase to \(.applicationName)"], shortTitle: "Log expense", systemImageName: "plus.circle")
+    AppShortcut(intent: ImportStatementIntent(), phrases: ["Import a statement to \(.applicationName)"], shortTitle: "Import statement", systemImageName: "square.and.arrow.down")
   }
 }

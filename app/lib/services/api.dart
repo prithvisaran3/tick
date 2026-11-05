@@ -77,13 +77,14 @@ class Api {
 
   Future<void> _backoff(int attempt) => Future<void>.delayed(Duration(milliseconds: 400 * (1 << attempt) + 100));
 
-  Future<Map<String, dynamic>> postFile(String path, String field, List<int> bytes, String filename) async {
+  Future<Map<String, dynamic>> postFile(String path, String field, List<int> bytes, String filename, {Map<String, String> fields = const {}}) async {
     try {
       final token = await _token();
       final req = http.MultipartRequest('POST', Uri.parse('${Env.apiBaseUrl}$path'))
+        ..fields.addAll(fields)
         ..files.add(http.MultipartFile.fromBytes(field, bytes, filename: filename));
       if (token != null) req.headers['Authorization'] = 'Bearer $token';
-      final res = await http.Response.fromStream(await _client.send(req).timeout(const Duration(seconds: 40)));
+      final res = await http.Response.fromStream(await _client.send(req).timeout(const Duration(seconds: 60)));
       return _decode(res);
     } on SocketException {
       throw ApiException(0, 'Can\'t reach Tick right now.', offline: true);
@@ -95,7 +96,8 @@ class Api {
   Map<String, dynamic> _decode(http.Response r) {
     Map<String, dynamic> j = {};
     try {
-      final d = jsonDecode(r.body);
+      // JSON is UTF-8 by definition. `r.body` would decode as Latin-1 when the server sends no charset, turning "••1545" into mojibake.
+      final d = jsonDecode(utf8.decode(r.bodyBytes, allowMalformed: true));
       if (d is Map<String, dynamic>) j = d;
     } catch (_) {/* non-JSON body */}
     if (r.statusCode >= 300) {

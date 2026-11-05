@@ -30,6 +30,7 @@ List<PlannedNotification> planNotifications({
   required List<Goal> goals,
   List<Account> accounts = const [],
   bool utilisationAlerts = false,
+  bool statementDay = false,
   int horizonDays = 7,
 }) {
   final out = <PlannedNotification>[];
@@ -76,6 +77,16 @@ List<PlannedNotification> planNotifications({
       if (when.isAfter(now)) {
         out.add(PlannedNotification(6000 + u++, '${a.shortLabel} closes ${DateFormat('EEEE').format(cy.closes)}',
             'Paying ${formatDollars(cy.payForUnder30Cents)} before then keeps the reported balance under 30%.', when, payload: 'card:${a.id}'));
+      }
+    }
+  }
+  // Statement day: Apple Card statements close on the 1st, so on the 2nd at 9:00 Tick offers the import ("Open in Tick" does the rest).
+  if (statementDay) {
+    for (var m = 0; m < 2; m++) {
+      final when = _at(DateTime(today.year, today.month + m, 2), '09:00');
+      if (when.isAfter(now) && when.difference(now).inDays <= 40) {
+        out.add(PlannedNotification(7000 + m, 'Your Apple Card statement is ready', 'Export it from Wallet and share it to Tick. Three taps.', when, payload: 'import'));
+        break;                                                                           // one at a time
       }
     }
   }

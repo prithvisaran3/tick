@@ -13,6 +13,7 @@ import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
 import 'package:tick/features/receipt_screen.dart';
+import 'package:tick/features/import_screen.dart';
 import 'package:tick/features/settings_screen.dart';
 import 'package:tick/features/today_screen.dart';
 import 'golden_harness.dart';
@@ -35,6 +36,11 @@ void main() {
     'budgets': (() => const BudgetsScreen(), null),
     'payday-plan': (() => const PaydayPlanScreen(), null),
     'banks': (() => const BanksScreen(), null),
+    'import': (() => const ImportScreen(), null),
+    'settings-appearance': (() => const SettingsScreen(page: SettingsPage.appearance), null),
+    'settings-data': (() => const SettingsScreen(page: SettingsPage.data), null),
+    'settings-labs': (() => const SettingsScreen(page: SettingsPage.labs), null),
+    'settings-about': (() => const SettingsScreen(page: SettingsPage.about), null),
     'card': (() => const CardScreen(id: 'acc-disc'), null),
     'categories': (() => const CategoriesScreen(), null),
   };

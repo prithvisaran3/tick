@@ -111,13 +111,20 @@ Apple Card isn't on Plaid. Tick gets Apple Card purchases in two ways:
    The `card` field must be the **Card** magic variable. Tick reads the card name: anything named "Apple Card" goes to an
    **Apple Card** account in Tick (it's created the first time). Other card names are matched to a linked card when only
    one card fits, for example "Discover It Card" goes to Discover ••1234.
-2. **From the monthly statement.** In Wallet, open **Apple Card**, tap **Statements**, pick a month, then tap
-   **Export Transactions** and choose **CSV**. Save it to Files. In Tick, open **Settings > Import Apple Card statement**
-   and choose the file.
+2. **From the monthly statement, in three steps.**
+   1. In Wallet, open **Apple Card**, tap **Statements**, pick a month, then tap **Export Transactions** (CSV).
+   2. Tap **Share** and choose **Tick**. (Tick appears because it opens CSV and OFX files. Files works too: long-press the file, Share, Tick.)
+   3. Check the preview and tap **Import**. Tick says "Imported N, skipped M duplicates"; **Undo import** removes exactly what that import added.
 
-   Tick then tells you "Imported N, skipped M duplicates". A row is skipped when Tick already has a purchase with the same
-   amount, a similar merchant and a date within two days, usually because Wallet caught it live. Importing the same file
-   again adds nothing. Payments to Apple Card count as transfers, not spending, so the card's purchases aren't counted twice.
+   A row is skipped when Tick already has a purchase with the same amount, a similar merchant and a date within two days, usually because
+   Wallet caught it live or Plaid already has it. Importing the same file again adds nothing. Payments to Apple Card count as transfers,
+   not spending, so the card's purchases aren't counted twice. On the 2nd of each month Tick nudges you to import the new statement.
+
+   **Shortcuts action.** The same import is available as the Shortcuts action **Import statement to Tick** (give it the exported file).
+   This is handy at the end of a Shortcut that runs after the statement is ready.
+
+   Other banks work the same way: Chase, Bank of America, Discover, Capital One and SoFi CSVs, any OFX or QFX file, and a CSV Tick has
+   never seen (it asks you to pick the date, description and amount columns once). PDF statements aren't supported yet.
 
 Test it: send this body from the test Shortcut below. The purchase should land on the Apple Card account.
 

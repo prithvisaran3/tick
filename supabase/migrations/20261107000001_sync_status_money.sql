@@ -146,7 +146,9 @@ $$;
 revoke all on function public.tick_top_merchants(timestamptz, timestamptz, int) from public, anon;
 grant execute on function public.tick_top_merchants(timestamptz, timestamptz, int) to authenticated;
 
--- Import batches (revertible statement imports, part 4).
+-- Import batches (revertible statement imports, part 4). audit_log learns the new events.
+alter table public.audit_log drop constraint if exists audit_log_event_check;
+alter table public.audit_log add constraint audit_log_event_check check (event in ('sign_in','token_created','token_revoked','tokens_revoked_all','bank_linked','bank_removed','data_deleted','sessions_revoked','bad_token_burst','plaid_item_removed','import_batch','import_undone','tally_edit','tally_share','tally_deleted'));
 create table if not exists public.import_batches (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),

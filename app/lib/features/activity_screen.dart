@@ -116,6 +116,17 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
     return TickPage(
       title: 'Activity', trailing: trailing, controller: _scroll, onRefresh: notifier.refresh, bottomPad: 130,
+      slivers: [
+        for (final entry in months.entries)
+          SliverMainAxisGroup(slivers: [
+            SliverPersistentHeader(pinned: true, delegate: _MonthHeader(month: entry.key, filters: q, colors: c, textScaler: MediaQuery.of(context).textScaler, headerKey: _headerKeys.putIfAbsent(entry.key, GlobalKey.new))),
+            SliverPadding(padding: const EdgeInsets.symmetric(horizontal: 20), sliver: _MonthRows(rows: entry.value, a: a, ledger: l, now: now)),
+          ]),
+        if (a.rows.isNotEmpty && (a.loadingMore || a.hasMore))
+          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Semantics(label: 'Loading more', child: const ListSkeleton(rows: 2)))),
+        if (a.rows.isNotEmpty && !a.hasMore && !a.loadingMore)
+          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0), child: Text('That\'s everything Tick has.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary)))),
+      ],
       children: [
         if (reviewCount > 0)
           Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(bottom: 8), child: TickChip('$reviewCount to check', icon: 'caught', onTap: () => context.push('/caught')))),
@@ -130,18 +141,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         else if (a.error && a.rows.isEmpty) ErrorState(onRetry: notifier.refresh)
         else if (a.rows.isEmpty)
           EmptyState(q.anyFilter ? 'No matches' : 'Nothing here yet', q.anyFilter ? 'Try a different search or clear the filters.' : 'Add your first one in three taps.', icon: 'search'),
-      ],
-      slivers: [
-        for (final entry in months.entries)
-          SliverMainAxisGroup(slivers: [
-            SliverPersistentHeader(pinned: true, delegate: _MonthHeader(month: entry.key, filters: q, colors: c, textScaler: MediaQuery.of(context).textScaler, headerKey: _headerKeys.putIfAbsent(entry.key, GlobalKey.new))),
-            SliverPadding(padding: const EdgeInsets.symmetric(horizontal: 20), sliver: _MonthRows(rows: entry.value, a: a, ledger: l, now: now)),
-          ]),
-        if (a.rows.isNotEmpty && (a.loadingMore || a.hasMore))
-          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Semantics(label: 'Loading more', child: const ListSkeleton(rows: 2)))),
-        if (a.rows.isNotEmpty && !a.hasMore && !a.loadingMore)
-          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 0), child: Text('That\'s everything Tick has.', textAlign: TextAlign.center, style: context.ts(TickType.bodyS, color: c.textSecondary)))),
-      ],
+      ]
     );
   }
 }
