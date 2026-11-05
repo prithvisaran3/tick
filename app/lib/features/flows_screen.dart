@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../data/activity.dart';
 import '../data/ledger.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -28,14 +29,15 @@ class _FlowsScreenState extends ConsumerState<FlowsScreen> {
     final showLast = _last ?? real.day < 8;
     final now = showLast ? DateTime(real.year, real.month, 0, 12) : real;
     final c = context.c;
-    final f = computeFlows(l.txns, now);
+    final fa = ref.watch(monthFlowsProvider(DateTime(now.year, now.month, now.day)));
+    final f = fa.value ?? MonthFlows.from(const Totals(), 0);
     final cats = f.byCategory.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final maxCat = cats.isEmpty ? 1 : cats.first.value;
     final vs = f.vsLast;
     return TickScrollView(onRefresh: ref.read(ledgerProvider.notifier).refresh, slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       ScreenTitle('Flows', trailing: TickChip(DateFormat('MMMM').format(now), onTap: () => setState(() => _last = !showLast))),
       if (l.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
-      if (l.loading && l.txns.isEmpty) ...[const Skeleton(height: 90, radius: 24), const SizedBox(height: 8), const ListSkeleton(rows: 3)] else if (l.offline && l.txns.isEmpty)
+      if ((l.loading && l.txns.isEmpty) || (fa.isLoading && !fa.hasValue)) ...[const Skeleton(height: 90, radius: 24), const SizedBox(height: 8), const ListSkeleton(rows: 3)] else if ((l.offline && l.txns.isEmpty) || (fa.hasError && !fa.hasValue))
         ErrorState(onRetry: ref.read(ledgerProvider.notifier).refresh)
       else if (l.txns.isEmpty)
         const EmptyState('Not enough data for a trend yet', 'Give it a week.', icon: 'flows')

@@ -1,8 +1,11 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'dart:async';
+import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
+import '../data/activity.dart';
 import '../data/ledger.dart';
+import '../domain/flows.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
@@ -14,32 +17,6 @@ import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'common.dart';
 
-class ActivityFilter {
-  const ActivityFilter({this.query = '', this.business = false, this.review = false, this.categoryId, this.accountId});
-  final String query;
-  final bool business;
-  final bool review;
-  final String? categoryId;
-  final String? accountId;
-  bool get any => business || review || categoryId != null || accountId != null || query.isNotEmpty;
-  ActivityFilter copyWith({String? query, bool? business, bool? review, String? categoryId, String? accountId, bool clearCat = false, bool clearAcct = false}) => ActivityFilter(
-      query: query ?? this.query, business: business ?? this.business, review: review ?? this.review, categoryId: clearCat ? null : categoryId ?? this.categoryId, accountId: clearAcct ? null : accountId ?? this.accountId);
-  bool matches(Txn t, LedgerState l) {
-    if (business && !t.isBusiness) return false;
-    if (review && !t.needsReview) return false;
-    if (categoryId != null && t.categoryId != categoryId) return false;
-    if (accountId != null && t.accountId != accountId) return false;
-    if (query.isNotEmpty) {
-      final q = query.toLowerCase();
-      final hay = '${t.merchant} ${t.note ?? ''} ${l.category(t.categoryId)?.name ?? ''}'.toLowerCase();
-      if (!hay.contains(q)) return false;
-    }
-    return true;
-  }
-}
-
-final activityFilterProvider = StateProvider<ActivityFilter>((ref) => const ActivityFilter());
-
 class ActivityScreen extends ConsumerStatefulWidget {
   const ActivityScreen({super.key});
   @override
@@ -49,86 +26,166 @@ class ActivityScreen extends ConsumerStatefulWidget {
 class _ActivityScreenState extends ConsumerState<ActivityScreen> {
   final _ctl = TextEditingController();
   final _focus = FocusNode();
+  final _scroll = ScrollController();
+  Timer? _debounce;
+
   @override
-  void dispose() { _ctl.dispose(); _focus.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      // Infinite scroll: ask for the next page when the end is within about two screens.
+      if (_scroll.position.extentAfter < 900) ref.read(activityProvider.notifier).loadMore();
+    });
+  }
+
+  @override
+  void dispose() { _debounce?.cancel(); _ctl.dispose(); _focus.dispose(); _scroll.dispose(); super.dispose(); }
+
+  void _set(ActivityQuery q) => ref.read(activityProvider.notifier).setQuery(q);
+
+  void _search(String v) {
+    setState(() {});
+    _debounce?.cancel();
+    // Search runs on the server: wait for a pause in typing instead of querying every keystroke.
+    _debounce = Timer(const Duration(milliseconds: 350), () => _set(ref.read(activityProvider).query.copyWith(query: v)));
+  }
 
   @override
   Widget build(BuildContext context) {
     final l = ref.watch(ledgerProvider);
-    final f = ref.watch(activityFilterProvider);
+    final a = ref.watch(activityProvider);
+    final q = a.query;
     final now = ref.watch(clockProvider)();
     final c = context.c;
-    final list = l.txns.where((t) => f.matches(t, l)).toList();
-    // Group by day
-    final groups = <DateTime, List<Txn>>{};
-    for (final t in list) { groups.putIfAbsent(dayOnly(t.occurredAt), () => []).add(t); }
-    final days = groups.keys.toList()..sort((a, b) => b.compareTo(a));
     final reviewCount = l.needsReview.length;
+    final thisMonth = monthOf(now);
+    final months = [thisMonth, ...a.months.map((m) => m.month).where((m) => m != thisMonth)]..sort((x, y) => y.compareTo(x));
+    final visibleAccounts = l.accounts.where((x) => q.types.isEmpty || q.types.contains(x.type)).toList();
+    // Group the loaded rows by day; each day's header total comes from the server (whole filter, not just loaded rows).
+    final items = <Object>[];
+    DateTime? last;
+    for (final t in a.rows) {
+      final d = etDay(t.occurredAt);
+      if (d != last) { items.add(d); last = d; }
+      items.add(t);
+    }
+
+    Set<String> toggle(Set<String> s, String v) => s.contains(v) ? ({...s}..remove(v)) : {...s, v};
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       ScreenTitle('Activity', trailing: reviewCount == 0 ? null : TickChip('$reviewCount to check', icon: 'caught', onTap: () => context.push('/caught'))),
+      // Month strip
+      SizedBox(
+        height: 36,
+        child: ListView(scrollDirection: Axis.horizontal, clipBehavior: Clip.none, children: [
+          for (final m in months) ...[
+            TickChip(DateFormat('MMM y').format(m), on: q.month == m, onTap: () => _set(q.copyWith(month: m))),
+            const SizedBox(width: 8),
+          ],
+          TickChip('All time', on: q.month == null, onTap: () => _set(q.copyWith(allTime: true))),
+        ]),
+      ),
+      const SizedBox(height: 10),
+      _TotalsLine(totals: a.totals, label: q.month == null ? 'All time' : DateFormat('MMMM').format(q.month!)),
+      const SizedBox(height: 10),
       Container(
         height: 48, padding: const EdgeInsets.symmetric(horizontal: 16), decoration: BoxDecoration(color: c.surface1, borderRadius: BorderRadius.circular(999)),
         child: Row(children: [
           TickIcon('search', size: 20, color: c.textSecondary), const SizedBox(width: 8),
           Expanded(child: Stack(alignment: Alignment.centerLeft, children: [
-            if (_ctl.text.isEmpty) IgnorePointer(child: Text('Search merchants, notes', style: context.ts(TickType.body, color: c.textSecondary))),
+            if (_ctl.text.isEmpty) IgnorePointer(child: Text('Search merchants, notes, categories', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body, color: c.textSecondary))),
             EditableText(
               controller: _ctl, focusNode: _focus, style: context.ts(TickType.body), cursorColor: c.text, backgroundCursorColor: c.surface2, selectionColor: c.hairline,
-              onChanged: (v) => ref.read(activityFilterProvider.notifier).state = f.copyWith(query: v),
+              onChanged: _search,
             ),
           ])),
         ]),
       ),
       const SizedBox(height: 12),
+      // Account types + accounts (multi-select), then the existing tag and category chips.
       SizedBox(
         height: 36,
         child: ListView(scrollDirection: Axis.horizontal, clipBehavior: Clip.none, children: [
-          TickChip('All', on: !f.any, onTap: () { _ctl.clear(); ref.read(activityFilterProvider.notifier).state = const ActivityFilter(); }),
-          const SizedBox(width: 8),
-          TickChip('Business', on: f.business, onTap: () => ref.read(activityFilterProvider.notifier).state = f.copyWith(business: !f.business)),
-          const SizedBox(width: 8),
-          TickChip('Needs review', on: f.review, onTap: () => ref.read(activityFilterProvider.notifier).state = f.copyWith(review: !f.review)),
-          for (final cat in l.categories.where((c) => c.kind == 'spend').take(6)) ...[
+          TickChip('All', on: !q.anyFilter, onTap: () { _ctl.clear(); _set(q.clearFilters()); }),
+          for (final (type, label) in accountTypeChips)
+            if (l.accounts.any((x) => x.type == type)) ...[
+              const SizedBox(width: 8),
+              TickChip(label, on: q.types.contains(type), onTap: () => _set(q.copyWith(types: toggle(q.types, type), accounts: {}))),
+            ],
+          for (final acct in visibleAccounts) ...[
             const SizedBox(width: 8),
-            TickChip(cat.name, on: f.categoryId == cat.id, onTap: () => ref.read(activityFilterProvider.notifier).state = f.categoryId == cat.id ? f.copyWith(clearCat: true) : f.copyWith(categoryId: cat.id)),
+            TickChip(acct.shortLabel, on: q.accounts.contains(acct.id), onTap: () => _set(q.copyWith(accounts: toggle(q.accounts, acct.id)))),
           ],
-          for (final a in l.accounts.where((a) => a.type != 'savings')) ...[
+        ]),
+      ),
+      const SizedBox(height: 8),
+      SizedBox(
+        height: 36,
+        child: ListView(scrollDirection: Axis.horizontal, clipBehavior: Clip.none, children: [
+          TickChip('Business', on: q.business, onTap: () => _set(q.copyWith(business: !q.business))),
+          const SizedBox(width: 8),
+          TickChip('Needs review', on: q.review, onTap: () => _set(q.copyWith(review: !q.review))),
+          for (final cat in l.categories.where((c) => c.kind == 'spend').take(8)) ...[
             const SizedBox(width: 8),
-            TickChip(a.name, on: f.accountId == a.id, onTap: () => ref.read(activityFilterProvider.notifier).state = f.accountId == a.id ? f.copyWith(clearAcct: true) : f.copyWith(accountId: a.id)),
+            TickChip(cat.name, on: q.categories.contains(cat.id), onTap: () => _set(q.copyWith(categories: toggle(q.categories, cat.id)))),
           ],
         ]),
       ),
       Expanded(
         child: () {
-          if (l.loading && l.txns.isEmpty) return const ListSkeleton(rows: 8);
-          if (l.offline && l.txns.isEmpty) return ErrorState(onRetry: ref.read(ledgerProvider.notifier).refresh);
-          // Flatten day headers and rows so the list builds lazily (a long history must never build all at once).
-          final items = <Object>[for (final d in days) ...[d, ...groups[d]!]];
+          final notifier = ref.read(activityProvider.notifier);
+          if (a.loading && a.rows.isEmpty) return const ListSkeleton(rows: 8);
+          if (a.error && a.rows.isEmpty) return ErrorState(onRetry: notifier.refresh);
           return TickScrollView(
-            onRefresh: ref.read(ledgerProvider.notifier).refresh,
+            controller: _scroll,
+            onRefresh: notifier.refresh,
             slivers: [
-              if (l.offline) SliverToBoxAdapter(child: OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh)),
-              if (list.isEmpty)
-                SliverToBoxAdapter(child: EmptyState(f.any ? 'No matches' : 'Nothing here yet', f.any ? 'Try a different search or clear the filters.' : 'Add your first one in three taps.', icon: 'search'))
+              if (a.offline) SliverToBoxAdapter(child: OfflineBanner(onRetry: notifier.refresh)),
+              if (a.rows.isEmpty)
+                SliverToBoxAdapter(child: EmptyState(q.anyFilter ? 'No matches' : 'Nothing here yet',
+                    q.anyFilter ? 'Try a different search or clear the filters.' : (q.month == null ? 'Add your first one in three taps.' : 'Nothing this month yet.'), icon: 'search'))
               else
                 SliverList.builder(
                   itemCount: items.length,
                   itemBuilder: (context, i) {
                     final it = items[i];
                     if (it is DateTime) {
-                      return SectionLabel(dayLabel(it, now), trailing: Text(formatCents(groups[it]!.fold(0, (s, t) => s + t.amountCents), sign: true), style: context.ts(TickType.monoS, color: c.textSecondary)));
+                      final total = a.dayTotals[it];
+                      return SectionLabel(dayLabel(it, now), trailing: total == null ? null : Text(formatCents(total, sign: true), style: context.ts(TickType.monoS, color: c.textSecondary)));
                     }
                     final t = it as Txn;
                     return _SwipeRow(t: t, ledger: l, child: TxRow(t: t, ledger: l, hero: true, onTap: () => context.push('/txn/${t.id}')));
                   },
                 ),
+              if (a.loadingMore || a.hasMore) SliverToBoxAdapter(child: Semantics(label: 'Loading more', child: const ListSkeleton(rows: 2))),
               const SliverToBoxAdapter(child: SizedBox(height: 130)),
             ],
           );
         }(),
       ),
     ]);
+  }
+}
+
+/// In, out and net for the selected month (or all time), from the server's totals.
+class _TotalsLine extends StatelessWidget {
+  const _TotalsLine({required this.totals, required this.label});
+  final Totals? totals;
+  final String label;
+  @override
+  Widget build(BuildContext context) {
+    final t = totals;
+    final c = context.c;
+    if (t == null) return const SizedBox(height: 22, child: Align(alignment: Alignment.centerLeft, child: SizedBox(width: 220, height: 14, child: Skeleton())));
+    return Semantics(
+      label: '$label: ${formatCents(t.inCents)} in, ${formatCents(t.outCents)} out, net ${formatCents(t.netCents.abs())} ${t.netCents >= 0 ? 'ahead' : 'behind'}',
+      excludeSemantics: true,
+      child: Wrap(spacing: 14, runSpacing: 4, children: [
+        Row(mainAxisSize: MainAxisSize.min, children: [Text('In ', style: context.ts(TickType.monoS, color: c.textSecondary)), Money(t.inCents, kind: MoneyKind.income, sign: false, style: context.ts(TickType.monoS))]),
+        Text('Out ${formatCents(t.outCents)}', style: context.ts(TickType.monoS)),
+        Text('Net ${formatCents(t.netCents, sign: true)}', style: context.ts(TickType.monoS, color: c.textSecondary)),
+      ]),
+    );
   }
 }
 

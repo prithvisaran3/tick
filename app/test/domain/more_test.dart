@@ -135,15 +135,6 @@ void budgetAndPlanTests() {
     expect(early.line, r'$100 left this month.');
   });
 
-  test('spentInMonth counts only this month outgoing in the category', () {
-    final txns = [
-      Txn(id: '1', amountCents: -1000, occurredAt: DateTime(2026, 11, 2), merchant: 'a', categoryId: 'c'),
-      Txn(id: '2', amountCents: -500, occurredAt: DateTime(2026, 10, 30), merchant: 'a', categoryId: 'c'),
-      Txn(id: '3', amountCents: 700, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'c'),
-      Txn(id: '4', amountCents: -900, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'd'),
-    ];
-    expect(spentInMonth(txns, 'c', DateTime(2026, 11, 20)), 1000);
-  });
 
   test('goal progress clamps', () {
     expect(goalProgress(const Goal(id: 'g', name: 'x', targetCents: 100, savedCents: 150, perPaydayCents: 0)), 1.0);

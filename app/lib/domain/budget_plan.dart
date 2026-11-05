@@ -39,10 +39,6 @@ BudgetPace budgetPace({required int spentCents, required int capCents, required 
   return BudgetPace(spentCents: spentCents, capCents: capCents, projectedCents: projected, paceFraction: day / total, state: state, early: early);
 }
 
-int spentInMonth(List<Txn> txns, String categoryId, DateTime now) {
-  final start = DateTime(now.year, now.month, 1), end = DateTime(now.year, now.month + 1, 1);
-  return txns.where((t) => t.amountCents < 0 && t.categoryId == categoryId && !t.occurredAt.isBefore(start) && t.occurredAt.isBefore(end)).fold(0, (s, t) => s - t.amountCents);
-}
 
 double goalProgress(Goal g) => g.targetCents == 0 ? 0 : (g.savedCents / g.targetCents).clamp(0.0, 1.0);
 
