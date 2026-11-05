@@ -3,7 +3,7 @@ do $$
 declare
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
   n int; cat_a uuid; txn_a uuid; t text; fails text := '';
-  owner_tables text[] := array['profiles','settings','ingest_tokens','connections','accounts','categories','transactions','rules','budgets','goals','people','recurring','expected','insights','chats','messages','ingest_logs','snapshots','ai_usage','paydays','plaid_slots','ai_cache','plaid_link_sessions'];
+  owner_tables text[] := array['profiles','settings','ingest_tokens','connections','accounts','categories','transactions','rules','budgets','goals','people','recurring','expected','insights','chats','messages','ingest_logs','snapshots','ai_usage','paydays','plaid_slots','ai_cache','plaid_link_sessions','plaid_items','audit_log'];
 begin
   insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, created_at, updated_at)
     values (a, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'a-' || a || '@test.local', '{}', now(), now()),
@@ -66,8 +66,10 @@ begin
   exception when insufficient_privilege or check_violation then null; end;
 
   -- Server-only tables are invisible and unwritable to the app (RLS forced, no policy).
-  select count(*) into n from public.ai_cache; if n <> 0 then fails := fails || 'authenticated sees ai_cache; '; end if;
-  select count(*) into n from public.plaid_link_sessions; if n <> 0 then fails := fails || 'authenticated sees plaid_link_sessions; '; end if;
+  begin select count(*) into n from public.ai_cache; if n <> 0 then fails := fails || 'authenticated sees ai_cache; '; end if;
+  exception when insufficient_privilege then null; end;
+  begin select count(*) into n from public.plaid_link_sessions; if n <> 0 then fails := fails || 'authenticated sees plaid_link_sessions; '; end if;
+  exception when insufficient_privilege then null; end;
   begin insert into public.plaid_link_sessions (link_token, user_id) values ('x', b); fails := fails || 'app wrote plaid_link_sessions; ';
   exception when insufficient_privilege or check_violation then null; end;
   begin insert into public.plaid_slots (user_id, used) values (b, 0); fails := fails || 'app wrote plaid_slots; ';

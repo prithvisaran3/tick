@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import ai, store
 from .auth import current_user, require_cron
@@ -104,6 +104,7 @@ def weekly_text_fallback(s: dict) -> str:
     return f"{fmt(s['spent_cents'])} out this week, {cmp}. Biggest: {top}."
 
 class AdviceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     total_cents: int = Field(ge=0, le=10**10)
     safe_cents: int = Field(ge=-(10**10), le=10**10)
     days_to_payday: int = Field(ge=0, le=400)
@@ -171,7 +172,7 @@ def ai_status(user_id: str = Depends(current_user)):
 
 def _txns_for(user_id: str, days: int) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
+    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("or", "(flow.is.null,flow.neq.transfer)"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
     r.raise_for_status()
     return [{"merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date()} for x in r.json()]
 

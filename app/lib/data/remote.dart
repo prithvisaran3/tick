@@ -21,6 +21,8 @@ class Remote {
       db.from('connections').select('id,institution,status'),
       db.from('budgets').select(),
       db.from('rules').select(),
+      // Lifetime bank links = distinct Plaid Items ever created, removed ones included (append-only table).
+      db.from('plaid_items').select('item_id'),
     ]);
     return LedgerState(
       // Each row is parsed on its own: one malformed row is skipped, it can never fail the whole refresh.
@@ -30,7 +32,7 @@ class Remote {
       recurring: _each(r[3], _rec),
       expected: _each(r[4], _exp),
       goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
-      linksUsed: (r[6] as List).length,
+      linksUsed: (r[9] as List).length > (r[6] as List).length ? (r[9] as List).length : (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
       budgets: [for (final j in r[7]) Budget(id: j['id'] as String, categoryId: j['category_id'] as String, capCents: (j['monthly_cap_cents'] as num).toInt())],
       rules: [for (final j in r[8]) if (j['category_id'] != null) LearnedRule(id: j['id'] as String, pattern: j['pattern'] as String, categoryId: j['category_id'] as String)],

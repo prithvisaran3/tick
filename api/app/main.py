@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import uuid
 
@@ -7,23 +8,31 @@ from starlette.exceptions import HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .config import settings
-from .ai import provider as ai_provider
 from .ingest import router as ingest_router
 from .plaid import router as plaid_router
 from .intel import router as intel_router
 from .ask import router as ask_router
 from .receipts import router as receipts_router
+from .imports import router as imports_router
+
+from . import security
+from .account import router as account_router
 
 log = logging.getLogger("tick")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+security.configure_logging()
 
-app = FastAPI(title="Tick API", version="0.2.0", docs_url=None, redoc_url=None)
+if 0 < len(os.environ.get("CRON_SECRET", "")) < 32:
+    log.warning("CRON_SECRET is shorter than 32 characters: rotate it (docs/SECURITY.md)")   # length only, never the value
+
+app = FastAPI(title="Tick API", version="0.3.0", docs_url=None, redoc_url=None, openapi_url=None)
+security.install(app)
 app.include_router(ingest_router)
 app.include_router(plaid_router)
 app.include_router(intel_router)
 app.include_router(ask_router)
 app.include_router(receipts_router)
+app.include_router(imports_router)
+app.include_router(account_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 
@@ -59,10 +68,5 @@ async def access_log(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    s = settings()
-    # Only booleans about configuration; never values.
-    return {"ok": True, "service": "tick-api", "version": s.git_sha,
-            "configured": {"supabase": bool(s.supabase_url and s.supabase_secret_key),
-                           "ai": ai_provider().available(), "plaid": bool(s.plaid_client_id and s.plaid_secret),
-                           "cron": bool(s.cron_secret)},
-            "ai_provider": ai_provider().name}
+    # Liveness only. No version, provider names or configuration flags: nothing that helps an attacker fingerprint the service.
+    return {"ok": True}

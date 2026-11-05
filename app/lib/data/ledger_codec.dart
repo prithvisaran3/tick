@@ -12,14 +12,8 @@ Map<String, dynamic> encodeLedger(LedgerState l, {String? userId}) {
     'savedAt': DateTime.now().toUtc().toIso8601String(),
     'linksUsed': l.linksUsed,
     'categories': [for (final c in l.categories) {'id': c.id, 'name': c.name, 'color_key': c.colorKey, 'icon': c.icon, 'kind': c.kind}],
-    'accounts': [for (final a in l.accounts) {'id': a.id, 'name': a.name, 'mask': a.mask, 'type': a.type, 'balance_cents': a.balanceCents, 'available_cents': a.availableCents, 'include_in_safe': a.includeInSafe, 'is_manual': a.manual}],
-    'txns': [
-      for (final t in txns)
-        {
-          'id': t.id, 'a': t.amountCents, 'at': t.occurredAt.toUtc().toIso8601String(), 'm': t.merchant, 'c': t.categoryId, 'acc': t.accountId,
-          'p': t.status == TxStatus.pending, 'cf': t.confidence, 'r': t.needsReview, 'tg': t.tags, 'n': t.note, 's': t.source, 'l4': t.cardLast4,
-        }
-    ],
+    'accounts': [for (final a in l.accounts) a.toJson()],
+    'txns': [for (final t in txns) encodeTxn(t)],
     'recurring': [for (final r in l.recurring) {'id': r.id, 'm': r.merchant, 'cad': r.cadence.name, 'e': r.expectedCents, 'next': r.nextDate.toIso8601String(), 'c': r.categoryId, 'h': r.priceHistory}],
     'expected': [for (final e in l.expected) {'id': e.id, 'k': e.kind.name, 'l': e.label, 'a': e.amountCents, 'd': e.date.toIso8601String()}],
     'goals': [for (final g in l.goals) {'id': g.id, 'n': g.name, 't': g.targetCents, 's': g.savedCents, 'p': g.perPaydayCents}],
@@ -37,15 +31,7 @@ LedgerState? decodeLedger(Map<String, dynamic> j) {
     return LedgerState(
       categories: [for (final c in list('categories')) Category.fromJson(c)],
       accounts: [for (final a in list('accounts')) Account.fromJson(a)],
-      txns: [
-        for (final t in list('txns'))
-          Txn(
-            id: t['id'] as String, amountCents: (t['a'] as num).toInt(), occurredAt: DateTime.parse(t['at'] as String).toLocal(), merchant: t['m'] as String,
-            categoryId: t['c'] as String?, accountId: t['acc'] as String?, status: t['p'] == true ? TxStatus.pending : TxStatus.posted,
-            confidence: (t['cf'] as num?)?.toDouble() ?? 1.0, needsReview: t['r'] == true, tags: ((t['tg'] as List?) ?? const []).cast<String>(), note: t['n'] as String?,
-            source: (t['s'] ?? 'manual') as String, cardLast4: t['l4'] as String?,
-          ),
-      ],
+      txns: [for (final t in list('txns')) decodeTxn(t)],
       recurring: [
         for (final r in list('recurring'))
           Recurring(
@@ -65,3 +51,15 @@ LedgerState? decodeLedger(Map<String, dynamic> j) {
     return null;
   }
 }
+
+Map<String, dynamic> encodeTxn(Txn t) => {
+      'id': t.id, 'a': t.amountCents, 'at': t.occurredAt.toUtc().toIso8601String(), 'm': t.merchant, 'c': t.categoryId, 'acc': t.accountId,
+      'p': t.status == TxStatus.pending, 'cf': t.confidence, 'r': t.needsReview, 'tg': t.tags, 'n': t.note, 's': t.source, 'l4': t.cardLast4, 'f': t.flow,
+    };
+
+Txn decodeTxn(Map<String, dynamic> t) => Txn(
+      id: t['id'] as String, amountCents: (t['a'] as num).toInt(), occurredAt: DateTime.parse(t['at'] as String).toLocal(), merchant: t['m'] as String,
+      categoryId: t['c'] as String?, accountId: t['acc'] as String?, status: t['p'] == true ? TxStatus.pending : TxStatus.posted,
+      confidence: (t['cf'] as num?)?.toDouble() ?? 1.0, needsReview: t['r'] == true, tags: ((t['tg'] as List?) ?? const []).cast<String>(), note: t['n'] as String?,
+      source: (t['s'] ?? 'manual') as String, cardLast4: t['l4'] as String?, flow: t['f'] as String?,
+    );

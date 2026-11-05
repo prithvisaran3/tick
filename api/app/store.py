@@ -16,7 +16,7 @@ def row_to_txn(r: dict) -> Txn:
     return Txn(id=r["id"], amount_cents=r["amount_cents"], occurred_at=_dt(r["occurred_at"]), merchant_raw=r.get("merchant_raw") or "", merchant_clean=r.get("merchant_clean") or "",
                card_last4=r.get("card_last4"), status=r["status"], sources=r.get("sources") or [], plaid_transaction_id=r.get("plaid_transaction_id"),
                plaid_pending_id=r.get("plaid_pending_id"), confidence=float(r.get("confidence") or 1), needs_review=bool(r.get("needs_review")),
-               account_id=r.get("account_id"), category_id=r.get("category_id"), user_edited=set(r.get("user_edited") or []))
+               account_id=r.get("account_id"), category_id=r.get("category_id"), user_edited=set(r.get("user_edited") or []), flow=r.get("flow"))
 
 def window(user_id: str, around: datetime) -> list[Txn]:
     lo, hi = (around - WINDOW).isoformat(), (around + WINDOW).isoformat()
@@ -74,3 +74,25 @@ _locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 def user_lock(user_id: str) -> threading.Lock:
     """Serialise read-decide-write per user so two near-simultaneous captures (SMS + Apple Pay) cannot both insert. One Railway replica."""
     return _locks[user_id]
+
+def card_account(user_id: str, card: str | None) -> str | None:
+    """Map a Wallet card name to one of my accounts. "Apple Card" gets its own account (created once, never on Plaid);
+    other names match a linked card by institution when exactly one card fits. Never creates anything but the Apple Card account."""
+    name = (card or "").strip().lower()
+    if not name:
+        return None
+    if "apple card" in name or name == "apple":
+        return apple_card_account(user_id)
+    accts = rest().select("accounts", user_id=f"eq.{user_id}", type="eq.credit", select="id,institution,name,mask")
+    hits = [a for a in accts if (a.get("institution") and a["institution"].lower() in name) or (a.get("name") and a["name"].lower() in name)
+            or (a.get("mask") and a["mask"] in name)]
+    return hits[0]["id"] if len(hits) == 1 else None
+
+def apple_card_account(user_id: str) -> str:
+    from .applecard import APPLE_CARD_ACCOUNT_REF
+    row = {"user_id": user_id, "provider_account_id": APPLE_CARD_ACCOUNT_REF, "name": "Apple Card", "institution": "Apple Card", "type": "credit",
+           "is_manual": True, "include_in_safe": True}
+    got = rest().select("accounts", user_id=f"eq.{user_id}", provider_account_id=f"eq.{APPLE_CARD_ACCOUNT_REF}", select="id")
+    if got:
+        return got[0]["id"]
+    return rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]["id"]

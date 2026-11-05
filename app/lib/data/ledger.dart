@@ -7,11 +7,20 @@ import '../domain/safe_to_spend.dart';
 import 'categorizer.dart';
 import 'demo_seed.dart';
 import '../services/session.dart';
+import 'activity.dart';
 import 'ledger_cache.dart';
 import 'remote.dart';
 import 'settings.dart';
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+/// Bumped after every successful server refresh, so server-computed views (Activity pages, totals) re-query.
+class LedgerRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+  void bump() => state++;
+}
+final ledgerRevisionProvider = NotifierProvider<LedgerRevision, int>(LedgerRevision.new);
 
 class LedgerState {
   const LedgerState({this.categories = const [], this.accounts = const [], this.txns = const [], this.recurring = const [], this.expected = const [], this.goals = const [], this.loading = false, this.offline = false, this.linksUsed = 0, this.connections = const [], this.justLanded, this.budgets = const [], this.rules = const []});
@@ -120,6 +129,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
         }
       } catch (_) {}
       state = l.copyWith(loading: false, offline: false, justLanded: landed);
+      ref.read(ledgerRevisionProvider.notifier).bump();
       if (localOnly.isNotEmpty) _retrying ??= _pushLocal(localOnly).whenComplete(() => _retrying = null);
     } catch (_) {
       state = state.copyWith(loading: false, offline: true);
@@ -163,6 +173,7 @@ class LedgerNotifier extends Notifier<LedgerState> {
   /// Sign-out and "delete all data": forget everything held on this device.
   Future<void> wipeLocal() async {
     await LedgerCache.clear();
+    await ActivityCache.clear();
     state = const LedgerState(categories: defaultCategories);
   }
 

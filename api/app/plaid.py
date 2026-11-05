@@ -18,12 +18,13 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicNumb
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import store
 from .auth import current_user, require_cron, user_limiter
 from .config import settings
 from .db import rest
+from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
@@ -47,6 +48,10 @@ class BankProvider(ABC):
     def sync_page(self, access_token: str, cursor: str | None) -> dict: ...
     @abstractmethod
     def item_institution(self, access_token: str) -> str | None: ...
+    def item_products(self, access_token: str) -> list[str]:
+        return ["transactions"]
+    def liabilities(self, access_token: str) -> dict:
+        return {}
 
 class PlaidProvider(BankProvider):
     def __init__(self, client_id: str, secret: str, env: str, webhook: str) -> None:
@@ -71,9 +76,17 @@ class PlaidProvider(BankProvider):
             body["redirect_uri"] = redirect          # only after it is registered under Allowed redirect URIs in the Plaid dashboard
         if access_token:
             body["access_token"] = access_token          # update mode: re-authenticate the SAME Item, never a new one
-        else:
-            body["products"] = ["transactions"]
-            body["transactions"] = {"days_requested": 365}
+            return self._post("/link/token/create", body)
+        body["products"] = ["transactions"]
+        body["transactions"] = {"days_requested": 365}
+        if os.environ.get("PLAID_LIABILITIES", "1") != "0":
+            # Cards and loans: statement balance, minimum payment, due date. Optional, so a bank without it still links.
+            try:
+                return self._post("/link/token/create", {**body, "optional_products": ["liabilities"]})
+            except PlaidError as e:
+                if e.typ != "INVALID_REQUEST" and e.code not in ("INVALID_PRODUCT", "PRODUCTS_NOT_ENABLED", "PRODUCT_NOT_ENABLED", "INVALID_FIELD"):
+                    raise
+                # The plan doesn't allow Liabilities: link without it (creating a link token never creates an Item).
         return self._post("/link/token/create", body)
 
     def link_token_result(self, link_token: str) -> list[str]:
@@ -106,6 +119,21 @@ class PlaidProvider(BankProvider):
         except PlaidError:
             pass
         return None
+
+    def item_products(self, access_token: str) -> list[str]:
+        try:
+            item = self._post("/item/get", {"access_token": access_token})["item"]
+            return sorted(set(item.get("products") or []) | set(item.get("billed_products") or []))
+        except PlaidError:
+            return ["transactions"]
+
+    def liabilities(self, access_token: str) -> dict:
+        """Only called for Items that were granted Liabilities at link time."""
+        return self._post("/liabilities/get", {"access_token": access_token}).get("liabilities") or {}
+
+    def remove_item(self, access_token: str) -> None:
+        """Only from the person's own "Delete all my data". Never automatic, never in tests (they use a fake provider)."""
+        self._post("/item/remove", {"access_token": access_token})
 
     def webhook_key(self, kid: str) -> dict:
         return self._post("/webhook_verification_key/get", {"key_id": kid})["key"]
@@ -148,14 +176,21 @@ def verify_webhook(body: bytes, token: str, prov: PlaidProvider | None = None, n
             raise HTTPException(401, "unknown key")
         _key_fetches[:] = [t for t in _key_fetches if t > now_t - 60]
         if len(_key_fetches) >= KEY_FETCHES_PER_MIN:             # garbage kids must not make us hammer Plaid
-            raise HTTPException(429, "too many key lookups")
-        _key_fetches.append(now_t)
-        try:
-            key = prov.webhook_key(kid)  # type: ignore[union-attr]
-        except PlaidError:
-            _bad_kids[kid] = now_t + 60
-            raise HTTPException(401, "unknown key")
-        _keys[kid] = (now_t + 3600, key)
+            if not cached:
+                raise HTTPException(429, "too many key lookups")
+            # A known key past its refresh time stays usable (Plaid's expired_at is still checked below), so a flood of
+            # random kids can never lock out Plaid's real webhooks.
+        else:
+            _key_fetches.append(now_t)
+            try:
+                key = prov.webhook_key(kid)  # type: ignore[union-attr]
+                _keys[kid] = (now_t + 3600, key)
+            except PlaidError:
+                if not cached:
+                    if len(_bad_kids) > 1000:
+                        _bad_kids.clear()
+                    _bad_kids[kid] = now_t + 60
+                    raise HTTPException(401, "unknown key")
     jwk = _keys[kid][1]
     if jwk.get("expired_at") is not None:
         raise HTTPException(401, "key expired")
@@ -176,18 +211,66 @@ def _b64(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 # ---------------- slots ----------------
-def slots_used(user_id: str) -> int:
-    rows = rest().select("plaid_slots", user_id=f"eq.{user_id}")
-    n_rows = len(rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid", select="id"))
-    return max(rows[0]["used"] if rows else 0, n_rows)
+def links_used(user_id: str) -> int:
+    """Distinct Plaid item_ids EVER created for this user, removed ones included (plaid_items is append-only).
+    Counting attempts or bumping a counter double-counted a link once (webhook + app raced on one session); a set of item_ids can't."""
+    items = {r["item_id"] for r in rest().select("plaid_items", user_id=f"eq.{user_id}", select="item_id")}
+    items |= {r["item_id"] for r in rest().select("connections", user_id=f"eq.{user_id}", provider="eq.plaid", select="item_id") if r.get("item_id")}
+    return len(items)
 
-def take_slot(user_id: str) -> None:
-    used = slots_used(user_id)
-    if used >= ITEM_CAP:
-        raise HTTPException(409, "You have used all 10 bank links.")
-    rest().insert("plaid_slots", {"user_id": user_id, "used": used + 1}, upsert_on="user_id")
+def total_links_used() -> int:
+    """Plaid's Trial cap is per Plaid CLIENT, not per Tick user: count distinct item_ids across everyone."""
+    items = {r["item_id"] for r in rest().select("plaid_items", select="item_id")}
+    items |= {r["item_id"] for r in rest().select("connections", provider="eq.plaid", select="item_id") if r.get("item_id")}
+    return len(items)
+
+def owners() -> set[str]:
+    """Who may create NEW bank links. TICK_OWNER_USER_IDS (comma-separated) when set. Otherwise the user who made the first link
+    (fail closed for strangers who signed up later); with no link at all yet, anyone signed in (first run)."""
+    env = {x.strip() for x in os.environ.get("TICK_OWNER_USER_IDS", "").split(",") if x.strip()}
+    if env:
+        return env
+    rows = rest().select("plaid_items", select="user_id,created_at", order="created_at.asc", limit="1")
+    return {rows[0]["user_id"]} if rows else set()
+
+def require_link_owner(user_id: str) -> None:
+    allowed = owners()
+    if allowed and user_id not in allowed:
+        raise HTTPException(403, "Bank linking is limited to this Tick's owner.")
+
+OPEN_SESSION_MIN = 30
+
+def record_item(user_id: str, item_id: str, institution: str | None, link_token_value: str) -> None:
+    """Idempotent: the same item_id is recorded once no matter how many times it is exchanged."""
+    rest().insert("plaid_items", {"item_id": item_id, "user_id": user_id, "institution": institution, "link_token_prefix": link_token_value[:24]},
+                  returning=False, ignore_duplicates=True)
 
 # ---------------- mapping ----------------
+_FEE = ("INTEREST CHARGE", "LATE FEE", "ANNUAL FEE", "FOREIGN TRANSACTION FEE", "FINANCE CHARGE", "OVERDRAFT", "SERVICE FEE", "INTEREST CHARGED")
+
+def classify(t: dict, acct_type: str | None, cents: int) -> tuple[str | None, str | None, list[str]]:
+    """(category name or None for 'categorise by merchant', flow, extra tags) from Plaid's category and the account type.
+    Sign convention: Plaid positive = money out; Tick negative = money out. A card purchase is spending; a card payment and a
+    loan's 'payment received' are internal transfers; a refund on a card lowers spending and is never income; a loan payment from
+    checking is a bill; fees and interest have their own category."""
+    pfc = t.get("personal_finance_category") or {}
+    primary, detailed = pfc.get("primary", ""), pfc.get("detailed", "")
+    name = (t.get("name") or t.get("merchant_name") or "").upper()
+    credit_like = acct_type in ("credit", "loan")
+    if detailed == "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT" or (credit_like and cents > 0 and primary in ("TRANSFER_IN", "LOAN_PAYMENTS")):
+        return "Transfer", "transfer", []
+    if acct_type == "loan" and cents > 0:
+        return "Transfer", "transfer", []
+    if primary == "LOAN_PAYMENTS" and cents < 0 and not credit_like:
+        return "Loan payment", "bill", []
+    if primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or (acct_type == "loan" and cents < 0):
+        return "Fees and interest", None, []
+    if primary in ("TRANSFER_IN", "TRANSFER_OUT"):
+        return "Transfer", None, []              # pairing decides later whether it went to one of my own accounts
+    if cents > 0:
+        return (None, None, ["refund"]) if credit_like else ("Income", None, [])
+    return None, None, []
+
 def plaid_candidate(t: dict, acct_by_pid: dict[str, dict], rules: dict[str, str], name_to_id: dict[str, str]) -> tuple[Candidate, list[str]]:
     cents = -round(float(t["amount"]) * 100)              # Plaid: positive = money out
     when = t.get("datetime") or t.get("authorized_datetime")
@@ -199,36 +282,84 @@ def plaid_candidate(t: dict, acct_by_pid: dict[str, dict], rules: dict[str, str]
         occurred = datetime.fromisoformat(d).replace(hour=16, tzinfo=timezone.utc)   # ~noon Eastern
     raw = t.get("name") or t.get("merchant_name") or ""
     clean = t.get("merchant_name") or clean_merchant(raw)
-    pfc = (t.get("personal_finance_category") or {}).get("primary", "")
-    if pfc in ("TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS") :
-        cat = "Transfer"
-    elif cents > 0:
-        cat = "Income"
-    else:
-        cat, _ = categorize(clean or raw, rules)
     acct = acct_by_pid.get(t["account_id"], {})
-    tags = ["business"] if cents < 0 and looks_business(clean or raw) else []
+    cat, flow, extra = classify(t, acct.get("type"), cents)
+    if cat is None:
+        cat, _ = categorize(clean or raw, rules)
+    tags = (["business"] if cents < 0 and flow is None and looks_business(clean or raw) else []) + extra
     c = Candidate("plaid", t["transaction_id"], cents, occurred, raw, clean, acct.get("mask"), "pending" if t.get("pending") else "posted",
                   plaid_transaction_id=t["transaction_id"], plaid_pending_id=t.get("pending_transaction_id"), confidence=1.0,
-                  account_id=acct.get("id"), category_id=name_to_id.get(cat), time_precise=precise)
+                  account_id=acct.get("id"), category_id=name_to_id.get(cat), time_precise=precise, flow=flow)
     return c, tags
 
-def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict]) -> dict[str, dict]:
+def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict], institution: str | None = None) -> dict[str, dict]:
+    """Upsert the Item's accounts. Depository balances are positive; credit and loan balances are what you OWE, stored negative.
+    Only masks are stored, never full account or routing numbers."""
     out: dict[str, dict] = {}
     for a in accts:
         b = a.get("balances") or {}
-        typ = {"depository": "checking", "credit": "credit", "investment": "other", "loan": "other"}.get(a.get("type"), "other")
-        if a.get("subtype") == "savings":
+        typ = {"depository": "checking", "credit": "credit", "loan": "loan", "investment": "other"}.get(a.get("type"), "other")
+        if a.get("subtype") in ("savings", "money market", "cd", "hsa"):
             typ = "savings"
-        cur, avail = b.get("current"), b.get("available")
-        # Credit: current balance is what you owe -> negative cents.
-        bal = None if cur is None else (-round(cur * 100) if typ == "credit" else round(cur * 100))
+        cur, avail, limit = b.get("current"), b.get("available"), b.get("limit")
+        owes = typ in ("credit", "loan")
+        bal = None if cur is None else (-round(cur * 100) if owes else round(cur * 100))
         av = None if avail is None else round(avail * 100)
-        row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("name") or "Account", "mask": a.get("mask"),
-               "type": typ, "balance_cents": bal, "available_cents": av, "include_in_safe": typ != "savings"}
+        row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("official_name") or a.get("name") or "Account",
+               "mask": a.get("mask"), "type": typ, "subtype": a.get("subtype"), "institution": institution, "balance_cents": bal, "available_cents": av,
+               "credit_limit_cents": None if limit is None else round(limit * 100), "include_in_safe": typ in ("checking", "credit")}
         saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
         out[a["account_id"]] = saved
     return out
+
+def _cents(v) -> int | None:
+    return None if v is None else round(float(v) * 100)
+
+def apply_liabilities(user_id: str, liab: dict, accts: dict[str, dict]) -> int:
+    """Statement balance, minimum payment, due date and rates for cards; rate and next payment for student loans."""
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    for c in liab.get("credit") or []:
+        a = accts.get(c.get("account_id"))
+        if not a:
+            continue
+        purchase = next((x for x in c.get("aprs") or [] if x.get("apr_type") == "purchase_apr"), None) or next(iter(c.get("aprs") or []), None)
+        rest().update("accounts", {"id": a["id"], "user_id": user_id}, {
+            "statement_balance_cents": _cents(c.get("last_statement_balance")), "minimum_payment_cents": _cents(c.get("minimum_payment_amount")),
+            "next_payment_due_date": c.get("next_payment_due_date"), "last_statement_date": c.get("last_statement_issue_date"),
+            "last_payment_cents": _cents(c.get("last_payment_amount")), "last_payment_date": c.get("last_payment_date"),
+            "apr_bps": None if not purchase or purchase.get("apr_percentage") is None else round(float(purchase["apr_percentage"]) * 100),
+            "liabilities_updated_at": now})
+        n += 1
+    for s_ in liab.get("student") or []:
+        a = accts.get(s_.get("account_id"))
+        if not a:
+            continue
+        rest().update("accounts", {"id": a["id"], "user_id": user_id}, {
+            "interest_rate_bps": None if s_.get("interest_rate_percentage") is None else round(float(s_["interest_rate_percentage"]) * 100),
+            "minimum_payment_cents": _cents(s_.get("minimum_payment_amount")), "next_payment_cents": _cents(s_.get("minimum_payment_amount")),
+            "next_payment_due_date": s_.get("next_payment_due_date"), "last_payment_cents": _cents(s_.get("last_payment_amount")),
+            "last_payment_date": s_.get("last_payment_date"), "liabilities_updated_at": now})
+        n += 1
+    return n
+
+def pair_transfers(user_id: str, days: int = 60) -> int:
+    """Mark internal transfers for the last [days] (see transfers.py). Idempotent; never touches rows whose flow the person edited."""
+    from . import transfers
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    raw = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{since}",
+                        select="id,account_id,amount_cents,occurred_at,merchant_clean,merchant_raw,flow,category_id,transfer_pair_id,user_edited")
+    _, id_to_name = store.category_maps(user_id)
+    types = {a["id"]: a["type"] for a in rest().select("accounts", user_id=f"eq.{user_id}", select="id,type")}
+    patches = transfers.pair(transfers.rows_from_db(raw, id_to_name), types)
+    transfer_cat = {v: k for k, v in id_to_name.items()}.get("Transfer")
+    for tid, patch in patches.items():
+        if patch.get("flow") == "transfer" and transfer_cat:
+            row = next(r for r in raw if r["id"] == tid)
+            if "category" not in (row.get("user_edited") or []):
+                patch = {**patch, "category_id": transfer_cat}
+        rest().update("transactions", {"id": tid, "user_id": user_id}, patch)
+    return len(patches)
 
 def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """A positive transaction near an expected paycheck/refund/IOU of about the same size marks it landed."""
@@ -281,7 +412,12 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
-        accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token))
+        accts = _ensure_accounts(user_id, conn["id"], prov.accounts(token), conn.get("institution"))
+        if "liabilities" in (conn.get("products") or []):
+            try:
+                apply_liabilities(user_id, prov.liabilities(token), accts)
+            except PlaidError:
+                pass                                      # cards still show owed, limit and utilisation from /accounts/get
         while True:
             page = prov.sync_page(token, cursor)
             items = page.get("added", []) + page.get("modified", [])
@@ -330,6 +466,10 @@ def sync_connection(conn: dict, prov: BankProvider | None = None) -> dict:
             if not page.get("has_more"):
                 break
         _ai_categorise(user_id, uncategorised, name_to_id)
+        try:
+            pair_transfers(user_id)
+        except Exception:
+            pass                                          # pairing is re-run on the next sync; never block the cursor
         rest().update("connections", {"id": conn["id"]}, {"cursor": cursor, "last_synced_at": datetime.now(timezone.utc).isoformat(), "status": "active", "error_code": None})
     except PlaidError as e:
         status = "login_required" if e.code in ("ITEM_LOGIN_REQUIRED", "PENDING_EXPIRATION") else "error"
@@ -355,11 +495,12 @@ def _ai_categorise(user_id: str, items: dict[str, str], name_to_id: dict[str, st
 
 # ---------------- routes ----------------
 class LinkTokenBody(BaseModel):
-    connection_id: str | None = None   # set for update mode (re-link)
+    model_config = ConfigDict(extra="forbid")
+    connection_id: str | None = Field(default=None, pattern=r"^[0-9a-f\-]{36}$")   # set for update mode (re-link)
 
 @router.get("/plaid/links")
 def links(user_id: str = Depends(current_user)):
-    used = slots_used(user_id)
+    used = links_used(user_id)
     return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used)}
 
 @router.post("/plaid/link-token")
@@ -370,35 +511,94 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
         if not rows:
             raise HTTPException(404, "connection not found")
         token = rest().rpc("tick_vault_get", {"secret_id": rows[0]["vault_secret_id"]})
-    elif slots_used(user_id) >= ITEM_CAP:
-        raise HTTPException(409, "You have used all 10 bank links.")
+    else:
+        require_link_owner(user_id)
+        if links_used(user_id) >= ITEM_CAP or total_links_used() >= ITEM_CAP:
+            raise HTTPException(409, "You have used all 10 bank links.")
+        # One open new-bank session at a time: re-opening the sheet reuses it, so parallel sessions can't each burn a slot.
+        since = (datetime.now(timezone.utc) - timedelta(minutes=OPEN_SESSION_MIN)).isoformat()
+        open_ = rest().select("plaid_link_sessions", user_id=f"eq.{user_id}", connection_id="is.null", finished_at="is.null",
+                              created_at=f"gte.{since}", select="link_token,hosted_link_url", order="created_at.desc")
+        if open_ and open_[0].get("hosted_link_url"):
+            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": ITEM_CAP - links_used(user_id)}
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
         r = provider().create_link_token(user_id, access_token=token)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
-    rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id}, upsert_on="link_token")
-    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - slots_used(user_id)}
+    rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id,
+                                          "hosted_link_url": r.get("hosted_link_url")}, upsert_on="link_token")
+    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
 
 class CompleteBody(BaseModel):
-    link_token: str
+    model_config = ConfigDict(extra="forbid")
+    link_token: str = Field(min_length=10, max_length=120, pattern=r"^link-(sandbox|development|production)-[A-Za-z0-9\-]+$")
 
-def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True) -> list[dict]:
-    prov = provider()
-    publics = prov.link_token_result(link_token_value)
+CLAIM_STALE_S = 120          # a finisher that crashed mid-way releases its claim after two minutes
+WAIT_FOR_OTHER_S = 12.0      # the losing finisher waits this long for the winner's result
+
+def _claim(link_token_value: str, now: datetime | None = None) -> bool:
+    """Atomic compare-and-set on the link session: exactly one caller (webhook or app) gets True."""
+    now = now or datetime.now(timezone.utc)
+    stale = (now - timedelta(seconds=CLAIM_STALE_S)).isoformat()
+    rows = rest().update("plaid_link_sessions", {"link_token": link_token_value}, {"claimed_at": now.isoformat()},
+                         where={"finished_at": "is.null", "or": f"(claimed_at.is.null,claimed_at.lt.{stale})"})
+    return bool(rows)
+
+def _session_connections(link_token_value: str) -> list[dict] | None:
+    """The result a finished session recorded, or None while it is still in progress."""
+    sess = _session_for_link_token(link_token_value)
+    if not sess or not sess.get("finished_at"):
+        return None
+    ids = sess.get("connection_ids") or []
+    return [c for i in ids for c in rest().select("connections", id=f"eq.{i}")]
+
+def finish_link(user_id: str, link_token_value: str, *, sync_now: bool = True, prov: BankProvider | None = None,
+                wait_s: float = WAIT_FOR_OTHER_S) -> list[dict]:
+    """Exchange the session's public token(s) and create connections. Idempotent and race-safe:
+    - the session is claimed atomically first; a second caller waits for the first one's result and returns the SAME rows;
+    - an item_id that already has a connection is returned as is (no second slot, no second Vault entry);
+    - the slot counter is the set of item_ids, so even a double exchange counts once."""
+    prov = prov or provider()
+    if not _claim(link_token_value):
+        deadline = time.monotonic() + wait_s
+        while True:
+            done = _session_connections(link_token_value)
+            if done is not None:
+                return done
+            if time.monotonic() >= deadline:
+                return []                                          # still running elsewhere; the app sees it arrive through Realtime
+            time.sleep(0.4)
     created: list[dict] = []
-    for pt in publics:
-        access, item_id = prov.exchange(pt)
-        if rest().select("connections", item_id=f"eq.{item_id}", select="id"):
-            continue                                                        # webhook + app both finished the same session
-        take_slot(user_id)
-        sid = rest().rpc("tick_vault_put", {"secret_name": f"plaid-{item_id}", "secret_value": access})
-        inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
-        conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id, "vault_secret_id": sid, "status": "active"})[0]
-        if sync_now:
-            sync_connection(conn, prov)
-        created.append(conn)
+    try:
+        for pt in prov.link_token_result(link_token_value):
+            access, item_id = prov.exchange(pt)
+            existing = rest().select("connections", item_id=f"eq.{item_id}", provider="eq.plaid")
+            if existing:
+                record_item(existing[0]["user_id"], item_id, existing[0].get("institution"), link_token_value)
+                created.append(existing[0])
+                continue
+            inst = prov.item_institution(access) if hasattr(prov, "item_institution") else None
+            products = prov.item_products(access) if hasattr(prov, "item_products") else ["transactions"]
+            record_item(user_id, item_id, inst, link_token_value)
+            sid = rest().rpc("tick_vault_upsert", {"secret_name": f"plaid-{item_id}", "secret_value": access})
+            try:
+                conn = rest().insert("connections", {"user_id": user_id, "provider": "plaid", "institution": inst, "item_id": item_id,
+                                                     "vault_secret_id": sid, "status": "active", "products": products})[0]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code != 409:
+                    raise
+                conn = rest().select("connections", item_id=f"eq.{item_id}", provider="eq.plaid")[0]
+            audit(user_id, "bank_linked", {"institution": inst})
+            if sync_now:
+                sync_connection(conn, prov)
+            created.append({**conn, "_new": True})          # only the finisher that created it schedules the first sync
+    except Exception:
+        rest().update("plaid_link_sessions", {"link_token": link_token_value}, {"claimed_at": None})     # let a retry try again
+        raise
+    rest().update("plaid_link_sessions", {"link_token": link_token_value},
+                  {"finished_at": datetime.now(timezone.utc).isoformat(), "connection_ids": [c["id"] for c in created]})
     return created
 
 @router.post("/plaid/complete")
@@ -407,14 +607,17 @@ def complete(body: CompleteBody, background: BackgroundTasks, user_id: str = Dep
     answer in a couple of seconds. The app sees rows arrive through Realtime and the connection's last_synced_at."""
     user_limiter.check(f"link:{user_id}", 5, 60)
     sess = _session_for_link_token(body.link_token)
-    if sess and sess["user_id"] != user_id:
+    if not sess:
+        raise HTTPException(404, "link session not found")
+    if sess["user_id"] != user_id:
         raise HTTPException(403, "not your link session")
     try:
         created = finish_link(user_id, body.link_token, sync_now=False)
     except PlaidError as e:
         raise HTTPException(502, f"Bank link unavailable ({e.code})")
     for conn in created:
-        background.add_task(_safe_sync, conn)
+        if conn.pop("_new", False):
+            background.add_task(_safe_sync, conn)
     return {"connections": [c["id"] for c in created], "syncing": bool(created), **links(user_id)}
 
 @router.post("/plaid/sync/{connection_id}")
@@ -453,8 +656,9 @@ def _handle_webhook(body: bytes, plaid_verification: str, background: Background
         lt = ev.get("link_token")
         sess = _session_for_link_token(lt)
         if sess and not sess.get("connection_id"):
-            for conn in finish_link(sess["user_id"], lt, sync_now=False):
-                background.add_task(_safe_sync, conn)
+            for conn in finish_link(sess["user_id"], lt, sync_now=False, wait_s=0):
+                if conn.pop("_new", False):
+                    background.add_task(_safe_sync, conn)
         elif sess and sess.get("connection_id"):
             cs = rest().select("connections", id=f"eq.{sess['connection_id']}")
             if cs:

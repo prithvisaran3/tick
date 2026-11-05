@@ -1,0 +1,10 @@
+Transaction Date,Clearing Date,Description,Merchant,Category,Type,Amount (USD),Purchased By
+11/03/2026,11/04/2026,"BLUE BOTTLE COFFEE 300 WEBSTER ST OAKLAND 94607 CA USA",Blue Bottle Coffee,Restaurants,Purchase,6.25,Prithvi S
+11/03/2026,11/04/2026,"BLUE BOTTLE COFFEE 300 WEBSTER ST OAKLAND 94607 CA USA",Blue Bottle Coffee,Restaurants,Purchase,6.25,Prithvi S
+11/02/2026,11/03/2026,"UBER *TRIP HELP.UBER.COM CA",Uber,Transportation,Purchase,18.40,Prithvi S
+11/01/2026,11/02/2026,"WHOLEFDS ARL 10235 ARLINGTON VA",Whole Foods,Grocery,Purchase,42.18,Prithvi S
+10/30/2026,10/31/2026,"AMAZON MKTPL*2K4 AMZN.COM/BILL WA",Amazon,Shopping,Credit,-19.99,Prithvi S
+10/28/2026,10/28/2026,"ACH DEPOSIT INTERNET TRANSFER FROM ACCOUNT ENDING IN 1173",Apple Card,Payment,Payment,-450.00,Prithvi S
+10/27/2026,10/27/2026,"MONTHLY INSTALLMENTS (12 OF 12)",Apple,Other,Installment,41.58,Prithvi S
+10/25/2026,10/25/2026,"INTEREST CHARGE",,Interest,Interest,3.12,Prithvi S
+not a date,,"BROKEN ROW",X,Other,Purchase,1.00,Prithvi S

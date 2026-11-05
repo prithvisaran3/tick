@@ -1,10 +1,13 @@
+import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../domain/safe_to_spend.dart';
 
 class Nudge {
-  const Nudge(this.kind, this.title, this.body, {this.paceRatio, this.urgent = false});
+  const Nudge(this.kind, this.title, this.body, {this.paceRatio, this.urgent = false, this.route});
+  /// Where tapping it goes (defaults: relink -> /banks, else /incoming).
+  final String? route;
   final String kind; // pace | duplicate | forgotten | bill | payday
   final String title;
   final String body;
@@ -31,6 +34,15 @@ Nudge? pickNudge(LedgerState l, SafeToSpend? sts, DateTime now, {String? skipBil
   if (due.isNotEmpty && due.first.merchant != skipBillFor) {
     final r = due.first;
     return Nudge('bill', 'Bill due tomorrow: ${r.merchant}, ${formatDollars(r.expectedCents)}.', 'It comes out tomorrow.');
+  }
+  // 2b. A card statement due within 3 days that still has money due (gentle; Tick never pays it for you).
+  final cards = l.accounts.where((a) => a.isCard && a.dueDate != null && a.statementDueCents > 0).toList()..sort((a, b) => a.dueDate!.compareTo(b.dueDate!));
+  for (final a in cards) {
+    final days = dayOnly(a.dueDate!).difference(today).inDays;
+    if (days >= 0 && days <= 3) {
+      final when = days == 0 ? 'today' : days == 1 ? 'tomorrow' : DateFormat('EEEE').format(a.dueDate!);
+      return Nudge('card', '${a.shortLabel}: ${formatDollars(a.statementDueCents)} due $when.', 'Pay the statement balance from checking by then and there is no interest.', route: '/card/${a.id}');
+    }
   }
   // 3. Duplicate charge: same merchant + amount within 3 days, both outgoing and not marked reviewed.
   final recent = l.txns.where((t) => t.amountCents < 0 && today.difference(dayOnly(t.occurredAt)).inDays <= 3).toList();

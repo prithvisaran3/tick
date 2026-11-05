@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import '../services/privacy.dart';
 import 'ledger.dart';
 import 'ledger_codec.dart';
 
@@ -29,7 +30,8 @@ class LedgerCache {
       final f = await _file();
       final tmp = File('${f.path}.tmp');
       await tmp.writeAsString(json, flush: true);
-      await tmp.rename(f.path);                                  // atomic: a crash mid-write cannot corrupt the cache
+      await tmp.rename(f.path);
+      await Privacy.protect([f.path]);                   // atomic rename above; now file protection complete + no backups
     } catch (_) {/* the cache is an optimisation only */}
   }
 

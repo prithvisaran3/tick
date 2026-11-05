@@ -18,5 +18,8 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TickWebAuth") {
       TickWebAuthPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TickPrivacy") {
+      TickPrivacyPlugin.register(with: registrar)
+    }
   }
 }

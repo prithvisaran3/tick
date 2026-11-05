@@ -2,11 +2,19 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/env.dart';
+import 'secure_session.dart';
 
 /// Supabase starts AFTER the first frame so a slow or offline network can never delay launch.
 final bootstrapProvider = FutureProvider<void>((ref) async {
   if (!Env.hasSupabase) return;
-  await Supabase.initialize(url: Env.supabaseUrl, publishableKey: Env.supabasePublishableKey);
+  await Supabase.initialize(
+    url: Env.supabaseUrl, publishableKey: Env.supabasePublishableKey,
+    // Keychain, not SharedPreferences: tokens never sit in a plain plist or in a backup.
+    authOptions: FlutterAuthClientOptions(
+      localStorage: SecureSessionStorage(legacyKey: 'sb-${Uri.parse(Env.supabaseUrl).host.split('.').first}-auth-token'),
+      pkceAsyncStorage: const SecurePkceStorage(),
+    ),
+  );
 });
 
 /// Current Supabase session; emits on sign-in, sign-out and token refresh. null while unresolved or signed out.

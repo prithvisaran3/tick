@@ -10,6 +10,7 @@ import 'data/settings.dart';
 import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
 import 'features/activity_screen.dart';
+import 'features/cards.dart';
 import 'features/ask_screen.dart';
 import 'features/caught_screen.dart';
 import 'features/flows_screen.dart';
@@ -70,6 +71,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/payday-plan', pageBuilder: (c, s) => _page(s, const PaydayPlanScreen())),
         GoRoute(path: '/categories', pageBuilder: (c, s) => _page(s, const CategoriesScreen())),
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
+        GoRoute(path: '/card/:id', pageBuilder: (c, s) => _page(s, CardScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
@@ -105,7 +107,12 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _taps = notificationTaps.stream.listen((p) { if (mounted) context.push(p == 'payday' ? '/payday-plan' : '/incoming'); });
+    _taps = notificationTaps.stream.listen((p) {
+      if (!mounted) return;
+      // Card reminders carry the account id; only ids that look like ours are routed (a payload is never trusted as a path).
+      final card = RegExp(r'^card:([A-Za-z0-9-]{1,64})$').firstMatch(p);
+      context.push(card != null ? '/card/${card.group(1)}' : p == 'payday' ? '/payday-plan' : '/incoming');
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingAdd();
       _maybeAskNotifications();
@@ -141,7 +148,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     final sts = ref.read(safeToSpendProvider);
     final now = ref.read(clockProvider)();
     if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
-    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals));
+    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts, utilisationAlerts: s.flag('statement_cycle')));
   }
 
   /// Ask for notification permission once, after onboarding, a moment after the first frame, never at launch of a blank app.

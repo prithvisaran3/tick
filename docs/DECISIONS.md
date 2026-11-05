@@ -37,3 +37,28 @@ Format: date · decision · why.
 - Realtime bursts are coalesced to one refresh per 1.5 s; the Plaid first sync moved to background tasks and a per-page bulk insert. `plan()`/reconcile logic itself was not changed in this audit (the batched sync only changes how rows are loaded and written).
 - Supabase migration `20261105000001_indexes_and_cleanup.sql` is written and **not applied**; `tools/db.py push` would apply it. The RLS test file was extended and run (it rolls back).
 - API deploy: the changes are backward compatible and covered by the 127-test suite, but NOT deployed from this session (production deploy was not permitted). Deploy with `cd api && railway up --service tick-api --ci`, then run `python3 tools/e2e_deployed.py`.
+
+## Cards, ideas and security (branch feat/cards-ideas-security, 2026-11-06)
+- **Plaid slot burn, root cause** (Railway logs 2026-11-05 01:34:58): the `SESSION_FINISHED` webhook and the app's `POST /plaid/complete` both exchanged the same public token in the same second. Both saw no connection yet, both bumped `plaid_slots.used` (a read-modify-write), and the second Vault insert hit 409, which surfaced as "That didn't go through". Plaid created ONE Item (same `item_id` in all four lookups). Fix: an atomic claim on the link session (conditional PATCH), an idempotent exchange that returns the existing row, `tick_vault_upsert`, and links used = distinct `item_id`s in an append-only `plaid_items` table. The app client already never retried POSTs; there is now a test for it.
+- **Local Postgres for migrations and RLS** (`tools/local_db.py`, with stubs for auth, vault, storage, pg_net and pg_cron). Migrations and the SQL suites are tested without touching the Supabase project, in the sandbox and in CI.
+- **Totals come from SQL**: `tick_flows`, `tick_activity_page` (keyset on `occurred_at desc, id desc`, 40 a page) and `tick_months`, all SECURITY INVOKER. Demo mode and the signed-out guest ledger use a Dart mirror (`domain/flows.dart`) that a parity test (`flows_parity_test.dart`) checks against the same fixture as `supabase/tests/flows.sql`. The "Day" is the New York day on both sides (`etToUtc`/`etDay` in Dart, so it doesn't depend on the phone's zone).
+- **Money rules**:
+  - Internal transfers (`flow='transfer'`) and the Transfer category are neither spending nor income.
+  - A positive amount on a card or loan that isn't a payment is a refund: it lowers spending, never income.
+  - A loan payment from checking is `flow='bill'`, counted as cash out (a bill).
+  - Fees and interest have their own category.
+- **Transfer pairing** (`api/app/transfers.py`): same total within -1 to +5 days, closest first; one payment can cover 2–3 cards. An unmatched card payment stays a transfer only on strong evidence (Plaid's category, or issuer plus "payment" wording), because the card's purchases are already counted (Apple Card). Zelle to a friend is left alone unless my own account received it.
+- **Liabilities**: requested as an `optional_products` entry when the link token is made. If Plaid refuses the product (plan not enabled), the token is made without it; creating a link token never creates an Item. `/liabilities/get` is called only for Items whose `products` include it, so an older Item is never silently upgraded to a billed product. All four target banks support Transactions and Liabilities (`docs/PLAID_INSTITUTIONS.md`, from the free metadata endpoints).
+- **Safe to spend** subtracts card statements due on or before the next payday (and anything past due). When the bank doesn't share a due date, it subtracts the whole balance (conservative). It also subtracts a loan payment due before payday, unless a recurring bill already covers it.
+- **Apple Card**: no FinanceKit. A Wallet card named "Apple Card" maps to one manual Apple Card account. The CSV import skips rows matching a live capture (same amount, similar merchant, ±2 days), and re-imports are idempotent (`external_ref`). Added `file_picker` (no third-party pods, iOS 14+) to choose the file.
+- **Labs**: four ideas shipped behind Settings flags, all on by default: card-due guard, truly free, statement cycle plus utilisation heads-up, what if. Fifteen more are specced as tickets in `docs/IDEAS.md`.
+- **Security**:
+  - Capture tokens are now minted by the server (the app can no longer insert or rewrite them).
+  - `anon` has no table or function privileges.
+  - The Supabase session and PKCE verifier live in the Keychain (`flutter_secure_storage`, this device only).
+  - Cache files get file protection complete and are excluded from backups through a small Swift channel.
+  - JWTs need `iss`, `aud` and `role`, and a bad signature is never retried against the Auth server.
+  - Logs are redacted and httpx URL logging is off.
+  - No certificate pinning (rotation risk; reasoning in `docs/SECURITY.md`).
+- **Not done by me on purpose**: Supabase Auth config changes (`tools/auth_config.py --apply`), the GitHub repo security settings (the session's GitHub access can't set them), deploys and `db push`. All are in NEXT.md and SECURITY.md §5.
+- **Manual-step order**: `supabase db push` comes before `railway up`, because the new API needs the new tables. Every migration is additive, so the API that is running now keeps working against the new schema.

@@ -1,6 +1,7 @@
 import 'models.dart';
 import 'money.dart';
 import 'payday.dart';
+import 'safe_to_spend.dart';
 
 enum PaceState { calm, warm, hot, over }
 
@@ -39,10 +40,6 @@ BudgetPace budgetPace({required int spentCents, required int capCents, required 
   return BudgetPace(spentCents: spentCents, capCents: capCents, projectedCents: projected, paceFraction: day / total, state: state, early: early);
 }
 
-int spentInMonth(List<Txn> txns, String categoryId, DateTime now) {
-  final start = DateTime(now.year, now.month, 1), end = DateTime(now.year, now.month + 1, 1);
-  return txns.where((t) => t.amountCents < 0 && t.categoryId == categoryId && !t.occurredAt.isBefore(start) && t.occurredAt.isBefore(end)).fold(0, (s, t) => s - t.amountCents);
-}
 
 double goalProgress(Goal g) => g.targetCents == 0 ? 0 : (g.savedCents / g.targetCents).clamp(0.0, 1.0);
 
@@ -72,8 +69,9 @@ PaydayPlan buildPaydayPlan({
 }) {
   final t = dayOnly(today);
   final next = nextPayday(rule, t.add(const Duration(days: 1)));
-  final cash = accounts.where((a) => a.includeInSafe && a.type != 'credit' && a.type != 'savings').fold<int>(0, (s, a) => s + (a.availableCents ?? a.balanceCents ?? 0));
-  final owed = accounts.where((a) => a.includeInSafe && a.type == 'credit').fold<int>(0, (s, a) => s + (a.balanceCents ?? 0).abs());
+  final cash = accounts.where((a) => a.includeInSafe && a.isCash && a.type != 'savings').fold<int>(0, (s, a) => s + (a.availableCents ?? a.balanceCents ?? 0));
+  final debts = debtsDueBy(accounts: accounts, recurring: recurring, today: t, payday: next);
+  final owed = debts.cardsDue + debts.loansDue;
   final paycheck = rule.amountCents;
   var bills = 0;
   for (final r in recurring) {

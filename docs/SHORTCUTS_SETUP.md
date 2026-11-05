@@ -103,6 +103,28 @@ Here `[Message]` stands for the Message variable from the trigger. It is not typ
    - `card` (Text): choose the magic variable **Card** (or **Card Name**, depending on what your iPhone shows)
 5. Tap **Done**.
 
+### Apple Card
+
+Apple Card isn't on Plaid. Tick gets Apple Card purchases in two ways:
+
+1. **Live, from this automation.** In step 2 of "Create the automation", make sure **Apple Card** is one of the selected cards.
+   The `card` field must be the **Card** magic variable. Tick reads the card name: anything named "Apple Card" goes to an
+   **Apple Card** account in Tick (it's created the first time). Other card names are matched to a linked card when only
+   one card fits, for example "Discover It Card" goes to Discover ••1234.
+2. **From the monthly statement.** In Wallet, open **Apple Card**, tap **Statements**, pick a month, then tap
+   **Export Transactions** and choose **CSV**. Save it to Files. In Tick, open **Settings > Import Apple Card statement**
+   and choose the file.
+
+   Tick then tells you "Imported N, skipped M duplicates". A row is skipped when Tick already has a purchase with the same
+   amount, a similar merchant and a date within two days, usually because Wallet caught it live. Importing the same file
+   again adds nothing. Payments to Apple Card count as transfers, not spending, so the card's purchases aren't counted twice.
+
+Test it: send this body from the test Shortcut below. The purchase should land on the Apple Card account.
+
+```json
+{"source": "applepay", "merchant": "Test Coffee", "amount": "1.00", "card": "Apple Card"}
+```
+
 ## Test each automation
 
 Testing first saves you from waiting for a real purchase.
@@ -125,10 +147,10 @@ Testing first saves you from waiting for a real purchase.
 A good response looks like this:
 
 ```json
-{"ok":true,"action":"insert", ...}
+{"ok":true,"status":"received"}
 ```
 
-The response may include more fields. What matters is `"ok":true`.
+The response is the same whatever happened, so a leaked token can't be used to learn what is in your ledger.
 
 ### Check Tick
 

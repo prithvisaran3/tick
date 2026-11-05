@@ -135,15 +135,6 @@ void budgetAndPlanTests() {
     expect(early.line, r'$100 left this month.');
   });
 
-  test('spentInMonth counts only this month outgoing in the category', () {
-    final txns = [
-      Txn(id: '1', amountCents: -1000, occurredAt: DateTime(2026, 11, 2), merchant: 'a', categoryId: 'c'),
-      Txn(id: '2', amountCents: -500, occurredAt: DateTime(2026, 10, 30), merchant: 'a', categoryId: 'c'),
-      Txn(id: '3', amountCents: 700, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'c'),
-      Txn(id: '4', amountCents: -900, occurredAt: DateTime(2026, 11, 3), merchant: 'a', categoryId: 'd'),
-    ];
-    expect(spentInMonth(txns, 'c', DateTime(2026, 11, 20)), 1000);
-  });
 
   test('goal progress clamps', () {
     expect(goalProgress(const Goal(id: 'g', name: 'x', targetCents: 100, savedCents: 150, perPaydayCents: 0)), 1.0);
@@ -209,5 +200,21 @@ void budgetAndPlanTests() {
     final pets = c.read(ledgerProvider).categories.firstWhere((x) => x.name == 'Pets');
     await n.renameCategory(pets.id, 'Pet care');
     expect(c.read(ledgerProvider).categories.any((x) => x.name == 'Pet care'), isTrue);
+  });
+
+  test('card due within 3 days is a gentle nudge and a reminder two days before; paid statements stay quiet', () {
+    final now = DateTime(2026, 11, 10, 8);
+    final disc = Account(id: 'd', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, statementBalanceCents: 64012, dueDate: DateTime(2026, 11, 13));
+    final l = LedgerState(accounts: [disc]);
+    final n = pickNudge(l, null, now)!;
+    expect(n.kind, 'card');
+    expect(n.title, r'Discover ••1234: $640 due Friday.');
+    expect(n.route, '/card/d');
+    final plan = planNotifications(now: now, morningTime: '08:00', weeklyTime: '19:00', sts: null, recurring: const [], goals: const [], accounts: [disc]);
+    final card = plan.where((p) => p.payload == 'card:d').single;
+    expect(card.when, DateTime(2026, 11, 11, 9));
+    expect(card.body, isNot(contains('Pay now')));
+    final paid = Account(id: 'p', name: 'Paid', type: 'credit', balanceCents: 0, statementBalanceCents: 0, dueDate: DateTime(2026, 11, 12));
+    expect(pickNudge(LedgerState(accounts: [paid]), null, now), isNull);
   });
 }

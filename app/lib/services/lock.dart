@@ -6,6 +6,9 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import 'auth.dart';
 
+/// After [away] in the background, does Face ID need to be asked again? 0 seconds = every time the app was left.
+bool shouldRelock(Duration away, int lockAfterSeconds) => away > Duration.zero && away.inSeconds >= lockAfterSeconds;
+
 /// Face ID lock + privacy blur. Covers the app in the app switcher; asks for Face ID when returning if the lock is on.
 class AppLock extends ConsumerStatefulWidget {
   const AppLock({super.key, required this.child});
@@ -18,6 +21,7 @@ class _AppLockState extends ConsumerState<AppLock> with WidgetsBindingObserver {
   bool _covered = false;
   bool _locked = false;
   bool _authing = false;
+  DateTime? _pausedAt;
 
   @override
   void initState() {
@@ -34,9 +38,19 @@ class _AppLockState extends ConsumerState<AppLock> with WidgetsBindingObserver {
     final s = ref.read(settingsProvider);
     if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
       if (_authing) return;
-      setState(() { _covered = s.privacyBlur || s.faceIdLock; if (s.faceIdLock && state == AppLifecycleState.paused) _locked = true; });
+      if (state == AppLifecycleState.paused) _pausedAt ??= DateTime.now();
+      // The app-switcher snapshot is taken now: cover everything (stronger than a blur).
+      setState(() => _covered = s.privacyBlur || s.faceIdLock);
     } else if (state == AppLifecycleState.resumed) {
-      if (_locked) { _unlock(); } else { setState(() => _covered = false); }
+      final away = _pausedAt == null ? Duration.zero : DateTime.now().difference(_pausedAt!);
+      _pausedAt = null;
+      // Ask for Face ID again only after the chosen timeout (Settings > Lock after); 0 = every time.
+      if (s.faceIdLock && (_locked || shouldRelock(away, s.lockAfterSeconds))) {
+        setState(() => _locked = true);
+        _unlock();
+      } else {
+        setState(() => _covered = false);
+      }
     }
   }
 

@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import ai, store
 from .auth import ingest_limiter, user_for_tick_token
@@ -19,6 +19,7 @@ from .reconcile import REVIEW_THRESHOLD, Candidate, plan
 router = APIRouter()
 
 class IngestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source: str = Field(pattern="^(sms|applepay)$")
     text: str | None = Field(default=None, max_length=2000)
     merchant: str | None = Field(default=None, max_length=200)
@@ -64,8 +65,13 @@ def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)
             parsed = parse_applepay(body.merchant, body.amount, body.card)
         if parsed is None:
             rest().update("ingest_logs", {"id": log["id"]}, {"status": "ignored", "result": {"reason": "not a transaction"}})
-            return {"ok": True, "action": "ignored"}
+            return {"ok": True, "status": "received"}
+        if abs(parsed.amount_cents) > 10_000_000:                     # $100k: never a coffee alert
+            raise HTTPException(422, "amount out of range")
         cand, tags = build_candidate(user_id, body.source, ref, parsed, now)
+        if body.source == "applepay" and body.card:
+            # Wallet names the card: "Apple Card" purchases land on the Apple Card account (it is never on Plaid).
+            cand.account_id = store.card_account(user_id, body.card)
         _, id_to_name = store.category_maps(user_id)
         with store.user_lock(user_id):
             actions = plan(cand, store.window(user_id, now), category_names=id_to_name)
@@ -76,7 +82,8 @@ def ingest(body: IngestBody, who: tuple[str, str] = Depends(user_for_tick_token)
                 tid = store.persist(user_id, a, extra) or tid
         res = {"action": action.kind, "reason": action.reason, "confidence": cand.confidence, "needs_review": cand.confidence < REVIEW_THRESHOLD and action.kind == "insert"}
         rest().update("ingest_logs", {"id": log["id"]}, {"status": "ok", "result": res, "transaction_id": tid})
-        return {"ok": True, "transaction_id": tid, **res}
+        # The capture token is write-only: never tell its holder whether it matched an existing purchase.
+        return {"ok": True, "status": "received"}
     except HTTPException:
         rest().update("ingest_logs", {"id": log["id"]}, {"status": "error", "result": {"reason": "bad request"}})
         raise

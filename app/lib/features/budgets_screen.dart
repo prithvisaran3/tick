@@ -2,6 +2,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../data/ledger.dart';
+import '../domain/payday.dart';
+import '../domain/flows.dart';
+import '../data/activity.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
@@ -29,7 +32,11 @@ class BudgetsScreen extends ConsumerWidget {
         if (l.budgets.isEmpty)
           const EmptyState('No budgets yet', 'Set a monthly cap on food or rideshare and Tick draws the pace line.', icon: 'goal')
         else
-          for (final b in l.budgets) Padding(padding: const EdgeInsets.only(bottom: 8), child: _BudgetCard(b: b, ledger: l, now: now, onTap: () => _editBudget(context, ref, b))),
+          for (final b in l.budgets) Padding(padding: const EdgeInsets.only(bottom: 8), child: switch (ref.watch(monthFlowsProvider(dayOnly(now))).value) {
+            // Spent per category comes from the server's month totals (refunds lower it, transfers never count).
+            final MonthFlows f => _BudgetCard(b: b, ledger: l, now: now, spentCents: f.byCategory[b.categoryId] ?? 0, onTap: () => _editBudget(context, ref, b)),
+            null => const Skeleton(height: 96, radius: 24),
+          }),
         SectionLabel('Goals', trailing: TickChip('Add', icon: 'plus', onTap: () => _editGoal(context, ref, null))),
         if (l.goals.isEmpty)
           const EmptyState('No goals yet', 'Name one, set a target, and choose what you move each payday.', icon: 'goal')
@@ -79,7 +86,8 @@ class BudgetsScreen extends ConsumerWidget {
 }
 
 class _BudgetCard extends StatelessWidget {
-  const _BudgetCard({required this.b, required this.ledger, required this.now, required this.onTap});
+  const _BudgetCard({required this.b, required this.ledger, required this.now, required this.onTap, required this.spentCents});
+  final int spentCents;
   final Budget b;
   final LedgerState ledger;
   final DateTime now;
@@ -88,7 +96,7 @@ class _BudgetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final cat = ledger.category(b.categoryId);
-    final p = budgetPace(spentCents: spentInMonth(ledger.txns, b.categoryId, now), capCents: b.capCents, now: now);
+    final p = budgetPace(spentCents: spentCents, capCents: b.capCents, now: now);
     final fillColor = p.state == PaceState.over || p.state == PaceState.hot ? c.alert : c.text;
     return TickCard(
       onTap: onTap,

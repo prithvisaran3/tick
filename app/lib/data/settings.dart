@@ -5,14 +5,29 @@ import '../domain/models.dart';
 import '../services/haptics.dart';
 import 'remote.dart';
 
+/// Labs: shipped ideas from docs/IDEAS.md, each switchable in Settings. (id, title, one-line description)
+const featureFlags = <(String, String, String)>[
+  ('card_guard', 'Card-due guard', 'Warns when checking can\'t cover the card bills due before payday.'),
+  ('truly_free', 'Truly free', 'Shows what is left after every card balance, not only what is due.'),
+  ('statement_cycle', 'Statement cycle', 'Per card: when the statement closes, pay-in-full countdown, and a utilisation heads-up.'),
+  ('what_if', 'What if', 'Try an amount before you buy: see what is left until payday.'),
+];
+
 final sharedPrefsProvider = Provider<SharedPreferences?>((ref) => null);
 
 class AppSettings {
   const AppSettings({
     this.haptics = HapticMode.full, this.sound = true, this.theme = 'system', this.faceIdLock = false, this.privacyBlur = true,
     this.demoMode = false, this.onboardingDone = false, this.rule, this.morningTime = '08:00', this.weeklyTime = '19:00',
-    this.lastMorningReceipt, this.name,
+    this.lastMorningReceipt, this.name, this.flagsOff = const {}, this.hideAmounts = false, this.lockAfterSeconds = 60,
   });
+  /// Feature flags that are switched OFF (everything in [featureFlags] is on by default). Settings > Labs.
+  final Set<String> flagsOff;
+  /// Quick privacy: amounts show as •••• until tapped off (Settings, or long-press the hero).
+  final bool hideAmounts;
+  /// Face ID lock: ask again after the app has been in the background this long (0 = every time).
+  final int lockAfterSeconds;
+  bool flag(String f) => !flagsOff.contains(f);
   final HapticMode haptics;
   final bool sound;
   final String theme; // system | dark | light
@@ -26,15 +41,17 @@ class AppSettings {
   final String? lastMorningReceipt; // yyyy-mm-dd of the last Morning Receipt shown
   final String? name;
 
-  AppSettings copyWith({HapticMode? haptics, bool? sound, String? theme, bool? faceIdLock, bool? privacyBlur, bool? demoMode, bool? onboardingDone, PaydayRule? rule, String? morningTime, String? weeklyTime, String? lastMorningReceipt, String? name}) => AppSettings(
+  AppSettings copyWith({HapticMode? haptics, bool? sound, String? theme, bool? faceIdLock, bool? privacyBlur, bool? demoMode, bool? onboardingDone, PaydayRule? rule, String? morningTime, String? weeklyTime, String? lastMorningReceipt, String? name, Set<String>? flagsOff, bool? hideAmounts, int? lockAfterSeconds}) => AppSettings(
         haptics: haptics ?? this.haptics, sound: sound ?? this.sound, theme: theme ?? this.theme, faceIdLock: faceIdLock ?? this.faceIdLock,
         privacyBlur: privacyBlur ?? this.privacyBlur, demoMode: demoMode ?? this.demoMode, onboardingDone: onboardingDone ?? this.onboardingDone,
         rule: rule ?? this.rule, morningTime: morningTime ?? this.morningTime, weeklyTime: weeklyTime ?? this.weeklyTime,
-        lastMorningReceipt: lastMorningReceipt ?? this.lastMorningReceipt, name: name ?? this.name);
+        lastMorningReceipt: lastMorningReceipt ?? this.lastMorningReceipt, name: name ?? this.name, flagsOff: flagsOff ?? this.flagsOff,
+        hideAmounts: hideAmounts ?? this.hideAmounts, lockAfterSeconds: lockAfterSeconds ?? this.lockAfterSeconds);
 
   Map<String, dynamic> toJson() => {
         'haptics': haptics.name, 'sound': sound, 'theme': theme, 'faceIdLock': faceIdLock, 'privacyBlur': privacyBlur, 'demoMode': demoMode,
         'onboardingDone': onboardingDone, 'morningTime': morningTime, 'weeklyTime': weeklyTime, 'lastMorningReceipt': lastMorningReceipt, 'name': name,
+        'flagsOff': flagsOff.toList(), 'hideAmounts': hideAmounts, 'lockAfterSeconds': lockAfterSeconds,
         if (rule != null) 'rule': {'f': rule!.frequency.name, 'a': rule!.anchor.toIso8601String(), 'c': rule!.amountCents},
       };
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -43,6 +60,8 @@ class AppSettings {
         privacyBlur: (j['privacyBlur'] ?? true) as bool, demoMode: (j['demoMode'] ?? false) as bool, onboardingDone: (j['onboardingDone'] ?? false) as bool,
         morningTime: (j['morningTime'] ?? '08:00') as String, weeklyTime: (j['weeklyTime'] ?? '19:00') as String,
         lastMorningReceipt: j['lastMorningReceipt'] as String?, name: j['name'] as String?,
+        flagsOff: {...((j['flagsOff'] as List?) ?? const []).whereType<String>()}, hideAmounts: (j['hideAmounts'] ?? false) as bool,
+        lockAfterSeconds: (j['lockAfterSeconds'] as num?)?.toInt() ?? 60,
         rule: j['rule'] == null ? null : PaydayRule(
             frequency: PayFrequency.values.firstWhere((f) => f.name == (j['rule'] as Map)['f'], orElse: () => PayFrequency.biweekly), anchor: DateTime.parse((j['rule'] as Map)['a'] as String), amountCents: ((j['rule'] as Map)['c'] as num).toInt()),
       );

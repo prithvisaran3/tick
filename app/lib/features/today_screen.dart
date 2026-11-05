@@ -15,9 +15,12 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../services/haptics.dart';
+import 'cards.dart';
 import 'common.dart';
 import 'nudges.dart';
 import '../domain/budget_plan.dart';
+import '../domain/ideas.dart';
+import '../domain/safe_to_spend.dart';
 
 class TodayScreen extends ConsumerWidget {
   const TodayScreen({super.key});
@@ -52,7 +55,7 @@ class TodayScreen extends ConsumerWidget {
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),
         const SizedBox(height: 16),
         if (ledger.offline) OfflineBanner(onRetry: ref.read(ledgerProvider.notifier).refresh),
-        _Hero(sts: sts, loading: ledger.loading, needsBalance: !settings.demoMode && !ledger.loading && sts != null && !ledger.accounts.any((a) => a.includeInSafe && a.type != 'credit' && a.type != 'savings'), onAddBalance: () async {
+        _Hero(sts: sts, loading: ledger.loading, needsBalance: !settings.demoMode && !ledger.loading && sts != null && !ledger.accounts.any((a) => a.includeInSafe && a.isCash && a.type != 'savings'), onAddBalance: () async {
           final cents = await showAmountSheet(context, title: 'In your checking account');
           if (cents != null) ref.read(ledgerProvider.notifier).setManualBalance(cents);
         }),
@@ -61,8 +64,33 @@ class TodayScreen extends ConsumerWidget {
           SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
             _Pill('${formatDollars(sts.cashCents)} cash'), const SizedBox(width: 6),
             _Pill('${formatDollars(-sts.billsCents)} bills'), const SizedBox(width: 6),
+            if (sts.cardsDueCents > 0) ...[_Pill('${formatDollars(-sts.cardsDueCents)} cards due'), const SizedBox(width: 6)],
+            if (sts.loansDueCents > 0) ...[_Pill('${formatDollars(-sts.loansDueCents)} loan'), const SizedBox(width: 6)],
             _Pill('${formatDollars(-sts.goalsCents)} goals'),
+            if (settings.flag('what_if')) ...[
+              const SizedBox(width: 6),
+              Pressable(onTap: () => _whatIf(context, sts), semanticLabel: 'What if I spend', minSize: 44, child: const _Pill('What if…')),
+            ],
           ])),
+        if (sts != null && settings.flag('truly_free') && sts.cardsLaterCents > 0)
+          Padding(padding: const EdgeInsets.only(top: 8), child: Text(trulyFreeLine(sts), style: context.ts(TickType.bodyS, color: c.textSecondary))),
+        if (settings.flag('card_guard')) ...[
+          if (cardGuard(sts, ledger.accounts, now) case final g?) ...[
+            const SizedBox(height: 12),
+            TickCard(
+              raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              onTap: g.firstDue == null ? null : () => context.push('/card/${g.firstDue!.id}'),
+              child: Semantics(label: cardGuardLine(g, now), excludeSemantics: true, child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(g.short ? 'Cards need more than checking has' : 'Cards before payday', style: context.ts(TickType.title, size: 15.5, color: g.short ? c.alert : c.text)),
+                  const SizedBox(height: 2),
+                  Text(cardGuardLine(g, now), style: context.ts(TickType.bodyS, size: 13.5, color: c.textSecondary)),
+                ])),
+                Text(formatDollars(g.dueCents), style: context.ts(TickType.mono)),
+              ])),
+            ),
+          ],
+        ],
         if (paydayNear && sts != null) ...[
           const SizedBox(height: 12),
           TickCard(
@@ -101,10 +129,11 @@ class TodayScreen extends ConsumerWidget {
           const SizedBox(width: 8),
           Expanded(child: _Strip(label: 'Upcoming', color: c.alert, amount: upcoming.isEmpty ? null : upcoming.first.expectedCents, sub: upcoming.isEmpty ? 'Nothing due this week' : '${upcoming.first.merchant} · ${weekdayName(upcoming.first.nextDate, now)}', onTap: () => context.push('/incoming'))),
         ]),
+        const CardsSection(compact: true),
         if (nudge != null) ...[
           const SizedBox(height: 8),
           TickCard(
-            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => context.push(nudge.kind == 'relink' ? '/banks' : '/incoming'),
+            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => context.push(nudge.route ?? (nudge.kind == 'relink' ? '/banks' : '/incoming')),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(nudge.title, style: context.ts(TickType.title, size: 15.5)),
@@ -119,6 +148,23 @@ class TodayScreen extends ConsumerWidget {
       ],
     );
   }
+}
+
+/// What if: try an amount before you buy it. Suggest-only; nothing is saved.
+Future<void> _whatIf(BuildContext context, SafeToSpend sts) async {
+  final cents = await showAmountSheet(context, title: 'What if you spent', confirm: 'Check');
+  if (cents == null || cents == 0 || !context.mounted) return;
+  final r = whatIf(sts, cents);
+  TickHaptics.instance.priceWeight(cents);
+  final day = DateFormat('EEEE').format(r.payday);
+  await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(formatDollars(r.afterCents.abs()), style: ctx.ts(TickType.hero, color: r.over ? ctx.c.alert : ctx.c.text)),
+        const SizedBox(height: 4),
+        Text(r.over ? 'past safe to spend until $day if you spend ${formatDollars(cents)}.' : 'still safe to spend until $day after ${formatDollars(cents)}.',
+            style: ctx.ts(TickType.body, color: ctx.c.textSecondary)),
+        const SizedBox(height: 16),
+        PillButton('Done', onTap: () => Navigator.of(ctx).pop()),
+      ]));
 }
 
 String _sub(Txn t, LedgerState l, bool first) {
