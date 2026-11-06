@@ -10,8 +10,10 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../services/api.dart';
 import '../services/web_auth.dart';
-import '../design/widgets/refresh.dart';
+import '../design/widgets/scaffold.dart';
 import '../domain/models.dart';
+import '../data/account_counts.dart';
+import '../domain/bank_status.dart';
 import 'cards.dart';
 import 'common.dart';
 
@@ -68,12 +70,12 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     if (ok == true && mounted) await _link();
   }
 
-  Future<void> _link({String? connectionId}) async {
+  Future<void> _link({String? connectionId, bool accounts = false}) async {
     setState(() { _busy = true; _error = null; _note = null; });
     var bankDone = false;          // after Plaid's sheet closes, the Item may already exist even if our call fails
     try {
       final api = ref.read(apiProvider);
-      final j = await api.post('/plaid/link-token', {'connection_id': ?connectionId});
+      final j = await api.post('/plaid/link-token', {'connection_id': ?connectionId, if (accounts) 'accounts': true});
       final url = j['hosted_link_url'] as String?;
       if (url == null) throw ApiException(500, 'no link url');
       await webAuthenticate(url);
@@ -106,9 +108,22 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Pull to refresh is a REAL sync: every bank that doesn't need a person is asked for fresh data, then the ledger reloads.
   Future<void> _refresh() async {
+    final api = ref.read(apiProvider);
+    final conns = ref.read(ledgerProvider).connections.where((c) => !c.needsRelink).toList();
+    if (!ref.read(settingsProvider).demoMode) {
+      await Future.wait([for (final c in conns) api.post('/plaid/sync/${c.id}').then((_) {}).catchError((_) {})]);
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
     await ref.read(ledgerProvider.notifier).refresh();
     await _loadLinks();
+  }
+
+  Future<void> _retry(Connection c) async {
+    try { await ref.read(apiProvider).post('/plaid/sync/${c.id}'); } catch (_) {}
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await ref.read(ledgerProvider.notifier).refresh();
   }
 
   @override
@@ -117,21 +132,19 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     final demo = ref.watch(settingsProvider).demoMode;
     final c = context.c;
     final left = _left ?? (10 - l.linksUsed);
-    return TickScreen(
-      child: TickScrollView(onRefresh: _refresh, slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 48), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        ScreenTitle('Banks', onBack: () => context.pop()),
+    return TickPage(
+      title: 'Banks', onBack: () => context.pop(), onRefresh: _refresh,
+      children: [
         for (final conn in l.connections) ...[
-          TickCard(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(children: [
-              Avatar(conn.institution, 'biz'), const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(conn.institution, style: context.ts(TickType.title, size: 16)),
-                Text(conn.needsRelink ? 'Needs a quick sign-in to keep syncing.' : (conn.status == 'error' ? 'Having trouble syncing. We will keep trying.' : _accountsLine(l, conn)), style: context.ts(TickType.bodyS, color: conn.needsRelink ? c.alert : c.textSecondary)),
-              ])),
-              if (conn.needsRelink) TickChip('Fix', on: true, onTap: _busy ? null : () => _link(connectionId: conn.id)),
-            ]),
-          ),
+          _BankTile(conn: conn, ledger: l, now: ref.watch(clockProvider)(), counts: ref.watch(accountCountsProvider).value ?? const {}, busy: _busy,
+              onAction: (a) {
+                switch (a) {
+                  case BankAction.reconnect: _link(connectionId: conn.id);
+                  case BankAction.fixAccounts: _link(connectionId: conn.id, accounts: true);
+                  case BankAction.retry: _retry(conn);
+                  case BankAction.none: break;
+                }
+              }),
           const SizedBox(height: 8),
         ],
         if (l.connections.isEmpty && !demo) const EmptyState('No banks linked', 'Link one and purchases show up on their own.', icon: 'bank'),
@@ -153,12 +166,57 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: context.ts(TickType.body, color: c.alert))),
         const SizedBox(height: 12),
         Text('Apple Card isn\'t on Plaid. Purchases come in from Wallet, and you can import a statement in Settings.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-      ])))]),
+      ],
     );
   }
+}
 
-  String _accountsLine(LedgerState l, Connection conn) {
-    final n = l.accounts.where((a) => a.institution == conn.institution).length;
-    return n == 0 ? 'Syncing' : n == 1 ? 'Syncing 1 account' : 'Syncing $n accounts';
+class _BankTile extends StatelessWidget {
+  const _BankTile({required this.conn, required this.ledger, required this.now, required this.counts, required this.busy, required this.onAction});
+  final Connection conn;
+  final LedgerState ledger;
+  final DateTime now;
+  final Map<String, AccountCount> counts;
+  final bool busy;
+  final void Function(BankAction) onAction;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final big = MediaQuery.textScalerOf(context).scale(1) > 1.4; // action chip drops below the text so it can't push it off screen
+    final accts = ledger.accounts.where((a) => a.connectionId == conn.id).toList();
+    final total = accts.fold<int>(0, (s, a) => s + (counts[a.id]?.count ?? 0));
+    final st = bankStatus(conn, now, txnCount: total);
+    final color = switch (st.tone) { BankTone.good => c.textSecondary, BankTone.working => c.textSecondary, BankTone.warn => c.alert, BankTone.bad => c.alert };
+    return TickCard(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Semantics(
+        label: '${conn.institution}. ${st.title}. ${st.detail ?? ''}', container: true,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Avatar(conn.institution, 'biz'), const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(conn.institution, style: context.ts(TickType.title, size: 16)),
+              const SizedBox(height: 2),
+              Row(children: [
+                if (st.busy) ...[const TickLoader(size: 5), const SizedBox(width: 8)],
+                Flexible(child: Text(st.title, style: context.ts(TickType.bodyS, color: color))),
+              ]),
+              if (st.detail != null) Text(st.detail!, style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            ])),
+            if (st.actionLabel != null && !big) ...[const SizedBox(width: 8), TickChip(st.actionLabel!, on: st.tone != BankTone.good, onTap: busy ? null : () => onAction(st.action))],
+          ]),
+          if (st.actionLabel != null && big) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerLeft, child: TickChip(st.actionLabel!, on: st.tone != BankTone.good, onTap: busy ? null : () => onAction(st.action)))),
+          if (accts.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final a in accts)
+              Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
+                Expanded(child: Text(a.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS))),
+                const SizedBox(width: 8),
+                Flexible(child: Text(a.isLoan ? 'loan' : '${counts[a.id]?.count ?? 0} transactions', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.monoS, size: 12, color: c.textSecondary))),
+              ])),
+          ],
+        ]),
+      ),
+    );
   }
 }

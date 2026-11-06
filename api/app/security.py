@@ -16,7 +16,7 @@ log = logging.getLogger("tick.security")
 
 # ---------- request size ----------
 DEFAULT_MAX_BODY = 256 * 1024
-MAX_BODY = {"/receipts/scan": 8_100_000, "/import/apple-card": 2_100_000, "/webhooks/plaid": 512 * 1024, "/ask": 64 * 1024}
+MAX_BODY = {"/receipts/scan": 8_100_000, "/import/statement": 5_100_000, "/webhooks/plaid": 512 * 1024, "/ask": 64 * 1024}
 
 def max_body(path: str) -> int:
     return MAX_BODY.get(path, DEFAULT_MAX_BODY)
@@ -122,7 +122,7 @@ def install(app: FastAPI) -> None:
                 pass
         for k, v in SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
-        if response.headers.get("content-type", "").startswith("text/html"):
+        if response.headers.get("content-type", "").startswith("text/html") and "content-security-policy" not in response.headers:
             response.headers["Content-Security-Policy"] = HTML_CSP
         if path != "/plaid/oauth-return":
             response.headers.setdefault("Cache-Control", "no-store")
@@ -133,6 +133,7 @@ _REDACT = [
     (re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]+"), "Bearer [redacted]"),
     (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"), "[jwt]"),
     (re.compile(r"\btk_[A-Za-z0-9_\-]{8,}"), "[capture-token]"),
+    (re.compile(r"(?<=/t/)[A-Za-z0-9_\-]{20,}"), "[share-token]"),
     (re.compile(r"\b(access|public|link)-(sandbox|production|development)-[A-Za-z0-9\-]{8,}"), "[plaid-token]"),
     (re.compile(r"\b(sk-or-v1|sk-ant|sk-proj|sb_secret|sbp)[A-Za-z0-9_\-]{8,}"), "[api-key]"),
     (re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"), "[email]"),

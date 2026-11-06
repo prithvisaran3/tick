@@ -78,9 +78,14 @@ class FakeRest:
                     return r
         return None
 
-    def insert(self, table, row, *, upsert_on=None, returning=True, ignore_duplicates=False):
+    def insert(self, table, row, *, upsert_on=None, returning=True, ignore_duplicates=False, missing_default=False):
         with self.lock:
             out = []
+            if isinstance(row, list) and row and not missing_default:
+                # PostgREST: a bulk insert whose objects carry different keys is refused (PGRST102). Reproduced so the sync can't regress.
+                if any(set(r) != set(row[0]) for r in row):
+                    req = httpx.Request("POST", "http://fake")
+                    raise httpx.HTTPStatusError("400", request=req, response=httpx.Response(400, request=req))
             for r in (row if isinstance(row, list) else [row]):
                 r = dict(r)
                 if table not in PK:

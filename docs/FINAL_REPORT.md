@@ -1,5 +1,37 @@
 # Tick — final report
 
+## Final polish session (branch `feat/final-polish`, PR #3) — read this first
+
+### What changed, per part
+- **0 Bank sync.** Root cause of "Syncing forever": Plaid rows with differing keys made PostgREST bulk inserts fail (rows now normalised, `Prefer: missing=default`, per-row fallback); plus a first-sync status race, stuck connections (cron safety net every 10 min), webhooks (initial/historical/removed/errors) and honest per-bank status in the UI. Tools: `tools/plaid_doctor.py` (read-only), `tools/repair_sync.py` (dry-run default, `--apply`). Details: `docs/SYNC_DIAGNOSIS.md`.
+- **1 Money rules** in one SQL source (`tick_classified`, `tick_flows`), `docs/MONEY_RULES.md`, shared fixtures, Dart mirror property-tested; Chase↔SoFi cross-institution transfer pairing; Zelle to/from people is real money; day/month totals equal visible rows.
+- **2 Activity** one continuous list with keyset paging and month headers carrying totals (5,000-row test). **3 Navigation** Today · Activity · Insights · Tally with Ask Tick as a sheet.
+- **4 Statement import**: Open in Tick, Shortcuts action, CSV/OFX/Apple Card detection, preview, dedupe, undoable batches, statement-day notification (`docs/SHORTCUTS_SETUP.md`).
+- **5 Settings** sparse; large title no longer clips.
+- **6 Tally**: groups and 1:1, equal/exact/percent/shares, balances, simplify, settle-up records, Zelle match suggestions (name required), read-only share link and public page with "I paid" (pending only), Today "You're owed", square-up moment with heartbeat haptic.
+- **7 Responsive/motion**: every screen tested at 320/375/393/430 pt and text up to accessibility XL; overflow fixes; 320/430 goldens.
+- **8 Audit**: three fresh strongest-model reviewers (hostile QA, senior designer, security). High and medium findings fixed; everything else is listed in `docs/AUDIT.md` ("Open" lists).
+- **9 Verification (local)**: API 302 passed; Flutter 457 passed, analyze clean; local Postgres suites (RLS, attacks, flows, money rules, tally) pass; contrast and secret scan clean. CI on PR #3 was still queued when last checked.
+
+### Tested vs NOT tested
+Tested: everything above in the sandbox, plus read-only Plaid diagnostics against the real Items. NOT tested: any Swift (Open in Tick, Shortcuts intent, widget) — not compilable here; anything on a real iPhone (120 Hz, haptics feel, Reduce Motion, Wallet "Open in Tick", Tally invite via Messages); the deployed API; migrations on the real database; real bank reconnection after the fixes.
+
+### Not done / known gaps
+Tally reminders to friends are a share-sheet only; no receipts per Tally expense; Open items in `docs/AUDIT.md` (notably: Ask Tick totals can include excluded transfers, import undo doesn't revert re-homed captures, demo-only category ids make two nudges silent on live data, Plaid sync overwrites `include_in_safe`/name, Swift-side file protection for imported statements).
+
+### Exact next steps (also `docs/NEXT.md`)
+1. Merge PR #3 once CI is green.
+2. `supabase db push --remote` (applies 20261105000001, 20261106000001–3, 20261107000001, 20261108000001).
+3. `python3 tools/run_rls_tests.py`
+4. `cd api && railway up --service tick-api --ci` (set `PUBLIC_BASE_URL` first, or share links return 503).
+5. `python3 tools/e2e_deployed.py`, then `python3 tools/plaid_doctor.py`
+6. `python3 tools/repair_sync.py` (dry run, read it), then `python3 tools/repair_sync.py --apply`
+7. `cd app && flutter pub get`, run on the iPhone (device 00008150-001C1DCE1102401C) with the usual dart-defines.
+8. Reconnect any bank that shows "Reconnect needed" (update mode). Only then link Capital One (6 Item slots remain).
+9. On-device checklist: Open in Tick from Wallet and Files; Tally invite via Messages and "I paid"; square-up marks + heartbeat; Activity scroll smoothness; Reduce Motion and larger text on Today/Activity/Tally.
+
+---
+
 **Finishing session (2026-11-04, later):** AI moved to OpenRouter free models; Plaid link-session mapping and webhook-key hardening; Payday plan, budgets and goals editors, categories and rules editor, torn receipt edge, Pick date, short account labels, onboarding bills row; CI green without secrets. Details at the end of this file and in `docs/NEXT.md` / `docs/DECISIONS.md`.
 
 Built unattended on branch `claude/gifted-cannon-lkg2x3` (the harness designates this branch; merge to `main` yourself).

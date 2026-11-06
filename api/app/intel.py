@@ -82,13 +82,14 @@ def forgotten_subscriptions(detected: list[Detected], used_recently: set[str]) -
 def weekly_summary(txns: list[dict], today: date) -> dict:
     start = today - timedelta(days=7)
     prev = start - timedelta(days=7)
-    cur = [t for t in txns if start <= t["date"] < today and t["amount_cents"] < 0]
-    old = [t for t in txns if prev <= t["date"] < start and t["amount_cents"] < 0]
-    spent = -sum(t["amount_cents"] for t in cur)
-    spent_prev = -sum(t["amount_cents"] for t in old)
+    o = lambda t: t["out_cents"] if "out_cents" in t else max(-t["amount_cents"], 0)     # production rows carry the SQL rule's out_cents
+    cur = [t for t in txns if start <= t["date"] < today and o(t) > 0]
+    old = [t for t in txns if prev <= t["date"] < start and o(t) > 0]
+    spent = sum(o(t) for t in cur)
+    spent_prev = sum(o(t) for t in old)
     by_m: dict[str, int] = {}
     for t in cur:
-        by_m[t["merchant"]] = by_m.get(t["merchant"], 0) - t["amount_cents"]
+        by_m[t["merchant"]] = by_m.get(t["merchant"], 0) + o(t)
     top = sorted(by_m.items(), key=lambda kv: -kv[1])[:3]
     return {"spent_cents": spent, "prev_cents": spent_prev, "top": top, "count": len(cur)}
 
@@ -172,9 +173,9 @@ def ai_status(user_id: str = Depends(current_user)):
 
 def _txns_for(user_id: str, days: int) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    r = rest().c.get(f"{rest().base}/transactions", headers=rest().h, params=[("user_id", f"eq.{user_id}"), ("occurred_at", f"gte.{since}"), ("or", "(flow.is.null,flow.neq.transfer)"), ("select", "merchant_clean,merchant_raw,amount_cents,occurred_at"), ("limit", "5000")])
-    r.raise_for_status()
-    return [{"merchant": x["merchant_clean"] or x["merchant_raw"] or "", "amount_cents": x["amount_cents"], "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date()} for x in r.json()]
+    rows = rest().rpc("tick_classified", {"p_uid": user_id, "p_from": since, "p_to": None})
+    return [{"merchant": x["merchant"] or "", "amount_cents": x["amount_cents"], "out_cents": x["out_c"],
+             "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date()} for x in rows if not x["excluded"]]
 
 def refresh_recurring(user_id: str) -> int:
     today = datetime.now(timezone.utc).date()

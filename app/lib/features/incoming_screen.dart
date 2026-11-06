@@ -85,7 +85,7 @@ class _Row extends StatelessWidget {
             Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 16)),
             Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS, color: subAlert ? context.c.alert : context.c.textSecondary)),
           ])),
-          const SizedBox(width: 8), Money(cents, kind: kind),
+          const SizedBox(width: 8), ConstrainedBox(constraints: const BoxConstraints(maxWidth: 120), child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: Money(cents, kind: kind))),
         ]),
       );
 }

@@ -4,7 +4,7 @@ do $$
 declare
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
   r record; n int; fails text := ''; ok boolean; txn_a uuid; acct_a uuid; conn_a uuid; tok_a uuid; cat_a uuid;
-  callable text[] := array['tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used'];
+  callable text[] := array['tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used','tick_account_counts','tick_top_merchants','tick_classified','tally_save_expense','tally_balances','tally_owed_to_me'];
 begin
   insert into auth.users (id, aud, role, email) values (a, 'authenticated', 'authenticated', 'a@test.local'), (b, 'authenticated', 'authenticated', 'b@test.local');
   select id into cat_a from public.categories where user_id = a limit 1;
@@ -95,6 +95,8 @@ begin
   -- 7. As B through functions: A's data never comes back.
   if (public.tick_flows(null, null) ->> 'count')::int <> (select count(*) from public.transactions where user_id = b) then fails := fails || 'tick_flows leaks; '; end if;
   if public.tick_links_used(a) <> 0 then fails := fails || 'tick_links_used(A) as B; '; end if;
+  -- the money-rules core takes a user id, but RLS still filters to the caller: B asking for A's rows gets nothing
+  if (select count(*) from public.tick_classified(a, null, null)) <> 0 then fails := fails || 'B reads A through tick_classified; '; end if;
   begin perform public.tick_vault_get(gen_random_uuid()); fails := fails || 'B calls tick_vault_get; '; exception when insufficient_privilege then null; end;
   begin perform public.tick_vault_upsert('x', 'y'); fails := fails || 'B calls tick_vault_upsert; '; exception when insufficient_privilege then null; end;
   begin perform public.seed_default_categories(a); fails := fails || 'B seeds A categories; '; exception when insufficient_privilege then null; end;

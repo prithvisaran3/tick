@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
+import '../data/nav.dart';
 import '../data/settings.dart';
+import '../data/tally_store.dart';
 import '../design/motion.g.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -16,6 +18,7 @@ import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'cards.dart';
+import 'ask_button.dart';
 import 'common.dart';
 import 'nudges.dart';
 import '../domain/budget_plan.dart';
@@ -44,12 +47,15 @@ class TodayScreen extends ConsumerWidget {
 
     return TickScrollView(
       onRefresh: ref.read(ledgerProvider.notifier).refresh,
-      slivers: [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.only(bottom: 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      slivers: [SliverToBoxAdapter(child: Padding(padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top, 20, 130), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SizedBox(
           height: 52,
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
             const Wordmark(),
-            Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Settings', minSize: 44, child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const AskButton(),
+              Pressable(onTap: () => context.push('/settings'), semanticLabel: 'Profile and settings', minSize: 44, child: Avatar(first.isEmpty ? 'P' : first, 'biz')),
+            ]),
           ]),
         ),
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(first.isEmpty ? '$greeting.' : '$greeting, $first.', style: context.ts(TickType.bodyL, color: c.textSecondary))),
@@ -90,6 +96,16 @@ class TodayScreen extends ConsumerWidget {
               ])),
             ),
           ],
+        ],
+        if (ref.watch(tallyProvider.select((t) => t.totals.owedToMe)) case final owed when owed > 0) ...[
+          const SizedBox(height: 12),
+          TickCard(
+            raised: true, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), onTap: () => ref.read(shellTabProvider.notifier).go(3),
+            child: Semantics(label: 'You\'re owed ${formatCents(owed)}. Open Tally.', excludeSemantics: true, child: Row(children: [
+              Expanded(child: Text('You\'re owed', style: context.ts(TickType.title, size: 15.5))),
+              Text(formatCents(owed), style: context.ts(TickType.mono, color: c.moneyIn)),
+            ])),
+          ),
         ],
         if (paydayNear && sts != null) ...[
           const SizedBox(height: 12),

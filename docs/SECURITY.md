@@ -89,7 +89,7 @@ first Plaid Item). The 10-Item cap is counted across all users, because it is pe
 | Capture token: 32 random bytes, shown once, SHA-256 stored, scope `ingest`, rotate (`POST /tokens` revokes older ones), revoke, cache dropped on revoke and panic | `test_security.py::test_capture_token_*`, `test_panic_*` |
 | Strict CORS: no browser origin allowed (never `*`) | `test_cors_never_allows_a_browser_origin` |
 | Security headers on every response (HSTS, nosniff, frame DENY, CSP `default-src 'none'`, no-referrer, `Cache-Control: no-store`); `/docs` and `/openapi.json` off | `test_security_headers_*` |
-| Request size limits: 256 KB default; 64 KB `/ask`; 2 MB CSV import; 8 MB receipt photos; chunked bodies counted too | `test_request_size_limits` |
+| Request size limits: 256 KB default; 64 KB `/ask`; 5 MB statement import (`/import/statement`; Plaid webhooks 512 KB); 8 MB receipt photos; chunked bodies counted too | `test_request_size_limits` |
 | Strict pydantic bodies (`extra="forbid"`, patterns on ids and link tokens) | `test_strict_bodies_reject_unknown_fields` |
 | Rate limits per user (per route) and per IP (300 a minute). The IP is the right-most `X-Forwarded-For` entry, which Railway's edge appends, so a forged header can't reset it | `test_per_ip_rate_limit_and_spoofed_forwarded_for`, `test_per_user_rate_limits` |
 | Bad-token bursts (20 401/403s a minute from one address) block the address for 15 minutes and write `bad_token_burst` to the audit log | `test_bad_token_burst_*` |
@@ -210,3 +210,14 @@ and each fix has a test.
   sign-ups closed only you can call them; revisit before opening Tick to others.
 - A capture match can still raise a row's confidence (F7, second half). That's acceptable while capture tokens are
   owner-only and revocable.
+
+
+## Final-polish additions (Parts 4 and 6)
+- **Public share pages** `/t/{token}` and `/t/{token}/paid` are the only unauthenticated HTML routes. Token = 32 random bytes, only its SHA-256 is stored, one identical 404 for unknown/expired/revoked/malformed, per-IP 40/min and per-link 120/min views, "I paid" 6/h per link and 12/h per IP, max 3 pending per person, strict CSP (`default-src 'none'; form-action 'self'`), `no-store`, noindex, everything HTML-escaped. The page shows first names, amounts and the group name to whoever holds the link (by design). "I paid" only creates a *pending* settlement; it never changes a balance. Links are minted only when `PUBLIC_BASE_URL` is set (never from the Host header).
+- **Log redaction**: a share token is the URL path, so the access log writes the route template (`/t/{token}`) and `redact()` also masks `/t/<token>`.
+- **Callable RPCs for signed-in users** are now eleven (the read RPCs plus the write RPC `tally_save_expense`, SECURITY INVOKER, so RLS still applies); `supabase/tests/attacks.sql` pins the exact list.
+- **Cross-user links**: `tally_*` people/group/transaction keys are composite `(id, user_id)` foreign keys, tested with an attack case. (`transactions.account_id/category_id` remain single-column: S1 stays open for those.)
+- **Statement import**: size 5.1 MB at the edge, no XML parser, malformed files return a calm 422 (csv errors, overflow, bad mapping). Open in Tick copies the file to tmp and the app deletes the copy right after reading it; an interrupted import can leave a tmp copy until iOS purges it (known, low; Swift-side data protection class is a manual follow-up).
+- **Audit events** added: `import_batch`, `import_undone`, `tally_edit`, `tally_deleted`, `tally_share`.
+- **Threat model**: add the share-link holder (a friend, or anyone a link is forwarded to) and a hostile statement file arriving through Open in Tick or Shortcuts.
+- **Known, accepted (see AUDIT.md)**: pending cap is a soft check under parallel POSTs; Plaid webhook replay inside the 5-minute signature window is idempotent but not de-duplicated; two concurrent identical statement commits can produce a second batch; `tick://add` prefills Quick add from any caller (user still confirms).

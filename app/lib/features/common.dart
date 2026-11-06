@@ -5,6 +5,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../domain/models.dart';
+import '../domain/merchant_name.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
 
@@ -60,15 +61,19 @@ class TxRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cat = ledger.category(t.categoryId);
     final acct = ledger.account(t.accountId);
-    final sub = subtitle ?? [if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source)].join(' · ');
+    final name = cleanMerchant(t.merchant);
+    final pending = t.status == TxStatus.pending;
+    final sub = subtitle ?? [if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source), if (pending) 'Pending'].join(' · ');
+    final muted = t.isTransfer;
+    final tint = t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop');
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(children: [
-        if (hero) Hero(tag: 'av-${t.id}', child: Avatar(t.merchant, t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop'))) else Avatar(t.merchant, t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop')),
+        if (hero) Hero(tag: 'av-${t.id}', child: Avatar(name, tint)) else Avatar(name, tint),
         const SizedBox(width: 12),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(t.merchant, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 16)),
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 16, color: muted ? context.c.textSecondary : null)),
             const SizedBox(height: 1),
             Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS, color: context.c.textSecondary)),
           ]),
@@ -77,11 +82,11 @@ class TxRow extends StatelessWidget {
         if (sticker)
           Sticker(glow: false, tilt: 2, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5), child: Text(formatCents(t.amountCents, sign: true), style: context.ts(TickType.mono, color: context.c.onAccent).copyWith(fontWeight: FontWeight.w600)))
         else
-          Money(t.amountCents),
+          Opacity(opacity: pending || muted ? 0.62 : 1, child: Money(t.amountCents)),
       ]),
     );
     return Semantics(
-      label: '${t.merchant}, ${formatCents(t.amountCents.abs())} ${t.isIncome ? 'in' : 'out'}, ${cat?.name ?? ''}', button: onTap != null,
+      label: '$name, ${formatCents(t.amountCents.abs())} ${t.isIncome ? 'in' : 'out'}, ${cat?.name ?? ''}${pending ? ', pending' : ''}${t.isTransfer ? ', transfer between your accounts' : ''}', button: onTap != null,
       child: onTap == null ? row : Pressable(onTap: onTap, scale: 0.985, child: row),
     );
   }

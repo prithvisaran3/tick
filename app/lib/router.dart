@@ -9,11 +9,15 @@ import 'data/env.dart';
 import 'data/settings.dart';
 import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
+import 'data/nav.dart';
 import 'features/activity_screen.dart';
+import 'features/import_screen.dart';
+import 'features/insights_screen.dart';
+import 'features/tally_screen.dart';
+import 'features/tally_group_screen.dart';
+import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
-import 'features/ask_screen.dart';
 import 'features/caught_screen.dart';
-import 'features/flows_screen.dart';
 import 'features/gallery_screen.dart';
 import 'features/incoming_screen.dart';
 import 'features/onboarding_screen.dart';
@@ -30,6 +34,8 @@ import 'features/banks_screen.dart';
 import 'features/budgets_screen.dart';
 import 'features/payday_plan_screen.dart';
 import 'domain/notification_plan.dart';
+import 'services/haptics.dart';
+import 'services/open_file.dart';
 import 'services/notifications.dart';
 import 'services/widget_sync.dart';
 
@@ -67,12 +73,19 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
+        GoRoute(path: '/settings/appearance', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.appearance))),
+        GoRoute(path: '/settings/data', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.data))),
+        GoRoute(path: '/settings/labs', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.labs))),
+        GoRoute(path: '/settings/about', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.about))),
         GoRoute(path: '/budgets', pageBuilder: (c, s) => _page(s, const BudgetsScreen())),
         GoRoute(path: '/payday-plan', pageBuilder: (c, s) => _page(s, const PaydayPlanScreen())),
         GoRoute(path: '/categories', pageBuilder: (c, s) => _page(s, const CategoriesScreen())),
+        GoRoute(path: '/import', pageBuilder: (c, s) => _page(s, ImportScreen(path: s.extra as String?))),
         GoRoute(path: '/banks', pageBuilder: (c, s) => _page(s, const BanksScreen())),
         GoRoute(path: '/card/:id', pageBuilder: (c, s) => _page(s, CardScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
+        GoRoute(path: '/tally/split/:txnId', pageBuilder: (c, s) => _page(s, TallySplitScreen(txnId: s.pathParameters['txnId']!))),
+        GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],
@@ -96,7 +109,6 @@ class Shell extends ConsumerStatefulWidget {
 }
 
 class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
-  int _i = 0;
   final Set<int> _built = {0};
   Timer? _syncTimer;
   StreamSubscription<String>? _taps;
@@ -111,7 +123,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
       if (!mounted) return;
       // Card reminders carry the account id; only ids that look like ours are routed (a payload is never trusted as a path).
       final card = RegExp(r'^card:([A-Za-z0-9-]{1,64})$').firstMatch(p);
-      context.push(card != null ? '/card/${card.group(1)}' : p == 'payday' ? '/payday-plan' : '/incoming');
+      context.push(card != null ? '/card/${card.group(1)}' : p == 'payday' ? '/payday-plan' : p == 'import' ? '/import' : '/incoming');
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingAdd();
@@ -148,7 +160,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     final sts = ref.read(safeToSpendProvider);
     final now = ref.read(clockProvider)();
     if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
-    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts, utilisationAlerts: s.flag('statement_cycle')));
+    ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts, utilisationAlerts: s.flag('statement_cycle'), statementDay: l.accounts.any((a) => a.institution == 'Apple Card')));
   }
 
   /// Ask for notification permission once, after onboarding, a moment after the first frame, never at launch of a blank app.
@@ -188,6 +200,10 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final l = ref.watch(ledgerProvider);
+    // A statement handed to Tick ("Open in Tick" from Wallet or Files, or the Shortcuts action) opens the import flow.
+    ref.listen(incomingFilesProvider, (prev, next) {
+      if (next.isNotEmpty && (prev?.length ?? 0) < next.length) context.push('/import');
+    });
     ref.listen(pendingQuickAddProvider, (prev, next) {
       if (next == null) return;
       ref.read(pendingQuickAddProvider.notifier).state = null;
@@ -203,11 +219,15 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _maybeReceipt(ref.read(ledgerProvider)); });
-    Widget page(int i) => _built.contains(i) ? const [TodayScreen(), ActivityScreen(), FlowsScreen(), AskScreen()][i] : const SizedBox.shrink();
-    return TickScreen(
+    final tab = ref.watch(shellTabProvider);
+    if (!_built.contains(tab)) _built.add(tab);
+    Widget page(int i) => _built.contains(i) ? const [TodayScreen(), ActivityScreen(), InsightsScreen(), TallyScreen()][i] : const SizedBox.shrink();
+    // Each tab owns its own safe area and gutters (collapsing large titles need the full width), so the shell adds none.
+    return ColoredBox(
+      color: context.c.bg,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned.fill(child: IndexedStack(index: _i, children: [for (var i = 0; i < 4; i++) page(i)])),
-        Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: _i, badge: l.needsReview.length, onTap: (i) => setState(() { _i = i; _built.add(i); }), onAdd: () => showQuickAdd(context))),
+        Positioned.fill(child: IndexedStack(index: tab, children: [for (var i = 0; i < 4; i++) page(i)])),
+        Positioned(left: 0, right: 0, bottom: 0, child: TickTabBar(index: tab, badge: l.needsReview.length, onTap: (i) { TickHaptics.instance.selection(); ref.read(shellTabProvider.notifier).go(i); }, onAdd: () => showQuickAdd(context))),
       ]),
     );
   }

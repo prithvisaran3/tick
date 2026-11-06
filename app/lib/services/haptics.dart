@@ -75,6 +75,18 @@ class TickHaptics {
     return priceWeight(cents);
   }
 
+  // Everyday interactions mapped onto the language (docs/DECISIONS.md "Haptic map"). Silent when Haptics is Off, and light by design.
+  /// Selection tick: a chip, a toggle, a segment, crossing into another month while scrolling.
+  Future<void> selection() {
+    log.add('selection');
+    if (_mode == HapticMode.off || recordOnly) return Future.value();
+    return HapticFeedback.selectionClick();
+  }
+  /// Confirm: a sheet applied, a swipe action committed (the two-tick "looks right").
+  Future<void> confirm() => sortRight();
+  /// Success: an import finished, a send went through (price-weight, mid).
+  Future<void> success() => play('price_weight', tier: 'mid');
+
   /// Errors use the standard system warning, never a custom pattern.
   Future<void> warning() => HapticFeedback.heavyImpact();
 }

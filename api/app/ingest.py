@@ -35,9 +35,10 @@ def build_candidate(user_id: str, source: str, ref: str, parsed: ParsedAlert, no
         ai_res = ai.categorize_ai(user_id, clean, list(name_to_id))
         if ai_res:
             clean, cat_name = ai_res[0] or clean, ai_res[1]
-    if parsed.amount_cents > 0:
+    refund = parsed.amount_cents > 0 and source == "applepay"        # Wallet money back on a card is a refund, never income
+    if parsed.amount_cents > 0 and not refund:
         cat_name = "Income"
-    tags = ["business"] if parsed.amount_cents < 0 and looks_business(clean or parsed.merchant_raw) else []
+    tags = ["business"] if parsed.amount_cents < 0 and looks_business(clean or parsed.merchant_raw) else (["refund"] if refund else [])
     cand = Candidate(source=source, ref=ref, amount_cents=parsed.amount_cents, occurred_at=now, merchant_raw=parsed.merchant_raw, merchant_clean=clean,
                      card_last4=parsed.card_last4, status="posted", confidence=parsed.confidence, category_id=name_to_id.get(cat_name))
     return cand, tags

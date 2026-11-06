@@ -55,7 +55,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
   }
 
   Future<void> _print() async {
-    final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)());
+    final r = buildReceipt(ref.read(ledgerProvider).txns, ref.read(clockProvider)(), cats: {for (final c in ref.read(ledgerProvider).categories) c.id: c}, accounts: {for (final a in ref.read(ledgerProvider).accounts) a.id: a});
     _fetchAdvice(r);
     final n = r.lines.length + (r.moreCount > 0 ? 1 : 0);
     if (!widget.animate || context.reduceMotion) { setState(() { _shown = n; _stamped = true; }); return; }
@@ -97,7 +97,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
     final now = ref.watch(clockProvider)();
     final sts = ref.watch(safeToSpendProvider);
     final c = context.c;
-    final r = buildReceipt(l.txns, now);
+    final r = buildReceipt(l.txns, now, cats: {for (final c in l.categories) c.id: c}, accounts: {for (final a in l.accounts) a.id: a});
     final paper = context.isDark ? TickPalette.paper : TickPalette.paper2;
     final advice = widget.advice ?? _serverAdvice ?? fallbackAdvice(r, sts?.cents ?? 0, sts?.daysToPayday ?? 1);
     final lines = <Widget>[
@@ -150,7 +150,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                       const SizedBox(height: 14),
                       Align(
                         alignment: Alignment.centerRight,
-                        child: SizedBox(height: 52, child: _stamped
+                        child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 52), child: _stamped
                             ? PopIn(fromScale: 1.15, fromTilt: 0.2, spring: TickSprings.pop, child: Transform.rotate(angle: -0.14, child: UnconstrainedBox(child: Container(padding: const EdgeInsets.symmetric(horizontal: 20), alignment: Alignment.center, decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(99), border: Border.all(color: ink, width: 3)), child: Text('Ticked.', style: context.ts(TickType.displayM, color: ink, size: 22))))))
                             : const SizedBox()),
                       ),
@@ -162,7 +162,7 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary))]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [TickIcon('share', size: 20, color: c.textSecondary), const SizedBox(width: 8), Flexible(child: Text('Tear off to share', style: context.ts(TickType.body, color: c.textSecondary)))]),
         const SizedBox(height: 16),
         ]))),
         Padding(padding: const EdgeInsets.only(bottom: 44), child: PillButton('Show me today', onTap: () => context.go('/'))),

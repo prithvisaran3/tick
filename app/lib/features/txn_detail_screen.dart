@@ -49,6 +49,10 @@ class TxnDetailScreen extends ConsumerWidget {
         Row(children: [
           Expanded(child: PillButton(t.isBusiness ? 'Business ✓' : 'Mark Business', style: t.isBusiness ? PillStyle.primary : PillStyle.quiet, icon: 'briefcase', onTap: () => ref.read(ledgerProvider.notifier).toggleBusiness(t.id))),
         ]),
+        if (t.amountCents < 0 && !t.isTransfer) ...[
+          const SizedBox(height: 8),
+          PillButton('Split with friends', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')),
+        ],
         if (t.needsReview) ...[
           const SizedBox(height: 8),
           PillButton('Looks right', style: PillStyle.inverse, icon: 'check', onTap: () => ref.read(ledgerProvider.notifier).markLooksRight(t.id)),

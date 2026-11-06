@@ -4,7 +4,7 @@ import 'models.dart';
 /// supabase/migrations/20261106000002_activity_cards.sql); this Dart mirror is used only for demo mode and the signed-out guest
 /// ledger, and test/flows_parity_test.dart checks it against the same fixture and numbers as supabase/tests/flows.sql.
 ///
-///   excluded = internal transfer (flow 'transfer') or a Transfer-kind category: never spending, never income.
+///   excluded = flow 'transfer' (own accounts, card and loan payments) or 'settlement' (Tally): never spending, never income.
 ///   out      = money leaving, positive (purchases, card purchases, fees, loan payments).
 ///   refund   = money coming back onto a card or loan that isn't a payment: it lowers out, it isn't income.
 ///   in       = money arriving in cash accounts, or anything categorised Income.
@@ -35,7 +35,8 @@ class Totals {
 String? _kind(String? categoryId, Map<String, Category>? cats) =>
     cats?[categoryId]?.kind ?? (categoryId == 'cat-transfer' ? 'transfer' : categoryId == 'cat-income' ? 'income' : null);
 
-bool isExcluded(Txn t, {Map<String, Category>? cats}) => t.flow == 'transfer' || _kind(t.categoryId, cats) == 'transfer';
+/// Only the FLOW excludes money. A Transfer-kind category is a label: Zelle to a friend is real money out (docs/MONEY_RULES.md).
+bool isExcluded(Txn t, {Map<String, Category>? cats}) => t.flow == 'transfer' || t.flow == 'settlement';
 
 /// Positive money out for one row (negative for a card refund), 0 if excluded or money in.
 int outOf(Txn t, {Map<String, Category>? cats, Map<String, Account>? accounts}) {

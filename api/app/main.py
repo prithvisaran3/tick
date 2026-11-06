@@ -17,6 +17,7 @@ from .imports import router as imports_router
 
 from . import security
 from .account import router as account_router
+from .tally import router as tally_router
 
 log = logging.getLogger("tick")
 security.configure_logging()
@@ -33,6 +34,7 @@ app.include_router(ask_router)
 app.include_router(receipts_router)
 app.include_router(imports_router)
 app.include_router(account_router)
+app.include_router(tally_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 
@@ -62,7 +64,9 @@ async def access_log(request: Request, call_next):
     response = await call_next(request)
     ms = int((time.time() - t0) * 1000)
     if request.url.path != "/health":
-        log.info("%s %s -> %s %dms rid=%s", request.method, request.url.path, response.status_code, ms, rid)   # no query string, no body
+        route = request.scope.get("route")
+        shown = getattr(route, "path", None) if request.url.path.startswith("/t/") else request.url.path   # a share link's path IS its credential
+        log.info("%s %s -> %s %dms rid=%s", request.method, shown or "/t/[token]", response.status_code, ms, rid)   # no query string, no body
     response.headers["x-request-id"] = rid
     return response
 

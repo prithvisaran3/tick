@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tick/data/ledger.dart';
 import 'package:tick/data/settings.dart';
 import 'package:tick/design/theme.dart';
+import 'package:tick/design/tokens.g.dart';
 import 'package:tick/design/widgets/more.dart';
 import 'package:tick/services/haptics.dart';
 
@@ -50,9 +51,9 @@ Widget frame(ProviderContainer c, Widget child, {required bool dark, int? tab}) 
             style: TextStyle(fontFamily: 'Satoshi', color: dark ? const Color(0xFFF5F3EC) : const Color(0xFF0E0E12), decoration: TextDecoration.none),
             child: tab == null
                 ? child
-                : TickScreen(child: Stack(clipBehavior: Clip.none, children: [
+                : ColoredBox(color: dark ? tickDarkColors.bg : tickLightColors.bg, child: Stack(clipBehavior: Clip.none, children: [
                     Positioned.fill(child: child),
-                    Positioned(left: -20, right: -20, bottom: 0, child: TickTabBar(index: tab, onTap: (_) {}, onAdd: () {})),
+                    Positioned(left: 0, right: 0, bottom: 0, child: TickTabBar(index: tab, onTap: (_) {}, onAdd: () {})),
                   ])),
           ),
         ),
@@ -62,8 +63,8 @@ Widget frame(ProviderContainer c, Widget child, {required bool dark, int? tab}) 
   );
 }
 
-Future<void> pumpGolden(WidgetTester tester, Widget w) async {
-  tester.view.physicalSize = const Size(393 * 2, 852 * 2);
+Future<void> pumpGolden(WidgetTester tester, Widget w, {double width = 393, double height = 852}) async {
+  tester.view.physicalSize = Size(width * 2, height * 2);
   tester.view.devicePixelRatio = 2;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(w);

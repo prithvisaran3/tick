@@ -7,7 +7,7 @@ import logging
 from .db import rest
 
 EVENTS = {"sign_in", "token_created", "token_revoked", "tokens_revoked_all", "bank_linked", "bank_removed", "data_deleted",
-          "sessions_revoked", "bad_token_burst", "plaid_item_removed"}
+          "sessions_revoked", "bad_token_burst", "plaid_item_removed", "import_batch", "import_undone", "tally_edit", "tally_share", "tally_deleted"}
 _SAFE_KEYS = {"institution", "count", "token_last4", "reason", "scope"}
 log = logging.getLogger("tick.audit")
 

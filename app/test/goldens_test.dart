@@ -3,15 +3,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/features/activity_screen.dart';
 import 'package:tick/features/banks_screen.dart';
 import 'package:tick/features/cards.dart';
+import 'package:tick/features/ask_button.dart';
 import 'package:tick/features/ask_screen.dart';
+import 'package:tick/features/tally_screen.dart';
+import 'package:tick/features/tally_group_screen.dart';
+import 'package:tick/features/tally_square.dart';
+import 'package:tick/features/tally_expense_sheet.dart';
+import 'package:tick/domain/tally.dart';
+import 'package:tick/design/theme.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
 import 'package:tick/domain/models.dart';
-import 'package:tick/features/flows_screen.dart';
+import 'package:tick/features/insights_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/receipt_screen.dart';
+import 'package:tick/features/import_screen.dart';
 import 'package:tick/features/settings_screen.dart';
 import 'package:tick/features/today_screen.dart';
 import 'golden_harness.dart';
@@ -22,9 +30,13 @@ void main() {
   final screens = <String, (Widget Function(), int?)>{
     'today': (() => const TodayScreen(), 0),
     'activity': (() => const ActivityScreen(), 1),
-    'flows': (() => const FlowsScreen(), 2),
-    'ask-tick': (() => const AskScreen(), 3),
-    'ask-tick-answer': (() => const AskScreen(), 3),
+    'insights': (() => const InsightsScreen(), 2),
+    'tally': (() => const TallyScreen(), 3),
+    'tally-group': (() => const TallyGroupScreen(id: 'g-room'), null),
+    'tally-square': (() => const _InSheet(SquareUpMoment()), null),
+    'tally-expense': (() => const _InSheet(ExpenseSheet(group: TallyGroup(id: 'g-room', name: 'Roommates', memberIds: ['p-k', 'p-j']), description: 'Dinner', cents: 8750)), null),
+    'ask-tick': (() => const _InSheet(AskSheet()), null),
+    'ask-tick-answer': (() => const _InSheet(AskSheet()), null),
     'caught': (() => const CaughtScreen(), null),
     'morning-receipt': (() => const ReceiptScreen(animate: false), null),
     'incoming-upcoming': (() => const IncomingScreen(), null),
@@ -36,6 +48,11 @@ void main() {
     'payday-plan': (() => const PaydayPlanScreen(), null),
     'categories': (() => const CategoriesScreen(), null),
     'banks': (() => const BanksScreen(), null),
+    'import': (() => const ImportScreen(), null),
+    'settings-appearance': (() => const SettingsScreen(page: SettingsPage.appearance), null),
+    'settings-data': (() => const SettingsScreen(page: SettingsPage.data), null),
+    'settings-labs': (() => const SettingsScreen(page: SettingsPage.labs), null),
+    'settings-about': (() => const SettingsScreen(page: SettingsPage.about), null),
     'card': (() => const CardScreen(id: 'acc-disc'), null),
     'landed': (() => IncomingScreen(landed: Expected(id: 'e', kind: ExpectedKind.iou, label: 'Alex', amountCents: 4000, date: DateTime(2026, 11, 4))), null),
   };
@@ -52,6 +69,21 @@ void main() {
       });
     }
   }
+
+  // The same key screens at the narrowest (SE-class, 320) and widest (Pro Max, 430) iPhone widths.
+  for (final k in ['today', 'activity', 'insights', 'tally', 'tally-group', 'settings']) {
+    for (final w in [320.0, 430.0]) {
+      testWidgets('golden $k ${w.toInt()}pt dark', (tester) async {
+        final c = await demoContainer();
+        addTearDown(c.dispose);
+        debugDisableShadows = false;
+        final e = screens[k]!;
+        await pumpGolden(tester, frame(c, e.$1(), dark: true, tab: e.$2), width: w, height: w == 320 ? 700 : 932);
+        await expectLater(find.byType(WidgetsApp), matchesGoldenFile('goldens/$k.${w.toInt()}.dark.png'));
+        debugDisableShadows = true;
+      });
+    }
+  }
 }
 
 class _SeededAsk extends AskNotifier {
@@ -63,4 +95,12 @@ class _SeededAsk extends AskNotifier {
           {'kind': 'txns', 'ids': ['demo-2', 'demo-4']},
         ]),
       ];
+}
+
+/// Sheets get their background and gutters from the sheet host in the app; give them the same here.
+class _InSheet extends StatelessWidget {
+  const _InSheet(this.child);
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => ColoredBox(color: context.c.bg, child: Padding(padding: const EdgeInsets.fromLTRB(20, 60, 20, 0), child: Align(alignment: Alignment.topCenter, child: child)));
 }

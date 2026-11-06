@@ -143,7 +143,7 @@ def _routes(rs):
 def test_every_user_route_requires_auth():
     routes = list(_routes(app.routes))
     assert len(routes) > 20
-    open_routes = {"/health", "/webhooks/plaid", "/plaid/oauth-return", "/ingest"} | {r.path for r in routes if r.path.startswith("/jobs/")}
+    open_routes = {"/health", "/webhooks/plaid", "/plaid/oauth-return", "/ingest", "/t/{token}", "/t/{token}/paid"} | {r.path for r in routes if r.path.startswith("/jobs/")}
     for r in routes:
         path = getattr(r, "path", "")
         if path in open_routes or path.endswith("-test") or not getattr(r, "methods", None):
@@ -282,7 +282,7 @@ def test_F1_only_the_owner_can_start_a_new_bank_link(db, monkeypatch):
     monkeypatch.delenv("TICK_OWNER_USER_IDS", raising=False)
     db.insert("plaid_items", {"item_id": "item-owner", "user_id": U, "created_at": "2026-11-05T01:35:00+00:00"})
     class Prov:
-        def create_link_token(self, uid, access_token=None): return {"link_token": "link-production-new", "hosted_link_url": "https://hosted.plaid/x"}
+        def create_link_token(self, uid, access_token=None, accounts=False): return {"link_token": "link-production-new", "hosted_link_url": "https://hosted.plaid/x"}
     monkeypatch.setattr(P, "_provider", Prov())
     app.dependency_overrides[current_user] = lambda: OTHER                  # a stranger who signed up with Google
     try:
@@ -300,7 +300,7 @@ def test_F1_the_cap_counts_every_users_items(db):
 def test_F5_reopening_the_link_sheet_reuses_the_open_session(db, monkeypatch, signed_in):
     made = []
     class Prov:
-        def create_link_token(self, uid, access_token=None):
+        def create_link_token(self, uid, access_token=None, accounts=False):
             made.append(1); return {"link_token": f"link-production-{len(made)}", "hosted_link_url": f"https://hosted.plaid/{len(made)}"}
     monkeypatch.setattr(P, "_provider", Prov())
     from datetime import datetime, timezone
@@ -360,3 +360,9 @@ def test_F9_delete_all_never_orphans_a_live_plaid_token(signed_in, db, monkeypat
     c = db.rows("connections")[0]
     assert c["status"] == "removed" and c["error_code"] == "REMOVE_PENDING"
     assert db.rows("profiles")[0]["email"] is None
+
+def test_share_link_tokens_are_redacted_from_logs():
+    from app.security import redact
+    tok = "GGy_vltyKyAbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    assert tok not in redact(f"GET /t/{tok} -> 200")
+    assert tok not in redact(f"POST /t/{tok}/paid -> 200")

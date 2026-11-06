@@ -8,11 +8,12 @@ import 'package:tick/features/cards.dart';
 import 'package:tick/features/ask_screen.dart';
 import 'package:tick/features/budgets_screen.dart';
 import 'package:tick/features/caught_screen.dart';
-import 'package:tick/features/flows_screen.dart';
+import 'package:tick/features/insights_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
 import 'package:tick/features/receipt_screen.dart';
+import 'package:tick/features/import_screen.dart';
 import 'package:tick/features/settings_screen.dart';
 import 'package:tick/features/today_screen.dart';
 import 'golden_harness.dart';
@@ -23,7 +24,7 @@ void main() {
   final screens = <String, (Widget Function(), int?)>{
     'today': (() => const TodayScreen(), 0),
     'activity': (() => const ActivityScreen(), 1),
-    'flows': (() => const FlowsScreen(), 2),
+    'insights': (() => const InsightsScreen(), 2),
     'ask': (() => const AskScreen(), 3),
     'caught': (() => const CaughtScreen(), null),
     'receipt': (() => const ReceiptScreen(animate: false), null),
@@ -35,6 +36,11 @@ void main() {
     'budgets': (() => const BudgetsScreen(), null),
     'payday-plan': (() => const PaydayPlanScreen(), null),
     'banks': (() => const BanksScreen(), null),
+    'import': (() => const ImportScreen(), null),
+    'settings-appearance': (() => const SettingsScreen(page: SettingsPage.appearance), null),
+    'settings-data': (() => const SettingsScreen(page: SettingsPage.data), null),
+    'settings-labs': (() => const SettingsScreen(page: SettingsPage.labs), null),
+    'settings-about': (() => const SettingsScreen(page: SettingsPage.about), null),
     'card': (() => const CardScreen(id: 'acc-disc'), null),
     'categories': (() => const CategoriesScreen(), null),
   };

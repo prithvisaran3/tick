@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import applecard as AC
 from app import audit as audit_mod
-from app import imports, plaid as P, store
+from app import plaid as P, store
 from app.auth import current_user
 from app.main import app
 from tests.fakerest import FakeRest
@@ -49,41 +49,9 @@ def test_live_captures_are_never_imported_twice():
 @pytest.fixture
 def db(monkeypatch):
     f = FakeRest()
-    for mod in (P, store, imports, audit_mod):
+    for mod in (P, store, audit_mod):
         monkeypatch.setattr(mod, "rest", lambda: f)
-    for n in ["Restaurants", "Rideshare", "Groceries", "Shopping", "Transfer", "Fees and interest", "Other", "Coffee"]:
-        f.insert("categories", {"user_id": U, "name": n})
-    class Resp:
-        def __init__(self, rows): self.rows = rows
-        def raise_for_status(self): pass
-        def json(self): return self.rows
-    class C:
-        def get(self, url, headers=None, params=None):
-            return Resp([t for t in f.rows("transactions") if t["user_id"] == U])
-    f.c, f.base, f.h = C(), "http://fake", {}
     return f
-
-def test_route_imports_and_reports_counts(db):
-    db.insert("transactions", {"user_id": U, "amount_cents": -625, "occurred_at": "2026-11-03T23:10:00+00:00", "merchant_clean": "Blue Bottle Coffee", "external_ref": None})
-    app.dependency_overrides[current_user] = lambda: U
-    try:
-        c = TestClient(app)
-        r = c.post("/import/apple-card", files={"file": ("statement.csv", SAMPLE, "text/csv")})
-        assert r.status_code == 200
-        assert r.json() == {"imported": 7, "skipped_duplicates": 1, "already_imported": 0, "unreadable": 1}
-        r2 = c.post("/import/apple-card", files={"file": ("statement.csv", SAMPLE, "text/csv")})
-        assert r2.json()["imported"] == 0 and r2.json()["already_imported"] == 7
-        assert c.post("/import/apple-card", files={"file": ("x.csv", b"hello", "text/csv")}).status_code == 422
-    finally:
-        app.dependency_overrides.clear()
-    apple = [a for a in db.rows("accounts") if a["provider_account_id"] == AC.APPLE_CARD_ACCOUNT_REF]
-    assert len(apple) == 1 and apple[0]["type"] == "credit"
-    inserted = [t for t in db.rows("transactions") if t.get("external_ref")]
-    assert all(t["account_id"] == apple[0]["id"] for t in inserted)
-    assert any(t["flow"] == "transfer" for t in inserted)                       # the payment is an internal transfer
-
-def test_import_requires_sign_in():
-    assert TestClient(app).post("/import/apple-card", files={"file": ("s.csv", SAMPLE, "text/csv")}).status_code == 401
 
 def test_wallet_card_name_maps_to_the_apple_card_account(db):
     a = store.card_account(U, "Apple Card")

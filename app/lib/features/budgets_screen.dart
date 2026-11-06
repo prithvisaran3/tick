@@ -106,7 +106,8 @@ class _BudgetCard extends StatelessWidget {
           Row(children: [
             Avatar(cat?.name ?? '?', cat?.colorKey ?? 'shop', size: 32), const SizedBox(width: 12),
             Expanded(child: Text(cat?.name ?? 'Category', style: context.ts(TickType.title, size: 16))),
-            Text('${formatDollars(p.spentCents)} of ${formatDollars(p.capCents)}', style: context.ts(TickType.monoS)),
+            const SizedBox(width: 8),
+            Flexible(flex: 2, child: Text('${formatDollars(p.spentCents)} of ${formatDollars(p.capCents)}', textAlign: TextAlign.end, style: context.ts(TickType.monoS))),
           ]),
           const SizedBox(height: 12),
           // The pace line: a tick where you would be if spending were even across the month.
@@ -142,7 +143,8 @@ class _GoalCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Text(g.name, style: context.ts(TickType.title, size: 16))),
-            Text('${formatDollars(g.savedCents)} of ${formatDollars(g.targetCents)}', style: context.ts(TickType.monoS)),
+            const SizedBox(width: 8),
+            Flexible(flex: 2, child: Text('${formatDollars(g.savedCents)} of ${formatDollars(g.targetCents)}', textAlign: TextAlign.end, style: context.ts(TickType.monoS))),
           ]),
           const SizedBox(height: 12),
           LayoutBuilder(builder: (_, cs) => Stack(children: [
