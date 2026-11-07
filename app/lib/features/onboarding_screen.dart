@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../data/bank_step.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
@@ -55,7 +56,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
       // A returning person (reinstall, new phone) already has a payday rule saved: skip the setup questions.
       final done = await ref.read(ledgerProvider.notifier).restoreSetup();
-      if (done && mounted) { context.go('/'); return; }
+      if (done && mounted) { context.go(routeAfterSetup(ref)); return; }
       if (mounted) setState(() { _step = 1; _busy = false; });
     } on AuthFailure catch (f) {
       if (mounted) setState(() { _failure = f.kind; _error = f.message; _busy = false; });
@@ -91,7 +92,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
     }
     TickHaptics.instance.pop();
-    if (mounted) context.go('/');
+    if (mounted) context.go(demo ? '/' : routeAfterSetup(ref));
   }
 
   @override

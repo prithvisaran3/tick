@@ -70,8 +70,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       if (p.needsMapping) { setState(() => _step = _Step.mapping); return; }
       if (p.needsAccount && _accountId != null) { await _analyse(mapping: mapping); return; }          // ask again with the best-matching account chosen
       setState(() => _step = _Step.preview);
-    } on ApiException catch (e) {
-      if (mounted) setState(() { _step = _Step.failed; _error = e.message; });
+    } catch (e) {
+      if (mounted) setState(() { _step = _Step.failed; _error = describeError(e, action: 'read that statement'); });
     }
   }
 
@@ -85,8 +85,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       await ref.read(ledgerProvider.notifier).refresh();
       TickHaptics.instance.success();
       setState(() => _step = _Step.done);
-    } on ApiException catch (e) {
-      if (mounted) setState(() { _step = _Step.failed; _error = e.message; });
+    } catch (e) {
+      if (mounted) setState(() { _step = _Step.failed; _error = describeError(e, action: 'read that statement'); });
     }
   }
 
@@ -98,8 +98,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       await ref.read(ledgerProvider.notifier).refresh();
       TickHaptics.instance.confirm();
       if (mounted) setState(() => _step = _Step.undone);
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = describeError(e, action: 'undo that import'));
     }
   }
 

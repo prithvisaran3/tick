@@ -14,11 +14,13 @@ import 'package:tick/domain/csv.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/services/api.dart';
 import 'package:tick/services/auth.dart';
+import 'package:tick/services/bank_link.dart';
 import 'package:tick/services/haptics.dart';
 import 'package:tick/services/web_auth.dart';
 import 'golden_harness.dart';
 
 void main() {
+  apiMessageTests();
   TestWidgetsFlutterBinding.ensureInitialized();
   TickHaptics.instance.recordOnly = true;
   final now = fixedNow;
@@ -123,22 +125,22 @@ void main() {
   });
 
   group('api client', () {
-    test('GET retries 5xx with backoff then succeeds; errors become calm text', () async {
+    test('GET retries 5xx with backoff then succeeds; errors become plain text', () async {
       var calls = 0;
       final api = Api(client: MockClient((r) async => ++calls < 3 ? http.Response('{"detail":"x"}', 503) : http.Response('{"ok":true}', 200)));
       expect((await api.get('/plaid/links'))['ok'], true);
       expect(calls, 3);
     });
 
-    test('POST is never retried blindly; 4xx detail strings pass through, lists and 5xx become the calm default', () async {
+    test('POST is never retried blindly; 4xx detail strings pass through, lists and 5xx become a specific plain sentence', () async {
       var calls = 0;
       final api = Api(client: MockClient((r) async { calls++; return http.Response('{"detail":"You have used all 10 bank links."}', 409); }));
       await expectLater(api.post('/plaid/link-token'), throwsA(isA<ApiException>().having((e) => e.message, 'message', 'You have used all 10 bank links.')));
       expect(calls, 1);
       final bad = Api(client: MockClient((r) async => http.Response('{"detail":[{"loc":["body"],"msg":"field required"}]}', 422)));
-      await expectLater(bad.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('nothing was lost'))));
+      await expectLater(bad.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('isn\'t valid'))));
       final boom = Api(client: MockClient((r) async => http.Response('<html>oops secret stack</html>', 500)));
-      await expectLater(boom.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', allOf(contains('nothing was lost'), isNot(contains('secret'))))));
+      await expectLater(boom.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', allOf(contains('code 500'), isNot(contains('secret'))))));
     });
 
     test('non-idempotent Plaid POSTs are sent exactly once on 5xx, timeout and dropped connections', () async {
@@ -240,5 +242,31 @@ void main() {
       uses += RegExp(r'hero: true').allMatches(f.readAsStringSync()).length;
     }
     expect(uses, 1);
+  });
+}
+
+void apiMessageTests() {
+  group('every status has its own user-facing message', () {
+    test('messageForStatus', () {
+      expect(messageForStatus(401, 'token expired'), contains('signed out'));
+      expect(messageForStatus(403, null), contains('access'));
+      expect(messageForStatus(403, 'Linking banks is limited to this Tick\'s owner.'), contains('owner'));
+      expect(messageForStatus(404, null), contains('wasn\'t found'));
+      expect(messageForStatus(409, null), contains('conflicts'));
+      expect(messageForStatus(422, [{'msg': 'x'}]), contains('isn\'t valid'));
+      expect(messageForStatus(429, null), contains('Too many'));
+      expect(messageForStatus(500, '<html>secret</html>'), allOf(contains('code 500'), isNot(contains('secret'))));
+      expect(messageForStatus(502, 'Bank link unavailable (ITEM_LOGIN_REQUIRED)'), contains('ITEM_LOGIN_REQUIRED'));
+      for (final s in [400, 401, 403, 404, 409, 422, 429, 500, 502, 503]) {
+        expect(messageForStatus(s, null), isNot(contains('That didn\'t go through')), reason: 'status $s');
+      }
+    });
+    test('linkErrorMessage separates 403 from 409 and names other causes', () {
+      expect(linkErrorMessage(ApiException(403, 'x')), ownerOnlyMessage);
+      expect(linkErrorMessage(ApiException(409, 'x')), capMessage);
+      expect(linkErrorMessage(ApiException(0, 'Can\'t reach Tick right now.', offline: true)), contains('reach'));
+      expect(linkErrorMessage(ApiException(502, 'Bank link unavailable (X)')), contains('Bank link unavailable'));
+      expect(linkErrorMessage(StateError('x')), contains('StateError'));
+    });
   });
 }

@@ -123,3 +123,62 @@ def test_complete_route_rejects_someone_elses_session(db, monkeypatch):
     finally:
         app.dependency_overrides.clear()
     assert P.links_used(U) == 0
+
+# ---------------- owner lock and the global cap (audit 2026-11) ----------------
+OTHER = "22222222-2222-2222-2222-222222222222"
+
+class _TokenProv:
+    def create_link_token(self, uid, access_token=None, accounts=False):
+        return {"link_token": "link-production-new1234", "hosted_link_url": "https://hosted.plaid/x"}
+
+def _as(user, fn):
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        return fn(TestClient(app))
+    finally:
+        app.dependency_overrides.clear()
+
+def test_links_route_owner_gets_can_link_and_both_counts(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    for i in range(3):
+        db.insert("plaid_items", {"item_id": f"o{i}", "user_id": U})
+    db.insert("plaid_items", {"item_id": "x1", "user_id": OTHER})
+    j = _as(U, lambda c: c.get("/plaid/links")).json()
+    assert j == {"used": 3, "cap": 10, "left": 7, "can_link": True, "total_left": 6}
+
+def test_links_route_non_owner_cannot_link_and_sees_the_global_count(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    for i in range(4):
+        db.insert("plaid_items", {"item_id": f"o{i}", "user_id": U})
+    j = _as(OTHER, lambda c: c.get("/plaid/links")).json()
+    assert j["can_link"] is False and j["used"] == 0 and j["total_left"] == 6     # per-user "10 left" is a lie; the global number is not
+
+def test_non_owner_link_token_is_403_with_a_clear_reason(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 403 and "owner" in r.json()["detail"] and "Wallet" in r.json()["detail"]
+    assert db.rows("plaid_link_sessions")[-1]["user_id"] == U              # no session was opened for the stranger
+
+def test_owner_gets_409_when_the_shared_cap_is_used_even_if_their_own_count_is_low(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    for i in range(10):
+        db.insert("plaid_items", {"item_id": f"i{i}", "user_id": OTHER if i else U})
+    r = _as(U, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 409 and "10 bank links" in r.json()["detail"]
+
+def test_owner_can_start_a_link_when_slots_are_left(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    r = _as(U, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 200 and r.json()["links_left"] == 10
+
+def test_non_owner_can_still_reconnect_their_own_connection(db, monkeypatch):
+    """Update mode never creates an Item, so the owner lock does not apply to a connection the user already has."""
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    conn = db.insert("connections", {"user_id": OTHER, "provider": "plaid", "item_id": "z", "vault_secret_id": "s1", "status": "login_required"})[0]
+    monkeypatch.setattr(db, "rpc", lambda name, args: "access-x", raising=False)
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={"connection_id": conn["id"]}))
+    assert r.status_code == 200

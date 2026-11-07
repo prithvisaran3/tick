@@ -68,7 +68,7 @@ class TallyGroupScreen extends ConsumerWidget {
       final j = await ref.read(apiProvider).post('/tally/groups/$id/links', {'days': 30});
       await SharePlus.instance.share(ShareParams(text: 'Here\'s where we stand: ${j['url']}'));
     } catch (e) {
-      if (context.mounted) showTickSheet<void>(context, builder: (_) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('Couldn\'t make a link right now. Try again in a moment.', style: context.ts(TickType.body))));
+      if (context.mounted) showTickSheet<void>(context, builder: (_) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('Couldn\'t make a link. ${describeError(e, action: 'make a link')}', style: context.ts(TickType.body))));
     }
   }
 }

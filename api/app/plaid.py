@@ -233,6 +233,9 @@ def total_links_used() -> int:
     items |= {r["item_id"] for r in rest().select("connections", provider="eq.plaid", select="item_id") if r.get("item_id")}
     return len(items)
 
+def link_slots_left(user_id: str) -> int:
+    return max(0, min(ITEM_CAP - links_used(user_id), ITEM_CAP - total_links_used()))
+
 def owners() -> set[str]:
     """Who may create NEW bank links. TICK_OWNER_USER_IDS (comma-separated) when set. Otherwise the user who made the first link
     (fail closed for strangers who signed up later); with no link at all yet, anyone signed in (first run)."""
@@ -242,10 +245,14 @@ def owners() -> set[str]:
     rows = rest().select("plaid_items", select="user_id,created_at", order="created_at.asc", limit="1")
     return {rows[0]["user_id"]} if rows else set()
 
-def require_link_owner(user_id: str) -> None:
+def can_link(user_id: str) -> bool:
+    """May this user create NEW bank links? (Update mode for their own existing connections is always allowed.)"""
     allowed = owners()
-    if allowed and user_id not in allowed:
-        raise HTTPException(403, "Bank linking is limited to this Tick's owner.")
+    return not allowed or user_id in allowed
+
+def require_link_owner(user_id: str) -> None:
+    if not can_link(user_id):
+        raise HTTPException(403, "Linking banks is limited to this Tick's owner. You can add purchases from Wallet or import a statement instead.")
 
 OPEN_SESSION_MIN = 30
 
@@ -632,8 +639,11 @@ class LinkTokenBody(BaseModel):
 
 @router.get("/plaid/links")
 def links(user_id: str = Depends(current_user)):
+    """`used`/`cap`/`left` are this user's own count; `total_left` is what really limits a new link: Plaid's cap is shared by everyone.
+    `can_link` is false for anyone who is not the owner, so the app shows no counter and no Link button for them."""
     used = links_used(user_id)
-    return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used)}
+    total_left = max(0, ITEM_CAP - total_links_used())
+    return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used), "can_link": can_link(user_id), "total_left": total_left}
 
 @router.post("/plaid/link-token")
 def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
@@ -646,13 +656,13 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     else:
         require_link_owner(user_id)
         if links_used(user_id) >= ITEM_CAP or total_links_used() >= ITEM_CAP:
-            raise HTTPException(409, "You have used all 10 bank links.")
+            raise HTTPException(409, "All 10 bank links are used, so Tick can't add another bank.")
         # One open new-bank session at a time: re-opening the sheet reuses it, so parallel sessions can't each burn a slot.
         since = (datetime.now(timezone.utc) - timedelta(minutes=OPEN_SESSION_MIN)).isoformat()
         open_ = rest().select("plaid_link_sessions", user_id=f"eq.{user_id}", connection_id="is.null", finished_at="is.null",
                               created_at=f"gte.{since}", select="link_token,hosted_link_url", order="created_at.desc")
         if open_ and open_[0].get("hosted_link_url"):
-            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": ITEM_CAP - links_used(user_id)}
+            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": link_slots_left(user_id)}
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
         r = provider().create_link_token(user_id, access_token=token, accounts=body.accounts)
@@ -661,7 +671,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
     rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id,
                                           "hosted_link_url": r.get("hosted_link_url")}, upsert_on="link_token")
-    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
+    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": link_slots_left(user_id)}
 
 class CompleteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")

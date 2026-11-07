@@ -1,3 +1,4 @@
+import '../services/api.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
@@ -69,9 +70,11 @@ class AskNotifier extends Notifier<List<AskMessage>> {
       } catch (e) {
         if (_cancelled) break;
         final gotSomething = reply.text.isNotEmpty || reply.blocks.isNotEmpty;
+        final refused = e is ApiException && e.status >= 400 && e.status < 500;        // 401/403/429: retrying can't help; say why
+        if (refused && !gotSomething) { reply.failed = true; reply.text = e.message; break; }
         if (!gotSomething && attempt == 0) { attempt++; await Future<void>.delayed(const Duration(milliseconds: 700)); continue; }
         reply.failed = true;
-        if (!gotSomething) reply.text = 'Can\'t reach Tick right now. Your numbers on Today and Flows are still here.';
+        if (!gotSomething) reply.text = e is ApiException && e.status >= 500 ? '${e.message} Your numbers on Today and Flows are still here.' : 'Can\'t reach Tick right now. Your numbers on Today and Flows are still here.';
         break;
       }
     }
@@ -89,7 +92,7 @@ class AskNotifier extends Notifier<List<AskMessage>> {
         ..headers.addAll({'Authorization': 'Bearer $token', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
         ..body = jsonEncode({'question': q, 'history': history});
       final res = await client.send(req).timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) throw StateError('status ${res.statusCode}');
+      if (res.statusCode != 200) throw ApiException(res.statusCode, messageForStatus(res.statusCode, null));
       var finished = false;
       final lines = res.stream.transform(utf8.decoder).transform(const LineSplitter()).timeout(const Duration(seconds: 30));   // idle timeout between chunks
       await for (final line in lines) {

@@ -17,6 +17,7 @@ import '../design/widgets/pickers.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/csv.dart';
 import '../services/ai_status.dart';
+import '../data/link_info.dart';
 import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
@@ -34,6 +35,7 @@ class SettingsScreen extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final n = ref.read(settingsProvider.notifier);
     final l = ref.watch(ledgerProvider);
+    final linkInfo = ref.watch(linkInfoProvider).value;
     final c = context.c;
     Widget chevron() => TickIcon('chevron-right', size: 20, color: c.textSecondary);
     Widget row(String icon, String title, Widget right, {VoidCallback? onTap, String? sub}) => Pressable(
@@ -76,7 +78,7 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i])))),
           const SectionLabel('Banks and cards'),
           group([
-            row('bank', 'Bank connections', val('${l.linksUsed} of 10 used'), onTap: () => context.push('/banks')),
+            row('bank', 'Bank connections', val(linkInfo == null || linkInfo.canLink ? '${linkInfo?.used ?? l.linksUsed} of 10 used' : (l.connections.isEmpty ? 'None' : '${l.connections.length} linked')), onTap: () => context.push('/banks')),
             row('receipt', 'Capture token and Shortcuts', chevron(), onTap: () => _tokenSheet(context, ref)),
             row('import', 'Import statements', chevron(), onTap: () => context.push('/import')),
           ]),
@@ -237,8 +239,8 @@ class SettingsScreen extends ConsumerWidget {
     if (ref.read(userIdProvider) != null && !ref.read(settingsProvider).demoMode) {
       try {
         await ref.read(apiProvider).post('/me/delete', {'confirm': 'DELETE'}, const Duration(seconds: 60));
-      } catch (_) {
-        error = 'That didn\'t go through, so nothing was deleted on the server. Try again when you are online.';
+      } catch (e) {
+        error = '${describeError(e, action: 'delete')} Nothing was deleted on the server.';
       }
     }
     if (error != null) {
@@ -276,8 +278,8 @@ class _TokenSheetState extends State<_TokenSheet> {
       // The server makes the token (32 random bytes), keeps only its hash, turns older tokens off and records it in the audit log.
       final j = await widget.ref.read(apiProvider).post('/tokens', {'label': 'Shortcuts', 'replace': true});
       setState(() => _token = j['token'] as String?);
-    } catch (_) {
-      setState(() => _err = 'That didn\'t go through. Try again, nothing was lost.');
+    } catch (e) {
+      setState(() => _err = describeError(e, action: 'make a token'));
     }
   }
 

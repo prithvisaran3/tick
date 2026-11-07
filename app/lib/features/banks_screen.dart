@@ -1,4 +1,3 @@
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,8 +7,10 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../data/bank_step.dart';
+import '../data/link_info.dart';
 import '../services/api.dart';
-import '../services/web_auth.dart';
+import '../services/bank_link.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/models.dart';
 import '../data/account_counts.dart';
@@ -30,26 +31,12 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
   String? _error;
   String? _note;
   bool _busy = false;
-  int? _left;
+  VoidCallback? _retryAction;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadLinks();
-  }
-
-  Future<void> _loadLinks() async {
-    if (ref.read(settingsProvider).demoMode) return;
-    try {
-      final j = await ref.read(apiProvider).get('/plaid/links');
-      if (mounted) setState(() => _left = (j['left'] as num).toInt());
-    } catch (_) {}
-  }
-
-  /// Every NEW link costs one of 10 lifetime slots (Plaid Trial). Always confirm first; re-linking an existing bank (update mode) is free.
-  Future<void> _confirmNewLink() async {
+  /// Every NEW link costs one of 10 lifetime slots (Plaid Trial, shared by everyone). Always confirm first; re-linking an existing bank (update mode) is free.
+  Future<void> _confirmNewLink(LinkInfo info) async {
     final l = ref.read(ledgerProvider);
-    final left = _left ?? (10 - l.linksUsed);
+    final left = info.slotsLeft;
     final linked = {for (final c in l.connections) c.institution}.toList()..sort();
     final ok = await showTickSheet<bool>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('Link a bank', style: ctx.ts(TickType.displayM)),
@@ -71,39 +58,28 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
   }
 
   Future<void> _link({String? connectionId, bool accounts = false}) async {
-    setState(() { _busy = true; _error = null; _note = null; });
-    var bankDone = false;          // after Plaid's sheet closes, the Item may already exist even if our call fails
-    try {
-      final api = ref.read(apiProvider);
-      final j = await api.post('/plaid/link-token', {'connection_id': ?connectionId, if (accounts) 'accounts': true});
-      final url = j['hosted_link_url'] as String?;
-      if (url == null) throw ApiException(500, 'no link url');
-      await webAuthenticate(url);
-      bankDone = true;
-      if (connectionId == null) {
-        final r = await api.post('/plaid/complete', {'link_token': j['link_token']});
-        if ((r['connections'] as List?)?.isEmpty ?? true) _note = 'Still finishing up. Your bank shows here in a minute.';
-      } else {
-        await api.post('/plaid/sync/$connectionId');
-      }
+    setState(() { _busy = true; _error = null; _note = null; _retryAction = null; });
+    final store = ref.read(bankStepStoreProvider);
+    final out = await runBankLink(ref.read(apiProvider), ref.read(webAuthProvider), connectionId: connectionId, accounts: accounts, onStarted: store.setPendingLink, onFinished: store.clearPendingLink);
+    if (!mounted) return;
+    switch (out.result) {
+      case LinkResult.cancelled:
+        break;
+      case LinkResult.failed:
+        _error = out.message;
+        _retryAction = () => _link(connectionId: connectionId, accounts: accounts);
+      case LinkResult.pending:
+        _note = out.message;
+      case LinkResult.linked:
+        break;
+    }
+    if (out.result == LinkResult.linked || out.result == LinkResult.pending) {
       await ref.read(ledgerProvider.notifier).refresh();
-      await _loadLinks();
+      ref.invalidate(linkInfoProvider);
       // The first sync of a new link runs on the server (up to 12 months of history). Realtime pushes rows in; poll a few times as a backstop.
       for (final s in const [6, 15, 40]) {
         Future<void>.delayed(Duration(seconds: s), () { if (mounted) ref.read(ledgerProvider.notifier).refresh(); });
       }
-    } on PlatformException catch (e) {
-      // Closing the Plaid sheet is not an error.
-      if (mounted && e.code != 'CANCELED') setState(() => _error = 'That didn\'t go through. Try again, nothing was lost.');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e is ApiException && e.status == 409
-          ? 'You have used all 10 bank links.'
-          : bankDone && connectionId == null
-              // The bank side finished; the server usually completes it from Plaid's webhook. Re-linking now could cost another slot.
-              ? 'Your bank may still be connecting. Pull to refresh in a minute before you link again.'
-              : 'That didn\'t go through. Try again, nothing was lost.');
-      if (bankDone) Future<void>.delayed(const Duration(seconds: 8), () { if (mounted) { ref.read(ledgerProvider.notifier).refresh(); _loadLinks(); } });
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -117,7 +93,7 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
       await Future<void>.delayed(const Duration(seconds: 3));
     }
     await ref.read(ledgerProvider.notifier).refresh();
-    await _loadLinks();
+    ref.invalidate(linkInfoProvider);
   }
 
   Future<void> _retry(Connection c) async {
@@ -131,7 +107,8 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     final l = ref.watch(ledgerProvider);
     final demo = ref.watch(settingsProvider).demoMode;
     final c = context.c;
-    final left = _left ?? (10 - l.linksUsed);
+    final info = ref.watch(linkInfoProvider).value ?? LinkInfo.unknown(l.linksUsed);
+    final left = info.slotsLeft;
     return TickPage(
       title: 'Banks', onBack: () => context.pop(), onRefresh: _refresh,
       children: [
@@ -147,23 +124,35 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
               }),
           const SizedBox(height: 8),
         ],
-        if (l.connections.isEmpty && !demo) const EmptyState('No banks linked', 'Link one and purchases show up on their own.', icon: 'bank'),
+        if (l.connections.isEmpty && !demo)
+          EmptyState('No banks linked', info.canLink ? 'Link one and purchases show up on their own.' : 'Banks are linked by this Tick\'s owner. Add purchases from Wallet or import a statement.', icon: 'bank'),
         const CardsSection(showSpend: true),
         const SizedBox(height: 8),
-        TickCard(raised: true, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('You have $left of 10 bank links left.', style: context.ts(TickType.title)),
-          const SizedBox(height: 4),
-          Text('Removing a link doesn\'t give the slot back. One link covers every account at a bank.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-        ])),
-        const SizedBox(height: 16),
         if (demo)
           Text('Turn off demo mode to link a real bank.', style: context.ts(TickType.body, color: c.textSecondary))
-        else if (left <= 0)
-          Text('All 10 links are used.', style: context.ts(TickType.body, color: c.alert))
-        else
-          PillButton('Link a bank', busy: _busy, onTap: _busy ? null : _confirmNewLink),
+        else if (!info.canLink) ...[
+          TickCard(raised: true, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Linking banks is limited to this Tick\'s owner.', style: context.ts(TickType.title)),
+            const SizedBox(height: 4),
+            Text('You can add purchases from Wallet, or import a statement (CSV or OFX, Apple Card included).', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          ])),
+          const SizedBox(height: 16),
+          PillButton('Import a statement', style: PillStyle.quiet, onTap: () => context.push('/import')),
+        ] else ...[
+          TickCard(raised: true, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(left <= 0 ? 'All 10 bank links are used.' : 'You have $left of 10 bank links left.', style: context.ts(TickType.title)),
+            const SizedBox(height: 4),
+            Text('Removing a link doesn\'t give the slot back. One link covers every account at a bank.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          ])),
+          const SizedBox(height: 16),
+          if (left <= 0)
+            Text('Tick can\'t add another bank. Import a statement or add purchases from Wallet.', style: context.ts(TickType.body, color: c.alert))
+          else
+            PillButton('Link a bank', busy: _busy, onTap: _busy ? null : () => _confirmNewLink(info)),
+        ],
         if (_note != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_note!, style: context.ts(TickType.body, color: c.textSecondary))),
-        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: context.ts(TickType.body, color: c.alert))),
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Semantics(liveRegion: true, child: Text(_error!, style: context.ts(TickType.body, color: c.alert)))),
+        if (_error != null && _retryAction != null) Padding(padding: const EdgeInsets.only(top: 8), child: Align(alignment: Alignment.centerLeft, child: TickChip('Retry', icon: 'repeat', on: true, onTap: _busy ? null : _retryAction))),
         const SizedBox(height: 12),
         Text('Apple Card isn\'t on Plaid. Purchases come in from Wallet, and you can import a statement in Settings.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       ],

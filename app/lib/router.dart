@@ -5,7 +5,11 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
+import 'data/bank_step.dart';
 import 'data/env.dart';
+import 'services/api.dart';
+import 'services/bank_link.dart';
+import 'services/session.dart';
 import 'data/settings.dart';
 import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
@@ -20,6 +24,7 @@ import 'features/cards.dart';
 import 'features/caught_screen.dart';
 import 'features/gallery_screen.dart';
 import 'features/incoming_screen.dart';
+import 'features/bank_step_screen.dart';
 import 'features/onboarding_screen.dart';
 import 'features/quick_add.dart';
 import 'features/receipt_screen.dart';
@@ -69,6 +74,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       routes: [
         GoRoute(path: '/', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: const Shell())),
         GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen())),
+        GoRoute(path: '/onboarding/bank', pageBuilder: (c, s) => _page(s, const BankStepScreen())),
         GoRoute(path: '/caught', pageBuilder: (c, s) => _page(s, const CaughtScreen())),
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
@@ -128,7 +134,20 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingAdd();
       _maybeAskNotifications();
+      _resumePendingLink();
     });
+  }
+
+  /// A link the person finished at the bank but the app was killed before exchanging it: finish it now, quietly. Cold start only
+  /// (while a Plaid sheet is open in this process the flow itself completes it). The exchange is idempotent.
+  Future<void> _resumePendingLink() async {
+    if (ref.read(settingsProvider).demoMode) return;
+    for (var i = 0; i < 30 && ref.read(userIdProvider) == null; i++) { await Future<void>.delayed(const Duration(milliseconds: 200)); }
+    if (!mounted || ref.read(userIdProvider) == null) return;
+    final store = ref.read(bankStepStoreProvider);
+    final token = store.pendingLink;
+    if (token == null) return;
+    if (await resumePendingLink(ref.read(apiProvider), token, store.clearPendingLink)) ref.read(ledgerProvider.notifier).refresh();
   }
 
   @override
