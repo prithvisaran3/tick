@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tick/data/tally_store.dart';
 import 'package:tick/domain/tally.dart';
 import 'package:tick/features/tally_manage.dart';
 import 'package:tick/features/tally_more.dart';
