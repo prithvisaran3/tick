@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../services/haptics.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../design/theme.dart';
@@ -8,6 +9,7 @@ import '../domain/models.dart';
 import '../domain/merchant_name.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
+import '../domain/dates.dart';
 
 enum MoneyKind { out, income, expected, alert }
 
@@ -31,14 +33,14 @@ class Money extends StatelessWidget {
 
 String dayLabel(DateTime d, DateTime now) {
   final t = dayOnly(now), x = dayOnly(d);
-  final diff = t.difference(x).inDays;
+  final diff = daysBetween(x, t);
   if (diff == 0) return 'Today';
   if (diff == 1) return 'Yesterday';
   return DateFormat(diff < 7 ? 'EEEE' : 'EEE MMM d').format(x);
 }
 
 String weekdayName(DateTime d, DateTime now) {
-  final diff = dayOnly(d).difference(dayOnly(now)).inDays;
+  final diff = daysBetween(dayOnly(now), dayOnly(d));
   if (diff == 0) return 'today';
   if (diff == 1) return 'tomorrow';
   if (diff < 7) return DateFormat('EEEE').format(d);
@@ -63,8 +65,8 @@ class TxRow extends StatelessWidget {
     final acct = ledger.account(t.accountId);
     final name = cleanMerchant(t.merchant);
     final pending = t.status == TxStatus.pending;
-    final sub = subtitle ?? [if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source), if (pending) 'Pending'].join(' · ');
-    final muted = t.isTransfer;
+    final sub = subtitle ?? [if (t.reimbursedCents > 0 || t.sharedCents > 0) 'Your share ${formatCents(t.myShareCents)}', if (t.isReimbursement) 'Payback' else if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source), if (pending) 'Pending'].join(' · ');
+    final muted = t.isTransfer || t.isReimbursement || t.flow == 'settlement';
     final tint = t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop');
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -121,6 +123,8 @@ class ErrorState extends StatefulWidget {
 }
 
 class _ErrorStateState extends State<ErrorState> {
+  @override
+  void initState() { super.initState(); TickHaptics.instance.warning(); }
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),

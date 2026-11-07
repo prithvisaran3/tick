@@ -36,9 +36,9 @@ String reasonFor(String? code) => switch (code) {
 BankStatus bankStatus(Connection c, DateTime now, {int? txnCount}) {
   switch (c.syncState) {
     case 'login_required':
-      return const BankStatus('Reconnect needed', detail: 'One tap. It doesn\'t use one of your links.', tone: BankTone.bad, action: BankAction.reconnect, actionLabel: 'Reconnect');
+      return const BankStatus('Reconnect needed', detail: 'One tap to sign in again.', tone: BankTone.bad, action: BankAction.reconnect, actionLabel: 'Reconnect');
     case 'partial':
-      return const BankStatus('Some accounts aren\'t shared', detail: 'Choose which accounts Tick can see. No new link.', tone: BankTone.warn, action: BankAction.fixAccounts, actionLabel: 'Fix');
+      return const BankStatus('Some accounts aren\'t shared', detail: 'Choose which accounts Tick can see.', tone: BankTone.warn, action: BankAction.fixAccounts, actionLabel: 'Fix');
     case 'bank_issue':
       return const BankStatus('Bank is having issues', detail: 'We\'ll retry on our own.', tone: BankTone.warn, action: BankAction.retry, actionLabel: 'Try now');
     case 'error':

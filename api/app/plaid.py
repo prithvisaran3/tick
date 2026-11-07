@@ -10,7 +10,8 @@ import logging
 import os
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import httpx
@@ -28,6 +29,8 @@ from .db import rest
 from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
+from . import paybacks
+from . import rules as rules_mod
 from . import transfers as transfers_mod
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
@@ -233,6 +236,9 @@ def total_links_used() -> int:
     items |= {r["item_id"] for r in rest().select("connections", provider="eq.plaid", select="item_id") if r.get("item_id")}
     return len(items)
 
+def link_slots_left(user_id: str) -> int:
+    return max(0, min(ITEM_CAP - links_used(user_id), ITEM_CAP - total_links_used()))
+
 def owners() -> set[str]:
     """Who may create NEW bank links. TICK_OWNER_USER_IDS (comma-separated) when set. Otherwise the user who made the first link
     (fail closed for strangers who signed up later); with no link at all yet, anyone signed in (first run)."""
@@ -242,10 +248,16 @@ def owners() -> set[str]:
     rows = rest().select("plaid_items", select="user_id,created_at", order="created_at.asc", limit="1")
     return {rows[0]["user_id"]} if rows else set()
 
-def require_link_owner(user_id: str) -> None:
+LINK_LIMITED = "Bank linking is limited to 10 accounts right now."      # one calm line for the owner lock and the cap: no counts, nothing about plans
+
+def can_link(user_id: str) -> bool:
+    """May this user create NEW bank links? (Update mode for their own existing connections is always allowed.)"""
     allowed = owners()
-    if allowed and user_id not in allowed:
-        raise HTTPException(403, "Bank linking is limited to this Tick's owner.")
+    return not allowed or user_id in allowed
+
+def require_link_owner(user_id: str) -> None:
+    if not can_link(user_id):
+        raise HTTPException(403, LINK_LIMITED)
 
 OPEN_SESSION_MIN = 30
 
@@ -277,7 +289,7 @@ def classify(t: dict, acct_type: str | None, cents: int) -> tuple[str | None, st
     if cents < 0 and (primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or acct_type == "loan"):
         return "Fees and interest", None, []
     if transfers_mod.is_p2p(name) and not credit_like:
-        return "Friends and family", None, []    # Zelle / Venmo / Cash App: money to or from PEOPLE is real money (never a transfer)
+        return transfers_mod.p2p_category(name), None, []    # Zelle / Venmo / Cash App: money to or from PEOPLE (never a transfer)
     if primary in ("TRANSFER_IN", "TRANSFER_OUT"):
         return "Transfer", None, []              # pairing decides later whether it went to one of my own accounts
     if cents > 0:
@@ -321,7 +333,14 @@ def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict], institution:
         row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("official_name") or a.get("name") or "Account",
                "mask": a.get("mask"), "type": typ, "subtype": a.get("subtype"), "institution": institution, "balance_cents": bal, "available_cents": av,
                "credit_limit_cents": None if limit is None else round(limit * 100), "include_in_safe": typ in ("checking", "credit")}
-        saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
+        existing = rest().select("accounts", user_id=f"eq.{user_id}", provider_account_id=f"eq.{a['account_id']}")
+        if existing:
+            # What the person set survives every sync: the name they chose and whether it counts toward Safe to spend. The bank owns balances only.
+            keep = {"name", "include_in_safe"}
+            patch = {k: v for k, v in row.items() if k not in keep and k not in ("user_id", "provider_account_id")}
+            saved = (rest().update("accounts", {"id": existing[0]["id"], "user_id": user_id}, patch) or [existing[0]])[0]
+        else:
+            saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
         out[a["account_id"]] = saved
     return out
 
@@ -392,12 +411,33 @@ def apply_money_rules(user_id: str, raw: list[dict], *, dry_run: bool = False) -
         flow_after = plan.get(r["id"], {}).get("flow", r.get("flow"))
         if (friends and transfers.is_p2p(text) and flow_after is None and id_to_name.get(r.get("category_id") or "") == "Transfer"
                 and "category" not in (r.get("user_edited") or [])):
-            plan[r["id"]] = {**plan.get(r["id"], {}), "category_id": friends}
+            plan[r["id"]] = {**plan.get(r["id"], {}), "category_id": name_to_id.get(transfers.p2p_category(text)) or friends}
     if dry_run:
         return plan
     for tid, patch in plan.items():
         rest().update("transactions", {"id": tid, "user_id": user_id}, patch)
     return len(plan)
+
+def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
+    """Nothing else creates `expected` rows on live data, so "Landed" and the Incoming list never had anything to match.
+    Derive the paychecks from the person's payday rule: the last payday within 4 days (a deposit can post late) and the next one.
+    Idempotent: one row per paycheck date, whatever its status, and it never touches a rule that has no amount."""
+    from .pay import pay_period
+    today = today or datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+    try:
+        st = rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule")
+        rule = st[0].get("payday_rule") if st else None
+        amount = int((rule or {}).get("amount_cents") or 0)
+        if amount <= 0:
+            return
+        # the first payday on or after four days ago (a deposit can post late), and the first on or after today
+        dates = {p["next_payday"] for p in (pay_period(user_id, today - timedelta(days=5)), pay_period(user_id, today - timedelta(days=1))) if p}
+        have = {e["expected_date"] for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", select="expected_date")}
+        for d in sorted(dates):
+            if d.isoformat() not in have and d <= today + timedelta(days=45):
+                rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": "Paycheck", "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
+    except Exception:
+        pass                                                   # a sync must never fail because of the paycheck helper
 
 def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """A positive transaction near an expected paycheck/refund/IOU of about the same size marks it landed."""
@@ -412,6 +452,13 @@ def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
                 best = (days, e)
     if best:
         rest().update("expected", {"id": best[1]["id"]}, {"status": "landed", "matched_transaction_id": txn_id})
+
+def _is_income_deposit(cand, accts: dict[str, dict]) -> bool:
+    """Only real deposits can land an expected paycheck: not a card payment or refund on a card/loan, not an internal transfer."""
+    if getattr(cand, "flow", None) in ("transfer", "settlement"):
+        return False
+    acct = next((a for a in accts.values() if a.get("id") == getattr(cand, "account_id", None)), None)
+    return not (acct and acct.get("type") in ("credit", "loan"))
 
 def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit)."""
@@ -533,6 +580,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
     restarts = 0
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
+    ensure_expected_paycheck(user_id)
     expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date")
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
@@ -586,7 +634,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
                 # Landed matching after rows exist (matched_transaction_id is a foreign key).
                 for cand, _ in cands:
                     row = next((t for t in txns if getattr(t, "plaid_transaction_id", None) == cand.plaid_transaction_id), None)
-                    if row is not None and cand.amount_cents > 0:
+                    if row is not None and cand.amount_cents > 0 and _is_income_deposit(cand, accts):
                         _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at)
             rem = [r["transaction_id"] for r in page.get("removed", [])]
             if rem:
@@ -600,6 +648,8 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
         _ai_categorise(user_id, uncategorised, name_to_id)
         try:
             pair_transfers(user_id)
+            rules_mod.apply(user_id)                      # after pairing, before anything reads a category
+            paybacks.auto_link(user_id)
         except Exception:
             pass                                          # pairing is re-run on the next sync; never block the cursor
         rest().update("connections", {"id": conn["id"]}, {"cursor": cursor})          # only after EVERY page of the set persisted
@@ -632,8 +682,11 @@ class LinkTokenBody(BaseModel):
 
 @router.get("/plaid/links")
 def links(user_id: str = Depends(current_user)):
+    """`used`/`cap`/`left` are this user's own count; `total_left` is what really limits a new link: Plaid's cap is shared by everyone.
+    `can_link` is false for anyone who is not the owner, so the app shows no counter and no Link button for them."""
     used = links_used(user_id)
-    return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used)}
+    total_left = max(0, ITEM_CAP - total_links_used())
+    return {"used": used, "cap": ITEM_CAP, "left": max(0, ITEM_CAP - used), "can_link": can_link(user_id), "total_left": total_left}
 
 @router.post("/plaid/link-token")
 def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
@@ -646,13 +699,13 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     else:
         require_link_owner(user_id)
         if links_used(user_id) >= ITEM_CAP or total_links_used() >= ITEM_CAP:
-            raise HTTPException(409, "You have used all 10 bank links.")
+            raise HTTPException(409, LINK_LIMITED)
         # One open new-bank session at a time: re-opening the sheet reuses it, so parallel sessions can't each burn a slot.
         since = (datetime.now(timezone.utc) - timedelta(minutes=OPEN_SESSION_MIN)).isoformat()
         open_ = rest().select("plaid_link_sessions", user_id=f"eq.{user_id}", connection_id="is.null", finished_at="is.null",
                               created_at=f"gte.{since}", select="link_token,hosted_link_url", order="created_at.desc")
         if open_ and open_[0].get("hosted_link_url"):
-            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": ITEM_CAP - links_used(user_id)}
+            return {"link_token": open_[0]["link_token"], "hosted_link_url": open_[0]["hosted_link_url"], "links_left": link_slots_left(user_id)}
     user_limiter.check(f"linktoken:{user_id}", 6, 60)
     try:
         r = provider().create_link_token(user_id, access_token=token, accounts=body.accounts)
@@ -661,7 +714,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     # Remember who this link token belongs to: SESSION_FINISHED carries only the link_token.
     rest().insert("plaid_link_sessions", {"link_token": r["link_token"], "user_id": user_id, "connection_id": body.connection_id,
                                           "hosted_link_url": r.get("hosted_link_url")}, upsert_on="link_token")
-    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": ITEM_CAP - links_used(user_id)}
+    return {"link_token": r["link_token"], "hosted_link_url": r.get("hosted_link_url"), "links_left": link_slots_left(user_id)}
 
 class CompleteBody(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -15,7 +15,27 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-const _calm = 'That didn\'t go through. Try again, nothing was lost.';
+/// What a person reads for a failed call. Every status gets its own plain sentence; the server's own `detail` wins when it is a short
+/// string written for people (our 4xx and 502 details are). Nothing here is a bare "that didn't go through" with no cause.
+String messageForStatus(int status, Object? detail) {
+  if (detail is String && detail.trim().isNotEmpty && detail.length <= 220 && status != 401 && status != 500) return detail.trim();
+  if (status == 401) return 'You\'re signed out. Sign in again to continue.';
+  if (status == 403) return 'You don\'t have access to that.';
+  if (status == 404) return 'That wasn\'t found. It may have been removed.';
+  if (status == 409) return 'That conflicts with something already saved. Refresh and try again.';
+  if (status == 422 || status == 400) return 'Something in that isn\'t valid. Check it and try again.';
+  if (status == 429) return 'Too many tries. Wait a minute and try again.';
+  if (status >= 500) return 'Tick is having trouble right now. Try again in a minute.';
+  return 'Tick couldn\'t accept that. Check it and try again.';
+}
+
+/// A short, specific reason for any thrown error, for the "what happened" line under a failed action.
+String describeError(Object e, {String action = 'do that'}) {
+  if (e is ApiException) return e.message;
+  if (e is TimeoutException) return 'Tick is taking too long. Try again in a moment.';
+  if (e is SocketException || e is http.ClientException) return 'Can\'t reach Tick right now. Check your connection.';
+  return 'Couldn\'t $action. Try again.';
+}
 
 /// Thin client for the Tick FastAPI service. Sends the Supabase JWT (refreshed when close to expiry), bounded timeouts,
 /// retries idempotent GETs with backoff, retries once after a 401 with a refreshed token, and returns calm errors.
@@ -90,6 +110,8 @@ class Api {
       throw ApiException(0, 'Can\'t reach Tick right now.', offline: true);
     } on TimeoutException {
       throw ApiException(0, 'Tick is taking too long. Try again in a moment.', offline: true);
+    } on http.ClientException {
+      throw ApiException(0, 'Can\'t reach Tick right now.', offline: true);
     }
   }
 
@@ -101,9 +123,7 @@ class Api {
       if (d is Map<String, dynamic>) j = d;
     } catch (_) {/* non-JSON body */}
     if (r.statusCode >= 300) {
-      final d = j['detail'];
-      final msg = d is String && d.isNotEmpty && r.statusCode < 500 ? d : _calm;      // validation lists and server errors become the calm default
-      throw ApiException(r.statusCode, msg);
+      throw ApiException(r.statusCode, messageForStatus(r.statusCode, j['detail']));          // validation lists become a plain sentence
     }
     return j;
   }

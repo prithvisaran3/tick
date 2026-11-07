@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dates.dart';
 
 enum TxStatus { pending, posted }
 
@@ -58,7 +59,7 @@ class Account {
     if (s == null) return false;
     if (s <= 0) return true;
     if (lastPaymentCents == null || lastPaymentDate == null) return false;
-    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    final from = lastStatementDate ?? (dueDate == null ? null : addDays(dueDate!, -30));
     if (from == null) return false; // no statement or due date to anchor on: never claim "paid" from an undated payment
     final after = !lastPaymentDate!.isBefore(from);
     return after && lastPaymentCents! >= s;
@@ -70,7 +71,7 @@ class Account {
     if (s == null) return owedCents;
     if (statementPaid) return 0;
     var due = s < owedCents ? s : owedCents;
-    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    final from = lastStatementDate ?? (dueDate == null ? null : addDays(dueDate!, -30));
     if (lastPaymentDate != null && lastPaymentCents != null && (from == null || !lastPaymentDate!.isBefore(from))) {
       due = (s - lastPaymentCents!).clamp(0, due);
     }
@@ -110,11 +111,18 @@ class Txn {
   const Txn({
     required this.id, required this.amountCents, required this.occurredAt, required this.merchant,
     this.categoryId, this.accountId, this.status = TxStatus.posted, this.confidence = 1.0, this.needsReview = false,
-    this.tags = const [], this.note, this.source = 'manual', this.cardLast4, this.receiptPath, this.flow,
+    this.tags = const [], this.note, this.source = 'manual', this.cardLast4, this.receiptPath, this.flow, this.reimbursedCents = 0, this.sharedCents = 0,
   });
+  /// Others' part of a charge I fronted, from a Splitwise match. Spending counts my share only.
+  final int sharedCents;
   /// 'transfer' = between my own accounts (never spending or income); 'bill' = a loan payment (cash out, a bill); null = ordinary.
   final String? flow;
   bool get isTransfer => flow == 'transfer';
+  /// A friend's payback accepted against a purchase: neither income nor spending.
+  bool get isReimbursement => flow == 'reimbursement';
+  /// Paybacks linked to this purchase. Spending counts the purchase net of them (my real share).
+  final int reimbursedCents;
+  int get myShareCents => -amountCents - reimbursedCents - sharedCents;
   final String id;
   final int amountCents;
   final DateTime occurredAt; // local wall-clock time
@@ -134,7 +142,7 @@ class Txn {
   Txn copyWith({int? amountCents, DateTime? occurredAt, String? merchant, String? categoryId, bool? needsReview, List<String>? tags, String? note, double? confidence, String? accountId}) => Txn(
       id: id, amountCents: amountCents ?? this.amountCents, occurredAt: occurredAt ?? this.occurredAt, merchant: merchant ?? this.merchant,
       categoryId: categoryId ?? this.categoryId, accountId: accountId ?? this.accountId, status: status, confidence: confidence ?? this.confidence,
-      needsReview: needsReview ?? this.needsReview, tags: tags ?? this.tags, note: note ?? this.note, source: source, cardLast4: cardLast4, receiptPath: receiptPath, flow: flow);
+      needsReview: needsReview ?? this.needsReview, tags: tags ?? this.tags, note: note ?? this.note, source: source, cardLast4: cardLast4, receiptPath: receiptPath, flow: flow, reimbursedCents: reimbursedCents, sharedCents: sharedCents);
   factory Txn.fromJson(Map<String, dynamic> j) {
     final srcs = (j['sources'] as List?) ?? const [];
     return Txn(
@@ -146,7 +154,7 @@ class Txn {
       confidence: (j['confidence'] as num?)?.toDouble() ?? 1.0, needsReview: (j['needs_review'] ?? false) as bool,
       tags: ((j['tags'] as List?) ?? const []).cast<String>(), note: j['note'] as String?,
       source: srcs.isEmpty ? 'manual' : ((srcs.first as Map)['source'] as String? ?? 'manual'),
-      cardLast4: j['card_last4'] as String?, receiptPath: j['receipt_path'] as String?, flow: j['flow'] as String?);
+      cardLast4: j['card_last4'] as String?, receiptPath: j['receipt_path'] as String?, flow: j['flow'] as String?, reimbursedCents: (j['reimbursed_cents'] as num?)?.toInt() ?? 0, sharedCents: (j['shared_cents'] as num?)?.toInt() ?? 0);
   }
 }
 
@@ -192,7 +200,9 @@ enum PayFrequency { weekly, biweekly, semimonthly, monthly }
 
 @immutable
 class PaydayRule {
-  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents});
+  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents, this.days});
+  /// Twice a month: the two days of the month, like [15, 30].
+  final List<int>? days;
   final PayFrequency frequency;
   final DateTime anchor; // any known payday
   final int amountCents;

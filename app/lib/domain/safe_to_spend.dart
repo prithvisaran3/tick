@@ -1,5 +1,6 @@
 import 'models.dart';
 import 'payday.dart';
+import 'dates.dart';
 
 class SafeToSpend {
   const SafeToSpend({required this.cashCents, required this.billsCents, required this.goalsCents, required this.nextPayday, required this.daysToPayday,
@@ -28,11 +29,11 @@ SafeToSpend computeSafeToSpend({
   required List<Recurring> recurring,
   required List<Goal> goals,
   List<Expected> expected = const [],
+  PayPeriod? period,     // from SQL when there is one; the rule is the fallback
 }) {
   final t = dayOnly(today);
   // If today is payday the money is arriving: plan to the *following* payday.
-  var payday = nextPayday(rule, t);
-  if (payday == t) payday = nextPayday(rule, t.add(const Duration(days: 1)));
+  final payday = period != null && !period.nextPayday.isBefore(t) && period.nextPayday != t ? dayOnly(period.nextPayday) : payDates(rule, t).$2;
   final cash = accounts
       .where((a) => a.includeInSafe && a.isCash && a.type != 'savings')
       .fold<int>(0, (s, a) => s + (a.availableCents ?? a.balanceCents ?? 0));
@@ -50,7 +51,7 @@ SafeToSpend computeSafeToSpend({
     loansDueCents: loansDue,
     cardsLaterCents: cardsLater,
     nextPayday: payday,
-    daysToPayday: payday.difference(t).inDays,
+    daysToPayday: daysBetween(t, payday),
   );
 }
 

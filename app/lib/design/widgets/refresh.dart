@@ -1,16 +1,25 @@
 import 'package:flutter/cupertino.dart' show CupertinoSliverRefreshControl, RefreshIndicatorMode;
 import 'package:flutter/widgets.dart';
+import '../../services/haptics.dart';
 import '../theme.dart';
 import 'core.dart';
 
 /// Pull-to-refresh in Tick's language: the three-dot loader pulses as you pull, then loops while loading. No platform spinner.
-class TickRefreshSliver extends StatelessWidget {
+class TickRefreshSliver extends StatefulWidget {
   const TickRefreshSliver({super.key, required this.onRefresh});
   final Future<void> Function() onRefresh;
   @override
+  State<TickRefreshSliver> createState() => _TickRefreshSliverState();
+}
+
+class _TickRefreshSliverState extends State<TickRefreshSliver> {
+  var _last = RefreshIndicatorMode.inactive;
+  @override
   Widget build(BuildContext context) => CupertinoSliverRefreshControl(
-        onRefresh: onRefresh, refreshTriggerPullDistance: 80, refreshIndicatorExtent: 56,
+        onRefresh: widget.onRefresh, refreshTriggerPullDistance: 80, refreshIndicatorExtent: 56,
         builder: (context, mode, pulled, trigger, indicator) {
+          if (mode == RefreshIndicatorMode.armed && _last != RefreshIndicatorMode.armed) TickHaptics.instance.selection();       // the pull has gone far enough
+          _last = mode;
           final t = (pulled / trigger).clamp(0.0, 1.0);
           return Center(
             child: Opacity(

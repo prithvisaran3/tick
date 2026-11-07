@@ -28,7 +28,7 @@ begin
   insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, merchant_clean, category_id, flow, plaid_transaction_id) values (a, (ids->>'chase')::uuid, 100000, '2026-10-31 15:00Z', 'Zelle payment from Prithvi Saran Sathyasaran 0PE0ABS1MUQD', 'Zelle payment from Prithvi Saran Sathyasaran 0PE0ABS1MUQD', cat, 'transfer', 'zelle_me_in');
   select id into cat from public.categories where user_id = a and name = 'Transfer';
   insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, merchant_clean, category_id, flow, plaid_transaction_id) values (a, (ids->>'sofi_chk')::uuid, -100000, '2026-10-31 15:00Z', 'Zelle® Payment to Prithvi Chase', 'Zelle® Payment to Prithvi Chase', cat, 'transfer', 'zelle_me_out');
-  select id into cat from public.categories where user_id = a and name = 'Friends and family';
+  select id into cat from public.categories where user_id = a and name = 'Rent';
   insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, merchant_clean, category_id, flow, plaid_transaction_id) values (a, (ids->>'chase')::uuid, -70422, '2026-10-30 15:00Z', 'Zelle payment to Rent JPM99cr1tlu9', 'Zelle payment to Rent JPM99cr1tlu9', cat, null, 'zelle_rent');
   select id into cat from public.categories where user_id = a and name = 'Transfer';
   insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, merchant_clean, category_id, flow, plaid_transaction_id) values (a, (ids->>'chase')::uuid, -45000, '2026-10-20 15:00Z', 'APPLECARD GSBANK PAYMENT 5800', 'APPLECARD GSBANK PAYMENT 5800', cat, 'transfer', 'apple_pay_chase');
@@ -76,9 +76,9 @@ begin
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'sofi_out');
   if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('sofi_out: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'zelle_out');
-  if r.out_c <> 51146 or r.in_c <> 0 then fails := fails || format('zelle_out: out %s in %s, want 51146/0; ', r.out_c, r.in_c); end if;
+  if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('zelle_out: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'zelle_in');
-  if r.out_c <> 0 or r.in_c <> 31200 then fails := fails || format('zelle_in: out %s in %s, want 0/31200; ', r.out_c, r.in_c); end if;
+  if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('zelle_in: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'zelle_me_in');
   if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('zelle_me_in: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'zelle_me_out');
@@ -118,9 +118,9 @@ begin
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'sav_in');
   if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('sav_in: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   select out_c, in_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'venmo_cashout');
-  if r.out_c <> 0 or r.in_c <> 2500 then fails := fails || format('venmo_cashout: out %s in %s, want 0/2500; ', r.out_c, r.in_c); end if;
+  if r.out_c <> 0 or r.in_c <> 0 then fails := fails || format('venmo_cashout: out %s in %s, want 0/0; ', r.out_c, r.in_c); end if;
   j := public.tick_flows(null, null);
-  if (j->>'in')::bigint <> 272166 or (j->>'out')::bigint <> 166275 or (j->>'net')::bigint <> 105891 then fails := fails || format('totals %s; ', j); end if;
+  if (j->>'in')::bigint <> 238466 or (j->>'out')::bigint <> 115129 or (j->>'net')::bigint <> 123337 then fails := fails || format('totals %s; ', j); end if;
   -- Property: every day total and the month total equal the sum of the rows you can see under the active filter.
   for r in select * from (values (null::text[], null::text), (array['credit'], null), (array['checking'], null), (null, 'zelle'), (array['loan','savings'], null)) f(types, q) loop
     j := public.tick_activity_page(null, null, r.types, null, null, r.q, false, false, null, null, 100);
@@ -131,6 +131,37 @@ begin
     select coalesce(sum(in_c - out_c), 0) into n from public.tick_filtered(null, null, r.types, null, null, r.q, false, false);
     if n <> (public.tick_flows(null, null, r.types, null, null, r.q) ->> 'net')::bigint then fails := fails || format('month total under filter %s; ', r.types); end if;
   end loop;
+  -- Friends and family: one net, not in the totals by default; the toggle puts them back. Paybacks net the purchase whatever the toggle says.
+  j := public.tick_flows(null, null);
+  if (j->>'friends_net')::bigint <> -17446 or (j->>'friends_included')::boolean then fails := fails || format('friends net %s; ', j->>'friends_net'); end if;
+  reset role;
+  insert into public.settings (user_id, include_friends) values (a, true) on conflict (user_id) do update set include_friends = true;
+  set local role authenticated;
+  j := public.tick_flows(null, null);
+  if (j->>'in')::bigint <> 272166 or (j->>'out')::bigint <> 166275 or (j->>'friends_net')::bigint <> -17446 or not (j->>'friends_included')::boolean then fails := fails || format('toggle on %s; ', j); end if;
+  reset role;
+  update public.settings set include_friends = false where user_id = a;
+  perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'venmo_cashout'));
+  if (select flow from public.transactions where plaid_transaction_id = 'venmo_cashout') is distinct from 'reimbursement' then fails := fails || 'payback flow; '; end if;
+  begin
+    perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'zelle_in'));
+    fails := fails || 'payback over the purchase accepted; ';
+  exception when invalid_parameter_value then null; end;
+  set local role authenticated;
+  j := public.tick_flows(null, null);
+  if (j->>'out')::bigint <> 115129 - 2500 then fails := fails || format('net purchase %s; ', j->>'out'); end if;
+  if (j->>'friends_net')::bigint <> -17446 - 2500 then fails := fails || format('payback still in friends net %s; ', j->>'friends_net'); end if;
+  select out_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'disc_buy');
+  if r.out_c <> 1710 then fails := fails || format('disc_buy net %s; ', r.out_c); end if;
+  reset role;
+  delete from public.txn_paybacks where user_id = a;
+  if (select flow from public.transactions where plaid_transaction_id = 'venmo_cashout') is not null or (select reimbursed_cents from public.transactions where plaid_transaction_id = 'disc_buy') <> 0 then fails := fails || 'unlink left a trace; '; end if;
+  set local role authenticated;
+  -- The server-only function is not callable by a signed-in user.
+  begin
+    perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'zelle_in'));
+    fails := fails || 'authenticated can call tick_payback_link; ';
+  exception when insufficient_privilege then null; end;
   -- B sees none of it.
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   if (public.tick_flows(null, null) ->> 'count')::int <> 0 then fails := fails || 'B sees A rows; '; end if;

@@ -18,6 +18,8 @@ import '../domain/money.dart';
 import '../services/haptics.dart';
 import 'ask_button.dart';
 import 'common.dart';
+import 'payback_card.dart';
+import 'rule_cards.dart';
 
 /// Activity: ONE continuous list across every month (keyset pages of 40, prefetched ahead). A pinned month header carries that month's
 /// in, out and net under the active filters and hands over to the next month as you scroll (light tick). Day headers carry the day's net.
@@ -137,6 +139,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         if (q.anyFilter || q.upTo != null)
           Padding(padding: const EdgeInsets.only(bottom: 4), child: _ActiveFilters(q: q, ledger: l, onChange: _set)),
         if (a.offline) OfflineBanner(onRetry: notifier.refresh),
+        if (!q.anyFilter) const PaybackBanner(),
         if (a.loading && a.rows.isEmpty) const ListSkeleton(rows: 8)
         else if (a.error && a.rows.isEmpty) ErrorState(onRetry: notifier.refresh)
         else if (a.rows.isEmpty)
@@ -282,6 +285,7 @@ class ActivityRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return SwipeActions(
+      onThreshold: TickHaptics.instance.selection,
       onOpen: () => TickHaptics.instance.sortLeft(),
       actions: [
         SwipeAction('Categorise', 'edit', () => showCategorySheet(context, ref, t)),
@@ -304,7 +308,13 @@ Future<void> showCategorySheet(BuildContext context, WidgetRef ref, Txn t) {
           const SizedBox(height: 16),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final c in cats)
-              TickChip(c.name, on: c.id == t.categoryId, onTap: () { ref.read(ledgerProvider.notifier).recategorize(t.id, c.id); Navigator.of(ctx).pop(); }),
+              TickChip(c.name, on: c.id == t.categoryId, onTap: () {
+                final root = Navigator.of(context, rootNavigator: true).context;
+                ref.read(ledgerProvider.notifier).recategorize(t.id, c.id);
+                Navigator.of(ctx).pop();
+                final who = p2pName(t.merchant);
+                if (who != null && c.name == 'Rent' && t.amountCents < 0 && root.mounted) showRuleOffer(root, ref, t, c, who);
+              }),
           ]),
         ]),
       ));

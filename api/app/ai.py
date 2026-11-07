@@ -401,6 +401,18 @@ def categorize_ai(user_id: str, merchant: str, categories: list[str]) -> tuple[s
     r = categorize_batch(user_id, [merchant], categories)
     return r.get(merchant)
 
+def receipt_items(user_id: str, image: bytes, mime: str) -> dict | None:
+    """Line items for an itemised split. None when no vision model is available; the app falls back to a manual split."""
+    import base64
+    p = provider()
+    if not isinstance(p, OpenRouterProvider) or not p.models_for("vision"):
+        return None
+    url = f"data:{mime};base64,{base64.b64encode(image).decode()}"
+    msgs = [{"role": "user", "content": [{"type": "text", "text": 'Read this receipt. JSON only: {"merchant": string, "items": [{"name": string, "price": number}], "tax": number, "tip": number}. Prices are dollars for the whole line. Leave out subtotals, totals, payment lines and card numbers.'},
+                                         {"type": "image_url", "image_url": {"url": url}}]}]
+    r = p.chat("json", msgs, json_out=True, max_tokens=800, user_id=user_id, feature="receipt", model_task="vision")
+    return _json(r.text if r else None)
+
 def receipt_extract(user_id: str, image: bytes, mime: str) -> dict | None:
     """Vision on a free multimodal model. Receipt images can contain card digits, so this runs only when the person scans a receipt."""
     import base64

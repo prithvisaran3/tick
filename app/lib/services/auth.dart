@@ -17,8 +17,8 @@ class AuthFailure implements Exception {
   String get message => switch (kind) {
         AuthFailureKind.cancelled => 'Sign-in was cancelled. Try again when you are ready.',
         AuthFailureKind.offline => 'You are offline. Connect and try again.',
-        AuthFailureKind.notConfigured => 'This build is not connected to Tick yet. Run it with the values from docs/RUN_ON_MAC.md.',
-        AuthFailureKind.failed => 'That didn\'t go through. Try again, nothing was lost.',
+        AuthFailureKind.notConfigured => 'Sign-in isn\'t available right now.',
+        AuthFailureKind.failed => 'Sign-in didn\'t finish. Try again.',
       };
   @override
   String toString() => 'AuthFailure(${kind.name})';

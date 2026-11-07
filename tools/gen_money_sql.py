@@ -42,13 +42,44 @@ def build() -> str:
     select coalesce(sum(in_c - out_c), 0) into n from public.tick_filtered(null, null, r.types, null, null, r.q, false, false);
     if n <> (public.tick_flows(null, null, r.types, null, null, r.q) ->> 'net')::bigint then fails := fails || format('month total under filter %s; ', r.types); end if;
   end loop;
+  -- Friends and family: one net, not in the totals by default; the toggle puts them back. Paybacks net the purchase whatever the toggle says.
+  j := public.tick_flows(null, null);
+  if (j->>'friends_net')::bigint <> FRIENDS_NET or (j->>'friends_included')::boolean then fails := fails || format('friends net %s; ', j->>'friends_net'); end if;
+  reset role;
+  insert into public.settings (user_id, include_friends) values (a, true) on conflict (user_id) do update set include_friends = true;
+  set local role authenticated;
+  j := public.tick_flows(null, null);
+  if (j->>'in')::bigint <> WITH_IN or (j->>'out')::bigint <> WITH_OUT or (j->>'friends_net')::bigint <> FRIENDS_NET or not (j->>'friends_included')::boolean then fails := fails || format('toggle on %s; ', j); end if;
+  reset role;
+  update public.settings set include_friends = false where user_id = a;
+  perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'venmo_cashout'));
+  if (select flow from public.transactions where plaid_transaction_id = 'venmo_cashout') is distinct from 'reimbursement' then fails := fails || 'payback flow; '; end if;
+  begin
+    perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'zelle_in'));
+    fails := fails || 'payback over the purchase accepted; ';
+  exception when invalid_parameter_value then null; end;
+  set local role authenticated;
+  j := public.tick_flows(null, null);
+  if (j->>'out')::bigint <> TOTAL_OUT - 2500 then fails := fails || format('net purchase %s; ', j->>'out'); end if;
+  if (j->>'friends_net')::bigint <> FRIENDS_NET - 2500 then fails := fails || format('payback still in friends net %s; ', j->>'friends_net'); end if;
+  select out_c into r from public.tick_classified(a, null, null) where id = (select id from public.transactions where plaid_transaction_id = 'disc_buy');
+  if r.out_c <> 1710 then fails := fails || format('disc_buy net %s; ', r.out_c); end if;
+  reset role;
+  delete from public.txn_paybacks where user_id = a;
+  if (select flow from public.transactions where plaid_transaction_id = 'venmo_cashout') is not null or (select reimbursed_cents from public.transactions where plaid_transaction_id = 'disc_buy') <> 0 then fails := fails || 'unlink left a trace; '; end if;
+  set local role authenticated;
+  -- The server-only function is not callable by a signed-in user.
+  begin
+    perform public.tick_payback_link(a, (select id from public.transactions where plaid_transaction_id = 'disc_buy'), (select id from public.transactions where plaid_transaction_id = 'zelle_in'));
+    fails := fails || 'authenticated can call tick_payback_link; ';
+  exception when insufficient_privilege then null; end;
   -- B sees none of it.
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   if (public.tick_flows(null, null) ->> 'count')::int <> 0 then fails := fails || 'B sees A rows; '; end if;
   reset role;
   if fails <> '' then raise exception 'MONEY_TESTS_FAILED: %', fails; end if;
   raise exception 'MONEY_TESTS_PASSED';
-end $$;""")
+end $$;""".replace("FRIENDS_NET", str(FIX["friends_net"])).replace("WITH_IN", str(FIX["totals_with_friends"]["in"])).replace("WITH_OUT", str(FIX["totals_with_friends"]["out"])).replace("TOTAL_OUT", str(t["out"])))
     return "\n".join(L) + "\n"
 
 if __name__ == "__main__":

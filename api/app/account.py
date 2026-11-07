@@ -23,7 +23,7 @@ log = logging.getLogger("tick.account")
 
 # Rows that belong to the user and go away on "Delete all my data". plaid_items (the lifetime slot counter) and audit_log stay:
 # neither holds financial data, and removing an Item never returns its slot anyway.
-USER_TABLES = ["messages", "chats", "insights", "expected", "recurring", "ingest_logs", "transactions", "rules", "budgets", "goals", "people",
+USER_TABLES = ["ask_log", "ask_memory", "splitwise_events", "category_rules", "messages", "chats", "insights", "expected", "recurring", "ingest_logs", "transactions", "rules", "budgets", "goals", "tally_groups", "people",
                "snapshots", "ai_usage", "paydays", "accounts", "connections", "plaid_link_sessions", "ingest_tokens", "categories", "plaid_slots"]
 
 def mint_token() -> str:
@@ -128,8 +128,7 @@ def delete_everything(body: DeleteBody, user_id: str = Depends(current_user)):
         pass
     auth.forget_tokens(user_id)
     audit(user_id, "data_deleted", {"count": removed})
-    return {"deleted": True, "banks_removed": removed, "banks_failed": failed, "receipts_deleted": receipts,
-            "note": "Removing a bank link never gives the slot back."}
+    return {"deleted": True, "banks_removed": removed, "banks_failed": failed, "receipts_deleted": receipts}
 
 def _delete_receipts(user_id: str) -> int:
     s = settings()

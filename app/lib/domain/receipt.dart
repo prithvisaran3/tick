@@ -2,6 +2,7 @@ import 'flows.dart';
 import 'models.dart';
 import 'payday.dart';
 import 'money.dart';
+import 'dates.dart';
 
 class ReceiptLine {
   const ReceiptLine(this.merchant, this.cents);
@@ -20,7 +21,7 @@ class ReceiptData {
 
 /// Yesterday's spending as receipt lines (largest first, max [maxLines], the rest folded into "and N more").
 ReceiptData buildReceipt(List<Txn> txns, DateTime now, {int maxLines = 6, Map<String, Category>? cats, Map<String, Account>? accounts}) {
-  final y = dayOnly(now).subtract(const Duration(days: 1));
+  final y = addDays(dayOnly(now), -1);
   // Same rule as every other total: transfers, card payments and settlements are not spending.
   int out(Txn t) => outOf(t, cats: cats, accounts: accounts);
   final ys = txns.where((t) => out(t) > 0 && dayOnly(t.occurredAt) == y).toList()..sort((a, b) => out(b).compareTo(out(a)));

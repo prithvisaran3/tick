@@ -5,7 +5,11 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:go_router/go_router.dart';
+import 'data/bank_step.dart';
 import 'data/env.dart';
+import 'services/api.dart';
+import 'services/bank_link.dart';
+import 'services/session.dart';
 import 'data/settings.dart';
 import 'design/widgets/core.dart';
 import 'design/widgets/more.dart';
@@ -15,11 +19,22 @@ import 'features/import_screen.dart';
 import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
+import 'features/tally_manage.dart';
+import 'features/ask_screen.dart';
+import 'features/avatar_builder.dart';
+import 'features/payday_editor.dart';
+import 'features/tally_expense_screen.dart';
+import 'features/tally_more.dart';
+import 'design/motion.g.dart';
+import 'design/widgets/motion.dart';
+import 'features/tally_people.dart';
 import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
 import 'features/caught_screen.dart';
 import 'features/gallery_screen.dart';
 import 'features/incoming_screen.dart';
+import 'features/bank_step_screen.dart';
+import 'features/intro_cinematic.dart';
 import 'features/onboarding_screen.dart';
 import 'features/quick_add.dart';
 import 'features/receipt_screen.dart';
@@ -40,11 +55,11 @@ import 'services/notifications.dart';
 import 'services/widget_sync.dart';
 
 CustomTransitionPage<void> _page(GoRouterState s, Widget child) => CustomTransitionPage<void>(
-      key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: 380), reverseTransitionDuration: const Duration(milliseconds: 260),
+      key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: TickMotion.pageInMs), reverseTransitionDuration: const Duration(milliseconds: TickMotion.pageOutMs),
       transitionsBuilder: (ctx, a, sa, ch) {
         if (ctx.reduceMotion) return FadeTransition(opacity: a, child: ch);
-        final curved = CurvedAnimation(parent: a, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
-        return SlideTransition(position: Tween(begin: const Offset(0.12, 0), end: Offset.zero).animate(curved), child: FadeTransition(opacity: a, child: ch));
+        final curved = CurvedAnimation(parent: a, curve: const SpringCurve(TickSprings.standard), reverseCurve: Curves.easeIn);
+        return SlideTransition(position: Tween(begin: const Offset(TickMotion.pageFromOffsetX, 0), end: Offset.zero).animate(curved), child: FadeTransition(opacity: a, child: ch));
       },
     );
 
@@ -68,11 +83,16 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       },
       routes: [
         GoRoute(path: '/', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: const Shell())),
-        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen())),
+        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen(intro: true))),
+        GoRoute(path: '/intro', pageBuilder: (c, s) => _page(s, const IntroReplayScreen())),
+        GoRoute(path: '/onboarding/bank', pageBuilder: (c, s) => _page(s, const BankStepScreen())),
         GoRoute(path: '/caught', pageBuilder: (c, s) => _page(s, const CaughtScreen())),
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
+        GoRoute(path: '/avatar', pageBuilder: (c, s) => _page(s, AvatarBuilderScreen(member: s.uri.queryParameters['member']))),
+        GoRoute(path: '/settings/ask', pageBuilder: (c, s) => _page(s, const AskSettingsScreen())),
+        GoRoute(path: '/settings/payday', pageBuilder: (c, s) => _page(s, const PaydayScreen())),
         GoRoute(path: '/settings/appearance', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.appearance))),
         GoRoute(path: '/settings/data', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.data))),
         GoRoute(path: '/settings/labs', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.labs))),
@@ -85,7 +105,14 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/card/:id', pageBuilder: (c, s) => _page(s, CardScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
         GoRoute(path: '/tally/split/:txnId', pageBuilder: (c, s) => _page(s, TallySplitScreen(txnId: s.pathParameters['txnId']!))),
+        GoRoute(path: '/tally/plan', pageBuilder: (c, s) => _page(s, const TallyPlanScreen())),
+        GoRoute(path: '/tally/:id/receipt', pageBuilder: (c, s) => _page(s, TallyReceiptScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/inbox', pageBuilder: (c, s) => _page(s, const TallyInboxScreen())),
         GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/expense/:eid', pageBuilder: (c, s) => _page(s, TallyExpenseScreen(groupId: s.pathParameters['id']!, id: s.pathParameters['eid']!))),
+        GoRoute(path: '/tally/:id/settings', pageBuilder: (c, s) => _page(s, TallyGroupSettingsScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/activity', pageBuilder: (c, s) => _page(s, TallyActivityScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/person/:member', pageBuilder: (c, s) => _page(s, TallyPersonScreen(groupId: s.pathParameters['id']!, member: s.pathParameters['member']!))),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],
@@ -128,7 +155,20 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPendingAdd();
       _maybeAskNotifications();
+      _resumePendingLink();
     });
+  }
+
+  /// A link the person finished at the bank but the app was killed before exchanging it: finish it now, quietly. Cold start only
+  /// (while a Plaid sheet is open in this process the flow itself completes it). The exchange is idempotent.
+  Future<void> _resumePendingLink() async {
+    if (ref.read(settingsProvider).demoMode) return;
+    for (var i = 0; i < 30 && ref.read(userIdProvider) == null; i++) { await Future<void>.delayed(const Duration(milliseconds: 200)); }
+    if (!mounted || ref.read(userIdProvider) == null) return;
+    final store = ref.read(bankStepStoreProvider);
+    final token = store.pendingLink;
+    if (token == null) return;
+    if (await resumePendingLink(ref.read(apiProvider), token, store.clearPendingLink)) ref.read(ledgerProvider.notifier).refresh();
   }
 
   @override

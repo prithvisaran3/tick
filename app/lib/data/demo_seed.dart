@@ -1,6 +1,7 @@
 import 'dart:math';
 import '../domain/models.dart';
 import '../domain/payday.dart';
+import '../domain/dates.dart';
 
 /// Realistic seed for a remote software engineer in Arlington, VA. Deterministic; dates relative to [now].
 class DemoData {
@@ -40,14 +41,14 @@ const defaultCategories = [
 
 /// Demo payday rule without building the whole seed (it is read on every ledger change).
 PaydayRule demoPaydayRule(DateTime now) {
-  var next = dayOnly(now).add(const Duration(days: 1));
-  while (next.weekday != DateTime.friday) { next = next.add(const Duration(days: 1)); }
+  var next = addDays(dayOnly(now), 1);
+  while (next.weekday != DateTime.friday) { next = addDays(next, 1); }
   return PaydayRule(frequency: PayFrequency.biweekly, anchor: next, amountCents: 231000);
 }
 
 DemoData buildDemo(DateTime now) {
   final today = dayOnly(now);
-  DateTime at(int daysAgo, int h, int m) => today.subtract(Duration(days: daysAgo)).add(Duration(hours: h, minutes: m));
+  DateTime at(int daysAgo, int h, int m) => addDays(today, -daysAgo).add(Duration(hours: h, minutes: m));
   var n = 0;
   Txn t(int daysAgo, int h, int m, String merchant, int cents, String cat, {String src = 'plaid', String acct = 'acc-disc', double conf = 1, bool review = false, List<String> tags = const [], String? flow}) =>
       Txn(id: 'demo-${n++}', amountCents: cents, occurredAt: at(daysAgo, h, m), merchant: merchant, categoryId: cat, accountId: acct, source: src, confidence: conf, needsReview: review, tags: tags, flow: flow);
@@ -94,7 +95,7 @@ DemoData buildDemo(DateTime now) {
   }
   for (var m = 0; m < 3; m++) {
     final base = DateTime(today.year, today.month - m, 1);
-    final dAgo = today.difference(base.add(const Duration(days: 0))).inDays;
+    final dAgo = today.difference(addDays(base, 0)).inDays;
     if (dAgo >= 4) txns.add(t(dAgo, 6, 0, 'Rent', -185000, 'cat-rent', acct: 'acc-chk'));
     if (dAgo + 8 >= 4) txns.add(t(dAgo + 8, 6, 0, 'Comcast Internet', -6400, 'cat-phone', acct: 'acc-boa'));
     if (dAgo + 14 >= 4) txns.add(t(dAgo + 14, 6, 0, 'Claude', -1800, 'cat-software', tags: const ['business']));
@@ -108,13 +109,13 @@ DemoData buildDemo(DateTime now) {
   final next = rule.anchor;
 
   final recurring = [
-    Recurring(id: 'r-internet', merchant: 'Internet', cadence: Cadence.monthly, expectedCents: 6400, nextDate: today.add(const Duration(days: 1)), categoryId: 'cat-phone', priceHistory: const [6400, 6400]),
-    Recurring(id: 'r-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: 185000, nextDate: today.add(const Duration(days: 5)), categoryId: 'cat-rent', priceHistory: const [185000]),
-    Recurring(id: 'r-claude', merchant: 'Claude', cadence: Cadence.monthly, expectedCents: 2000, nextDate: today.add(const Duration(days: 9)), categoryId: 'cat-software', priceHistory: const [1800, 2000]),
-    Recurring(id: 'r-cursor', merchant: 'Cursor', cadence: Cadence.monthly, expectedCents: 2200, nextDate: today.add(const Duration(days: 12)), categoryId: 'cat-software', priceHistory: const [2000, 2200]),
-    Recurring(id: 'r-phone', merchant: 'Phone', cadence: Cadence.monthly, expectedCents: 5500, nextDate: today.add(const Duration(days: 15)), categoryId: 'cat-phone', priceHistory: const [5500]),
-    Recurring(id: 'r-spotify', merchant: 'Spotify', cadence: Cadence.monthly, expectedCents: 1099, nextDate: today.add(const Duration(days: 28)), categoryId: 'cat-subscriptions', priceHistory: const [1099]),
-    Recurring(id: 'r-apple', merchant: 'Apple Developer', cadence: Cadence.yearly, expectedCents: 9900, nextDate: today.add(const Duration(days: 140)), categoryId: 'cat-software', priceHistory: const [9900]),
+    Recurring(id: 'r-internet', merchant: 'Internet', cadence: Cadence.monthly, expectedCents: 6400, nextDate: addDays(today, 1), categoryId: 'cat-phone', priceHistory: const [6400, 6400]),
+    Recurring(id: 'r-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: 185000, nextDate: addDays(today, 5), categoryId: 'cat-rent', priceHistory: const [185000]),
+    Recurring(id: 'r-claude', merchant: 'Claude', cadence: Cadence.monthly, expectedCents: 2000, nextDate: addDays(today, 9), categoryId: 'cat-software', priceHistory: const [1800, 2000]),
+    Recurring(id: 'r-cursor', merchant: 'Cursor', cadence: Cadence.monthly, expectedCents: 2200, nextDate: addDays(today, 12), categoryId: 'cat-software', priceHistory: const [2000, 2200]),
+    Recurring(id: 'r-phone', merchant: 'Phone', cadence: Cadence.monthly, expectedCents: 5500, nextDate: addDays(today, 15), categoryId: 'cat-phone', priceHistory: const [5500]),
+    Recurring(id: 'r-spotify', merchant: 'Spotify', cadence: Cadence.monthly, expectedCents: 1099, nextDate: addDays(today, 28), categoryId: 'cat-subscriptions', priceHistory: const [1099]),
+    Recurring(id: 'r-apple', merchant: 'Apple Developer', cadence: Cadence.yearly, expectedCents: 9900, nextDate: addDays(today, 140), categoryId: 'cat-software', priceHistory: const [9900]),
   ];
   final connections = [
     Connection(id: 'c-chase', institution: 'Chase', status: 'active', syncState: 'ok', lastSyncedAt: now.subtract(const Duration(minutes: 5))),
@@ -131,21 +132,21 @@ DemoData buildDemo(DateTime now) {
       const Account(id: 'acc-sofi', connectionId: 'c-sofi', name: 'SoFi Checking', institution: 'SoFi', mask: '2210', type: 'checking', balanceCents: 41500, availableCents: 41500),
       const Account(id: 'acc-sav', connectionId: 'c-sofi', name: 'SoFi Savings', institution: 'SoFi', mask: '9921', type: 'savings', balanceCents: 840000, availableCents: 840000, includeInSafe: false),
       Account(id: 'acc-disc', connectionId: 'c-disc', name: 'Discover it', institution: 'Discover', mask: '1234', type: 'credit', balanceCents: -81240, creditLimitCents: 500000,
-          statementBalanceCents: 64012, minimumPaymentCents: 3500, dueDate: today.add(const Duration(days: 3)), lastStatementDate: today.subtract(const Duration(days: 22)), aprBps: 2499),
+          statementBalanceCents: 64012, minimumPaymentCents: 3500, dueDate: addDays(today, 3), lastStatementDate: addDays(today, -22), aprBps: 2499),
       Account(id: 'acc-boa', connectionId: 'c-boa', name: 'Customized Cash Rewards', institution: 'Bank of America', mask: '5567', type: 'credit', balanceCents: -23410, creditLimitCents: 300000,
-          statementBalanceCents: 18800, minimumPaymentCents: 2500, dueDate: today.add(const Duration(days: 19)), lastStatementDate: today.subtract(const Duration(days: 6)), aprBps: 2324),
+          statementBalanceCents: 18800, minimumPaymentCents: 2500, dueDate: addDays(today, 19), lastStatementDate: addDays(today, -6), aprBps: 2324),
       Account(id: 'acc-savor', connectionId: 'c-cap', name: 'Savor', institution: 'Capital One', mask: '8810', type: 'credit', balanceCents: -192300, creditLimitCents: 250000,
-          statementBalanceCents: 142000, minimumPaymentCents: 4000, dueDate: today.add(const Duration(days: 8)), lastStatementDate: today.subtract(const Duration(days: 17)), aprBps: 2899),
+          statementBalanceCents: 142000, minimumPaymentCents: 4000, dueDate: addDays(today, 8), lastStatementDate: addDays(today, -17), aprBps: 2899),
       const Account(id: 'acc-card', name: 'Apple Card', institution: 'Apple Card', mask: '4421', type: 'credit', balanceCents: -31840, creditLimitCents: 400000),
       Account(id: 'acc-loan', connectionId: 'c-sofi', name: 'Student loan', institution: 'SoFi', mask: '9001', type: 'loan', subtype: 'student', balanceCents: -1825000,
-          interestRateBps: 550, nextPaymentCents: 40000, minimumPaymentCents: 40000, dueDate: today.add(const Duration(days: 20)), includeInSafe: false),
+          interestRateBps: 550, nextPaymentCents: 40000, minimumPaymentCents: 40000, dueDate: addDays(today, 20), includeInSafe: false),
     ],
     txns: txns,
     recurring: recurring,
     expected: [
       Expected(id: 'e-pay', kind: ExpectedKind.paycheck, label: 'Payroll', amountCents: 231000, date: next),
-      Expected(id: 'e-refund', kind: ExpectedKind.refund, label: 'Amazon refund', amountCents: 2400, date: today.add(const Duration(days: 4))),
-      Expected(id: 'e-iou', kind: ExpectedKind.iou, label: 'Alex owes you', amountCents: 4000, date: today.add(const Duration(days: 7))),
+      Expected(id: 'e-refund', kind: ExpectedKind.refund, label: 'Amazon refund', amountCents: 2400, date: addDays(today, 4)),
+      Expected(id: 'e-iou', kind: ExpectedKind.iou, label: 'Alex owes you', amountCents: 4000, date: addDays(today, 7)),
     ],
     goals: const [
       Goal(id: 'g1', name: 'Savings', targetCents: 1000000, savedCents: 840000, perPaydayCents: 40000),

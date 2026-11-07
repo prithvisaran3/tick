@@ -13,6 +13,7 @@
 		7A1C0001000000000000AA03 /* LogExpenseIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA04 /* LogExpenseIntent.swift */; };
 		7A1C0001000000000000AA05 /* TickWebAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA06 /* TickWebAuth.swift */; };
 		7A1C0001000000000000AA07 /* TickPrivacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA08 /* TickPrivacy.swift */; };
+		7A1C0002FBE1CD150000BB01 /* TickAskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0002FBE1CD150000BB02 /* TickAskModel.swift */; };
 		7A1C0001000000000000AA09 /* TickImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA0A /* TickImport.swift */; };
 		7A1C0001000000000000AA0B /* ImportStatementIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA0C /* ImportStatementIntent.swift */; };
 		7A1C0001000000000000AA01 /* TickHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0001000000000000AA02 /* TickHaptics.swift */; };
@@ -57,6 +58,7 @@
 		7A1C0001000000000000AA04 /* LogExpenseIntent.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LogExpenseIntent.swift; sourceTree = "<group>"; };
 		7A1C0001000000000000AA06 /* TickWebAuth.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TickWebAuth.swift; sourceTree = "<group>"; };
 		7A1C0001000000000000AA08 /* TickPrivacy.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TickPrivacy.swift; sourceTree = "<group>"; };
+		7A1C0002FBE1CD150000BB02 /* TickAskModel.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TickAskModel.swift; sourceTree = "<group>"; };
 		7A1C0001000000000000AA0A /* TickImport.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TickImport.swift; sourceTree = "<group>"; };
 		7A1C0001000000000000AA0C /* ImportStatementIntent.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ImportStatementIntent.swift; sourceTree = "<group>"; };
 		7A1C0001000000000000AA02 /* TickHaptics.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TickHaptics.swift; sourceTree = "<group>"; };
@@ -137,6 +139,7 @@
 				7A1C0001000000000000AA02 /* TickHaptics.swift */,
 				7A1C0001000000000000AA06 /* TickWebAuth.swift */,
 				7A1C0001000000000000AA08 /* TickPrivacy.swift */,
+				7A1C0002FBE1CD150000BB02 /* TickAskModel.swift */,
 				7A1C0001000000000000AA0A /* TickImport.swift */,
 				7A1C0001000000000000AA0C /* ImportStatementIntent.swift */,
 				7A1C0001000000000000AA04 /* LogExpenseIntent.swift */,
@@ -303,6 +306,7 @@
 				7A1C0001000000000000AA01 /* TickHaptics.swift in Sources */,
 				7A1C0001000000000000AA05 /* TickWebAuth.swift in Sources */,
 				7A1C0001000000000000AA07 /* TickPrivacy.swift in Sources */,
+				7A1C0002FBE1CD150000BB01 /* TickAskModel.swift in Sources */,
 				7A1C0001000000000000AA09 /* TickImport.swift in Sources */,
 				7A1C0001000000000000AA0B /* ImportStatementIntent.swift in Sources */,
 				7A1C0001000000000000AA03 /* LogExpenseIntent.swift in Sources */,

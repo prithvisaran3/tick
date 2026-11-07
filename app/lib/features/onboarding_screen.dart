@@ -1,13 +1,18 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
+import '../data/bank_step.dart';
+import '../data/remote.dart';
+import 'intro_cinematic.dart';
+import 'payday_editor.dart';
+import 'tally_people.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/pickers.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
@@ -16,9 +21,10 @@ import '../domain/payday.dart';
 import '../services/auth.dart';
 import '../services/haptics.dart';
 
-/// Three steps: welcome + Google, paycheck, the big stuff (rent, goal) or demo data.
+/// Three steps: welcome + Google, paycheck, the big stuff (rent, goal).
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key, this.initialStep = 0});
+  const OnboardingScreen({super.key, this.intro = false, this.initialStep = 0});
+  final bool intro;   // the router asks for the cinematic; tests and direct steps don't
   final int initialStep;
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -30,21 +36,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   AuthFailureKind? _failure;
   bool _busy = false;
   // paycheck
-  int _freq = 1;
-  int _dateIdx = 0;
-  DateTime? _customDate;
+  PaydayRule? _payRule;
+  String _after = 'skip';    // what scene six said to do next: link, import or skip
   String _amount = '';
   // basics
   String _rent = '';
   String _savings = '';
   int _field = 0; // 0 = rent, 1 = savings
   final List<ParsedEntry> _bills = [];
-
-  List<DateTime> _dateOptions(DateTime now) {
-    var d = dayOnly(now);
-    while (d.weekday != DateTime.friday) { d = d.add(const Duration(days: 1)); }
-    return [d, d.add(const Duration(days: 7)), d.add(const Duration(days: 14))];
-  }
 
   Future<void> _google() async {
     if (_busy) return;                                                  // block double taps
@@ -55,7 +54,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
       // A returning person (reinstall, new phone) already has a payday rule saved: skip the setup questions.
       final done = await ref.read(ledgerProvider.notifier).restoreSetup();
-      if (done && mounted) { context.go('/'); return; }
+      if (done && mounted) { context.go(routeAfterSetup(ref)); return; }
       if (mounted) setState(() { _step = 1; _busy = false; });
     } on AuthFailure catch (f) {
       if (mounted) setState(() { _failure = f.kind; _error = f.message; _busy = false; });
@@ -72,30 +71,34 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => set(a));
   }
 
-  Future<void> _finish({bool demo = false}) async {
+  Future<void> _finish() async {
+    if (ref.read(remoteProvider) != null) await showHandleSheet(context);        // skippable; friends find you by it
+    if (!mounted) return;
     final n = ref.read(settingsProvider.notifier);
     final now = ref.read(clockProvider)();
-    if (demo) {
-      n.update((s) => s.copyWith(demoMode: true, onboardingDone: true));
-    } else {
-      final amt = parseCents(_amount) ?? 0;
-      final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
-      n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
-      final led = ref.read(ledgerProvider.notifier);
-      for (final b in _bills) {
-        await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
-      }
-      final save = parseCents(_savings);
-      if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
-      final rent = parseCents(_rent);
-      if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
+    final amt = parseCents(_amount) ?? 0;
+    final pr = _payRule ?? PaydayRule(frequency: PayFrequency.biweekly, anchor: dayOnly(now), amountCents: 0);
+    n.update((s) => s.copyWith(rule: PaydayRule(frequency: pr.frequency, anchor: pr.anchor, amountCents: amt, days: pr.days), onboardingDone: true));
+    final led = ref.read(ledgerProvider.notifier);
+    for (final b in _bills) {
+      await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
     }
+    final save = parseCents(_savings);
+    if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
+    final rent = parseCents(_rent);
+    if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
     TickHaptics.instance.pop();
-    if (mounted) context.go('/');
+    if (mounted) context.go(_after == 'import' ? '/import' : routeAfterSetup(ref));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.intro && !ref.watch(settingsProvider.select((s) => s.introSeen))) {
+      return IntroCinematic(onDone: (rule, after) {
+        ref.read(settingsProvider.notifier).update((s) => s.copyWith(introSeen: true));
+        setState(() { _payRule = rule ?? _payRule; _after = after; });
+      });
+    }
     final c = context.c;
     final tight = MediaQuery.textScalerOf(context).scale(1.0) > 1.25;      // large Dynamic Type: let the page scroll instead of overflowing
     final now = ref.watch(clockProvider)();
@@ -124,24 +127,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 28),
       ]);
     } else if (_step == 1) {
-      final dates = _dateOptions(now);
       body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const SizedBox(height: 16),
         Text('When do you get paid?', style: context.ts(TickType.displayL)),
         const SizedBox(height: 16),
-        Segmented(options: const ['Weekly', 'Biweekly', 'Twice a month', 'Monthly'], index: _freq, onChanged: (i) => setState(() => _freq = i)),
-        const SizedBox(height: 16),
-        SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-          for (var i = 0; i < 2; i++) ...[if (i > 0) const SizedBox(width: 8), TickChip(DateFormat('EEE MMM d').format(dates[i]), on: i == _dateIdx, onTap: () => setState(() => _dateIdx = i))],
-          const SizedBox(width: 8),
-          TickChip(_customDate == null ? 'Pick date' : DateFormat('EEE MMM d').format(_customDate!), icon: 'calendar', on: _dateIdx < 0, onTap: () async {
-            final d = await showDateSheet(context, initial: _customDate ?? dates.first);
-            if (d != null) setState(() { _customDate = d; _dateIdx = -1; });
-          }),
-        ])),
+        PaydayEditor(today: now, initial: _payRule, onChanged: (r) => _payRule = r),
         const SizedBox(height: 16),
         Center(child: Column(children: [
-          Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
+          Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: RollingDigits('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
           const SizedBox(height: 8),
           Text('Take-home per paycheck', style: context.ts(TickType.bodyS, color: c.textSecondary)),
         ])),
@@ -185,7 +178,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         if (tight) const SizedBox(height: 24) else const Spacer(),
         ActionButton('Add', onPressed: () => _finish()),
         const SizedBox(height: 8),
-        ActionButton('Start with demo data', style: PillStyle.ghost, height: 52, onPressed: () => _finish(demo: true)),
         Center(child: Pressable(onTap: () => _finish(), child: Padding(padding: const EdgeInsets.all(12), child: Text('Skip for now', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
       ]);
     }

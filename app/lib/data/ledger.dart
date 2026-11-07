@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../domain/merchant_name.dart';
 import '../domain/models.dart';
 import '../domain/natural_input.dart';
 import '../domain/payday.dart';
@@ -224,7 +225,8 @@ class LedgerNotifier extends Notifier<LedgerState> {
     await patch(id, (t) => t.copyWith(categoryId: categoryId, needsReview: false));
     final remote = ref.read(remoteProvider);
     if (remote != null && !ref.read(settingsProvider).demoMode && !id.startsWith('local-')) {
-      try { await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
+      // A person isn't a merchant: Zelle to Kaarthik can be rent one day and a settle-up the next, so no blanket rule. The Rent offer makes a narrow one.
+      try { if (p2pName(t.merchant) == null) await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
     }
   }
 
@@ -308,6 +310,15 @@ class LedgerNotifier extends Notifier<LedgerState> {
 final ledgerProvider = NotifierProvider<LedgerNotifier, LedgerState>(LedgerNotifier.new);
 
 /// Safe to spend until the next payday, or null if no payday rule is known yet.
+/// The pay period from SQL. Re-read when the ledger or the schedule changes; offline it's null and the rule is used.
+final payPeriodProvider = FutureProvider<PayPeriod?>((ref) async {
+  ref.watch(ledgerRevisionProvider);
+  ref.watch(settingsProvider.select((s) => s.rule));
+  final r = ref.watch(remoteProvider);
+  if (r == null) return null;
+  try { return await r.loadPayPeriod(); } catch (_) { return null; }
+});
+
 final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
   final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
   var rule = ref.watch(settingsProvider.select((s) => s.rule));
@@ -315,5 +326,5 @@ final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
   final now = ref.watch(clockProvider)();
   if (demo) rule = demoPaydayRule(now);
   if (rule == null) return null;
-  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected);
+  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected, period: demo ? null : ref.watch(payPeriodProvider).value);
 });

@@ -69,9 +69,18 @@ void main() {
   });
 
   test('duplicate subscription charge nudge', () {
-    final l = LedgerState(txns: [
+    final l = LedgerState(categories: defaultCategories, txns: [
       Txn(id: 'a', amountCents: -1299, occurredAt: now, merchant: 'Spotify', categoryId: 'cat-subscriptions'),
       Txn(id: 'b', amountCents: -1299, occurredAt: now.subtract(const Duration(days: 1)), merchant: 'Spotify', categoryId: 'cat-subscriptions'),
+    ]);
+    expect(pickNudge(l, null, now)!.kind, 'duplicate');
+  });
+
+  test('nudges fire on LIVE data: categories are uuids, matched by name', () {
+    const subs = Category(id: '5b0c1d2e-0000-4000-8000-000000000001', name: 'Subscriptions', colorKey: 'sub', icon: 'repeat');
+    final l = LedgerState(categories: const [subs], txns: [
+      Txn(id: 'a', amountCents: -1299, occurredAt: now, merchant: 'Spotify', categoryId: subs.id),
+      Txn(id: 'b', amountCents: -1299, occurredAt: now.subtract(const Duration(days: 1)), merchant: 'Spotify', categoryId: subs.id),
     ]);
     expect(pickNudge(l, null, now)!.kind, 'duplicate');
   });

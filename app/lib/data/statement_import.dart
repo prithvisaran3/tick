@@ -19,7 +19,13 @@ class SampleRow {
 class ImportPreview {
   const ImportPreview({required this.source, required this.label, this.accountId, this.accounts = const [], this.needsAccount = false, this.mappingColumns,
       this.mappingHeaderRow = 0, this.mappingSample = const [], this.fresh = 0, this.duplicates = 0, this.already = 0, this.unreadable = 0, this.sample = const [], this.from, this.to, this.empty = false,
-      this.batchId, this.imported});
+      this.batchId, this.imported, this.members = const [], this.meGuess, this.groupName, this.balances = const {}});
+  /// Splitwise export: the group's members, who Tick thinks is me, the suggested group name and each member's final net.
+  final List<String> members;
+  final String? meGuess;
+  final String? groupName;
+  final Map<String, int> balances;
+  bool get isSplitwise => source == 'splitwise';
   final String source;
   final String label;
   final String? accountId;
@@ -54,7 +60,9 @@ class ImportPreview {
       already: (j['already_imported'] as num?)?.toInt() ?? 0, unreadable: (j['unreadable'] as num?)?.toInt() ?? 0,
       sample: [for (final r in (j['sample'] as List? ?? const [])) SampleRow(DateTime.parse(r['date'] as String), r['merchant'] as String, (r['cents'] as num).toInt())],
       from: DateTime.tryParse('${j['date_from']}'), to: DateTime.tryParse('${j['date_to']}'), empty: j['empty'] == true,
-      batchId: j['batch_id'] as String?, imported: (j['imported'] as num?)?.toInt());
+      batchId: j['batch_id'] as String?, imported: (j['imported'] as num?)?.toInt(),
+      members: [for (final m in (j['members'] as List? ?? const [])) '$m'], meGuess: j['me_guess'] as String?, groupName: j['group_name'] as String?,
+      balances: {for (final e in ((j['balances'] as Map?) ?? const {}).entries) e.key as String: (e.value as num).toInt()});
   }
 }
 
@@ -62,9 +70,9 @@ class StatementImportApi {
   StatementImportApi(this.api);
   final Api api;
 
-  Future<ImportPreview> send(List<int> bytes, String name, {required bool commit, String? accountId, Map<String, dynamic>? mapping}) async =>
+  Future<ImportPreview> send(List<int> bytes, String name, {required bool commit, String? accountId, Map<String, dynamic>? mapping, String? meMember}) async =>
       ImportPreview.fromJson(await api.postFile('/import/statement', 'file', bytes, name, fields: {
-        'mode': commit ? 'commit' : 'preview', 'account_id': ?accountId, if (mapping != null) 'mapping': _json(mapping),
+        'mode': commit ? 'commit' : 'preview', 'account_id': ?accountId, 'me_member': ?meMember, if (mapping != null) 'mapping': _json(mapping),
       }));
 
   Future<int> undo(String batchId) async => ((await api.post('/import/$batchId/undo'))['removed'] as num?)?.toInt() ?? 0;

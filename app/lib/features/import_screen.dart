@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
-import '../data/settings.dart';
 import '../data/statement_import.dart';
+import '../data/tally_store.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
@@ -36,6 +36,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   String? _error;
   Map<String, dynamic> _map = {'negative_is_out': true};
   bool _splitCols = false;
+  String? _me;     // Splitwise: which member is me
 
   @override
   void initState() {
@@ -60,7 +61,6 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   }
 
   Future<void> _analyse({Map<String, dynamic>? mapping}) async {
-    if (ref.read(settingsProvider).demoMode) { setState(() { _step = _Step.failed; _error = 'Turn off demo mode to import a real statement.'; }); return; }
     setState(() => _step = _Step.reading);
     try {
       final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: false, accountId: _accountId, mapping: mapping);
@@ -70,8 +70,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       if (p.needsMapping) { setState(() => _step = _Step.mapping); return; }
       if (p.needsAccount && _accountId != null) { await _analyse(mapping: mapping); return; }          // ask again with the best-matching account chosen
       setState(() => _step = _Step.preview);
-    } on ApiException catch (e) {
-      if (mounted) setState(() { _step = _Step.failed; _error = e.message; });
+    } catch (e) {
+      if (mounted) setState(() { _step = _Step.failed; _error = describeError(e, action: 'read that statement'); });
     }
   }
 
@@ -79,14 +79,15 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
     setState(() => _step = _Step.importing);
     TickHaptics.instance.confirm();
     try {
-      final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: true, accountId: _accountId, mapping: _p?.source == 'generic' ? _map : null);
+      final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: true, accountId: _accountId, mapping: _p?.source == 'generic' ? _map : null, meMember: _p?.isSplitwise == true ? (_me ?? _p?.meGuess) : null);
+      if (_p?.isSplitwise == true) ref.read(tallyProvider.notifier).refresh();
       if (!mounted) return;
       _p = p;
       await ref.read(ledgerProvider.notifier).refresh();
       TickHaptics.instance.success();
       setState(() => _step = _Step.done);
-    } on ApiException catch (e) {
-      if (mounted) setState(() { _step = _Step.failed; _error = e.message; });
+    } catch (e) {
+      if (mounted) setState(() { _step = _Step.failed; _error = describeError(e, action: 'read that statement'); });
     }
   }
 
@@ -98,8 +99,8 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       await ref.read(ledgerProvider.notifier).refresh();
       TickHaptics.instance.confirm();
       if (mounted) setState(() => _step = _Step.undone);
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = describeError(e, action: 'undo that import'));
     }
   }
 
@@ -112,9 +113,10 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       children: [
         switch (_step) {
           _Step.pick => _Pick(onChoose: _choose),
-          _Step.reading => Padding(padding: const EdgeInsets.symmetric(vertical: 48), child: Column(children: [const TickLoader(), const SizedBox(height: 16), Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary))])),
+          _Step.reading => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary)), const SizedBox(height: 16), const Skeleton(height: 96, radius: 24), const SizedBox(height: 12), const ListSkeleton(rows: 4)]),
           _Step.mapping => _Mapping(p: p!, map: _map, split: _splitCols, onSplit: (v) => setState(() => _splitCols = v), onChanged: () => setState(() {}),
               onContinue: () { _map = {..._map, 'header_row': p.mappingHeaderRow}; _analyse(mapping: _map); }),
+          _Step.preview || _Step.importing when p!.isSplitwise => _SplitwisePreview(p: p, me: _me ?? p.meGuess, busy: _step == _Step.importing, onMe: (m) => setState(() => _me = m), onImport: _commit),
           _Step.preview || _Step.importing => _Preview(p: p!, accountId: _accountId, busy: _step == _Step.importing, onAccount: (id) { setState(() => _accountId = id); _analyse(mapping: _p?.source == 'generic' ? _map : null); }, onImport: _commit),
           _Step.done => _Done(p: p!, error: _error, onUndo: _undo, onDone: () => context.pop()),
           _Step.undone => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -214,6 +216,51 @@ class _Preview extends StatelessWidget {
       if (p.unreadable > 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('${p.unreadable} ${p.unreadable == 1 ? 'row' : 'rows'} couldn\'t be read and will be skipped.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 16),
       PillButton(p.fresh == 0 ? 'Nothing new to add' : 'Import ${p.fresh}', busy: busy, onTap: p.fresh == 0 || accountId == null ? null : onImport),
+    ]);
+  }
+}
+
+/// A Splitwise export becomes a Tally group: nothing here touches bank rows.
+class _SplitwisePreview extends StatelessWidget {
+  const _SplitwisePreview({required this.p, required this.me, required this.busy, required this.onMe, required this.onImport});
+  final ImportPreview p;
+  final String? me;
+  final bool busy;
+  final ValueChanged<String> onMe;
+  final VoidCallback onImport;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    if (p.empty) return const EmptyState('Nothing to import', 'That file has no expenses Tick can read.', icon: 'import');
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(p.label, style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+      Text(p.groupName ?? 'Splitwise', style: context.ts(TickType.displayM)),
+      const SizedBox(height: 12),
+      TickCard(raised: true, child: Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${p.fresh}', style: context.ts(TickType.hero, size: 44)),
+          Text('new', style: context.ts(TickType.body, color: c.textSecondary)),
+        ])),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${p.already}', style: context.ts(TickType.hero, size: 44, color: c.textSecondary)),
+          Text('already in Tick', style: context.ts(TickType.body, color: c.textSecondary)),
+        ])),
+      ])),
+      const SectionLabel('Which one is you?'),
+      Wrap(spacing: 8, runSpacing: 4, children: [for (final m in p.members) TickChip(m, on: m == me, onTap: busy ? null : () => onMe(m))]),
+      const SectionLabel('Balances in this file'),
+      TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
+        for (final (i, m) in p.members.indexed) ...[
+          if (i > 0) const Hairline(),
+          Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+            Expanded(child: Text(m, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 15.5))),
+            Money(p.balances[m] ?? 0),
+          ])),
+        ],
+      ])),
+      if (p.unreadable > 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('${p.unreadable} ${p.unreadable == 1 ? 'row' : 'rows'} couldn\'t be read and will be skipped.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+      const SizedBox(height: 16),
+      PillButton(p.fresh == 0 ? 'Nothing new to add' : 'Add to Tally', busy: busy, onTap: p.fresh == 0 || me == null ? null : onImport),
     ]);
   }
 }

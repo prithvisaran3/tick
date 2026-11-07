@@ -1,3 +1,4 @@
+import 'design/widgets/splash.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -46,7 +47,7 @@ class _TickAppState extends ConsumerState<TickApp> {
         showPerformanceOverlay: Env.perfOverlay,
         builder: (context, child) => DefaultTextStyle(
           style: TextStyle(fontFamily: 'Satoshi', color: dark ? tickDarkColorsText : tickLightColorsText, fontSize: 15, decoration: TextDecoration.none),
-          child: AppLock(child: child ?? const SizedBox()),
+          child: TickSplash(child: AppLock(child: child ?? const SizedBox())),
         ),
       ),
     );

@@ -1,4 +1,5 @@
-/// Tally: splitting shared expenses with friends. Integer cents everywhere; "me" is the person id [me] (null on the server).
+/// Tally: splitting shared expenses with friends. Integer cents everywhere. Groups have members; the store turns MY member id in each group into [me],
+/// so everything here reads the same whoever is looking. Ids are member ids in live mode.
 /// Balances: positive = that person is owed, negative = they owe. The server computes the same numbers (`tally_balances`);
 /// this Dart mirror powers demo/guest mode and the live screens' previews, and `simplify` is checked against the shared vectors in
 /// api/tests/data/tally_simplify.json so Python and Dart always agree.
@@ -6,10 +7,23 @@ library;
 
 const me = 'me';
 
+/// The custom group icons (design/icons/tally), in picker order.
+const tallyIcons = ['home', 'trip', 'food', 'drinks', 'party', 'groceries', 'rent', 'utilities', 'car', 'gym', 'movie', 'concert', 'coffee', 'gift', 'pets', 'work', 'study', 'game', 'beach', 'ski', 'camping', 'wedding', 'baby', 'misc'];
+
+/// A group from before icons: the nearest one to its emoji.
+String? iconForEmoji(String? e) => e == null ? null : const {'🏠': 'home', '✈️': 'trip', '🍽️': 'food', '🎉': 'party', '🛒': 'groceries', '💼': 'work'}[e] ?? 'misc';
+
 enum SplitType { equal, exact, percent, shares }
 
 class TallyPerson {
-  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone});
+  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId, this.email, this.avatar});
+  final Map<String, dynamic>? avatar;
+  final String? email;
+  final String? personId; // my address book entry for this guest, when it is mine
+  /// Set when this member is a Tick user; null for a guest.
+  final String? userId;
+  final String status; // active | left | removed
+  bool get isGuest => userId == null;
   final String id;
   final String name;
   final String colorKey;
@@ -18,7 +32,10 @@ class TallyPerson {
 }
 
 class TallyGroup {
-  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop'});
+  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false, this.iconKey});
+  final String? iconKey;   // a key in [tallyIcons]
+  final bool isOwner;   // only the owner renames, archives, deletes or removes members
+  final bool archived;
   final String id;
   final String name;
   final String? emoji;
@@ -29,7 +46,10 @@ class TallyGroup {
 
 class TallyExpense {
   const TallyExpense({required this.id, required this.groupId, required this.description, required this.amountCents, required this.paidBy,
-      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note, this.weights = const {}});
+      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note, this.weights = const {}, this.createdBy, this.category, this.receiptPath});
+  final String? createdBy; // user id of who added it; null for a local one
+  final String? category;
+  final String? receiptPath;
   /// What was typed per person (percent, share count) so editing shows it again; empty for equal and exact.
   final Map<String, num> weights;
   final String id;
@@ -46,7 +66,8 @@ class TallyExpense {
 
 class TallySettlement {
   const TallySettlement({required this.id, required this.groupId, required this.from, required this.to, required this.amountCents, required this.on,
-      this.method = 'zelle', this.status = 'confirmed', this.transactionId});
+      this.method = 'zelle', this.status = 'confirmed', this.transactionId, this.createdBy});
+  final String? createdBy;
   final String id;
   final String groupId;
   final String from; // who paid
@@ -167,3 +188,152 @@ bool looksLikeSettlement({required Transfer t, required String personFirstName, 
   final m = merchant.toLowerCase();
   return m.contains(personFirstName.toLowerCase()); // the right person, not just any Zelle of the right amount
 }
+
+enum ReminderTone { friendly, neutral, firm }
+
+/// A prefilled message. Sentence case, the amount first or near it; firm is plain, never rude.
+String reminderText(ReminderTone tone, {required String name, required String amount, required String group, String? link, String? zelle}) {
+  final body = switch (tone) {
+    ReminderTone.friendly => 'Hey $name, when you get a chance: $amount for $group.',
+    ReminderTone.neutral => '$name, you owe $amount for $group.',
+    ReminderTone.firm => '$name, $amount for $group is still outstanding. Please pay it this week.',
+  };
+  final parts = [body, if (zelle != null && zelle.trim().isNotEmpty) 'My Zelle is ${zelle.trim()}.', ?link];
+  return parts.join(' ');
+}
+
+/// "Reminded 2 days ago". Null when there is no reminder to mention.
+String? remindedAgo(DateTime? at, DateTime now) {
+  if (at == null) return null;
+  final d = now.difference(at);
+  if (d.inHours < 1) return 'Reminded just now';
+  if (d.inHours < 24) return 'Reminded ${d.inHours} ${d.inHours == 1 ? 'hour' : 'hours'} ago';
+  return 'Reminded ${d.inDays} ${d.inDays == 1 ? 'day' : 'days'} ago';
+}
+
+/// 24 hours between reminders to one person in one group. The server enforces it; this only greys out the button.
+bool canRemind(DateTime? last, DateTime now) => last == null || now.difference(last) >= const Duration(hours: 24);
+
+/// Venmo's documented web payment link (venmo.com/paymentlinks). Recipient is left out because Tick doesn't know Venmo usernames.
+Uri venmoLink(int cents, String note) => Uri.https('venmo.com', '/', {'txn': 'pay', 'amount': (cents / 100).toStringAsFixed(2), 'note': note});
+
+/// Cash App documents no amount-in-URL format, so this only opens the app; the amount is on the clipboard first.
+final cashAppLink = Uri.https('cash.app', '/');
+
+/// Everything between me and one person in a group, oldest first, with the running balance from my side (positive = they owe me).
+class LedgerLine {
+  const LedgerLine(this.on, this.label, this.deltaCents, this.runningCents);
+  final DateTime on;
+  final String label;
+  final int deltaCents;
+  final int runningCents;
+}
+
+List<LedgerLine> personLedger(String person, Iterable<TallyExpense> expenses, Iterable<TallySettlement> settlements) {
+  final rows = <(DateTime, String, int)>[];
+  for (final e in expenses) {
+    if (e.paidBy == me && e.shares.containsKey(person)) rows.add((e.spentOn, e.description, e.shares[person]!));
+    if (e.paidBy == person && e.shares.containsKey(me)) rows.add((e.spentOn, e.description, -e.shares[me]!));
+  }
+  for (final s in settlements) {
+    if (s.status != 'confirmed') continue;
+    if (s.from == person && s.to == me) rows.add((s.on, 'They paid you', -s.amountCents));
+    if (s.from == me && s.to == person) rows.add((s.on, 'You paid them', s.amountCents));
+  }
+  rows.sort((a, b) => a.$1.compareTo(b.$1));
+  var run = 0;
+  return [for (final r in rows) LedgerLine(r.$1, r.$2, r.$3, run += r.$3)];
+}
+
+/// One line on a receipt. [people]: who had it; empty means it isn't assigned yet.
+class ReceiptItem {
+  const ReceiptItem(this.name, this.cents, [this.people = const {}]);
+  final String name;
+  final int cents;
+  final Set<String> people;
+  ReceiptItem withPeople(Set<String> p) => ReceiptItem(name, cents, p);
+}
+
+/// Each person's cents: their items (shared items split equally), plus tax and tip in proportion to what they had. Always adds up to the receipt exactly.
+/// Null until every item has someone on it.
+Map<String, int>? itemisedSplit(List<ReceiptItem> items, int extraCents) {
+  if (items.isEmpty || items.any((i) => i.people.isEmpty)) return null;
+  final sub = <String, int>{};
+  for (final i in items) {
+    splitEqual(i.cents, i.people.toList()..sort()).forEach((p, c) => sub[p] = (sub[p] ?? 0) + c);
+  }
+  final extra = extraCents <= 0 ? const <String, int>{} : splitWeighted(extraCents, sub)!;
+  return {for (final e in sub.entries) e.key: e.value + (extra[e.key] ?? 0)};
+}
+
+/// One person across every group: how much moves between us, and which group balances it clears. A debt in one group and credit in another become one payment.
+class PlanItem {
+  const PlanItem(this.key, this.name, this.netCents, this.legs);
+  final String key;
+  final String name;
+  final int netCents; // positive = they pay me
+  final List<(String, Transfer)> legs;
+}
+
+/// The fewest payments that clear my balances: each group simplified, then netted per person. [identity] says which members are the same human.
+List<PlanItem> settlePlan(Iterable<TallyGroup> groups, Iterable<TallyExpense> expenses, Iterable<TallySettlement> settlements, {required String Function(String member) identity, required String Function(String member) name}) {
+  final net = <String, int>{}, names = <String, String>{};
+  final legs = <String, List<(String, Transfer)>>{};
+  for (final g in groups) {
+    for (final t in simplify(balances(expenses.where((e) => e.groupId == g.id), settlements.where((s) => s.groupId == g.id)))) {
+      if (t.from != me && t.to != me) continue;
+      final other = t.from == me ? t.to : t.from;
+      final k = identity(other);
+      net[k] = (net[k] ?? 0) + (t.to == me ? t.cents : -t.cents);
+      names[k] = name(other);
+      (legs[k] ??= []).add((g.id, t));
+    }
+  }
+  final out = [for (final e in net.entries) PlanItem(e.key, names[e.key]!, e.value, legs[e.key]!)]
+    ..sort((a, b) { final d = b.netCents.abs().compareTo(a.netCents.abs()); return d != 0 ? d : a.key.compareTo(b.key); });
+  return out;
+}
+
+/// What a group's history says: who usually pays, and spend per month (oldest first, up to [months], including this one).
+class GroupInsights {
+  const GroupInsights(this.paidBy, this.monthly, this.totalCents, this.frontedCents, this.myShareCents);
+  /// What I paid at the till, and what was really mine. The gap is what I carried for everyone else.
+  final int frontedCents;
+  final int myShareCents;
+  final List<(String, int)> paidBy; // biggest first
+  final List<(DateTime, int)> monthly;
+  final int totalCents;
+}
+
+GroupInsights groupInsights(Iterable<TallyExpense> expenses, DateTime now, {int months = 6}) {
+  final by = <String, int>{};
+  final month = {for (var i = months - 1; i >= 0; i--) DateTime(now.year, now.month - i): 0};
+  var total = 0, fronted = 0, mine = 0;
+  for (final e in expenses) {
+    if (e.paidBy == me) fronted += e.amountCents;
+    mine += e.shares[me] ?? 0;
+    by[e.paidBy] = (by[e.paidBy] ?? 0) + e.amountCents;
+    total += e.amountCents;
+    final m = DateTime(e.spentOn.year, e.spentOn.month);
+    if (month.containsKey(m)) month[m] = month[m]! + e.amountCents;
+  }
+  final paid = [for (final e in by.entries) (e.key, e.value)]..sort((a, b) { final d = b.$2.compareTo(a.$2); return d != 0 ? d : a.$1.compareTo(b.$1); });
+  return GroupInsights(paid, [for (final e in month.entries) (e.key, e.value)], total, fronted, mine);
+}
+
+class TallyBill {
+  const TallyBill({required this.id, required this.groupId, required this.description, required this.amountCents, required this.cadence, required this.nextOn, this.createdBy});
+  final String id;
+  final String groupId;
+  final String description;
+  final int amountCents;
+  final String cadence; // weekly | monthly | yearly
+  final DateTime nextOn;
+  final String? createdBy;
+}
+
+DateTime nextBillDate(DateTime from, String cadence) => switch (cadence) {
+      'weekly' => DateTime(from.year, from.month, from.day + 7),
+      'yearly' => DateTime(from.year + 1, from.month, from.day),
+      _ => DateTime(from.year, from.month + 1, from.day),
+    };

@@ -49,8 +49,8 @@ class _QuickAddState extends ConsumerState<QuickAdd> {
           _line.text = (e['merchant'] ?? '').toString();
         }
       });
-    } catch (_) {
-      if (mounted) setState(() => _scanMsg = 'That didn\'t go through. Try again, nothing was lost.');
+    } catch (e) {
+      if (mounted) setState(() => _scanMsg = describeError(e, action: 'read that receipt'));
     }
   }
 

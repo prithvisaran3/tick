@@ -1,0 +1,25 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "Splash / splash"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.85
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.85
+     }
+    ]
+   }
+  }
+ ]
+}

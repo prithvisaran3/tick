@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import threading
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 
-UNIQUE = {"connections": [("provider", "item_id")], "plaid_items": [("item_id",)], "plaid_link_sessions": [("link_token",)],
+UNIQUE = {"ask_memory": [("user_id", "kind", "key")], "connections": [("provider", "item_id")], "plaid_items": [("item_id",)], "plaid_link_sessions": [("link_token",)],
           "plaid_slots": [("user_id",)], "accounts": [("user_id", "provider_account_id")], "ingest_tokens": [("token_hash",)]}
 PK = {"plaid_items": "item_id", "plaid_link_sessions": "link_token", "plaid_slots": "user_id"}
 
@@ -25,6 +25,8 @@ def _cmp(a, b):
 def _match_one(row: dict, key: str, cond: str) -> bool:
     op, _, val = cond.partition(".")
     v = row.get(key)
+    if op == "not":
+        return not _match_one(row, key, val)
     if op == "eq":
         return str(v) == val if v is not None else False
     if op == "neq":
@@ -33,6 +35,8 @@ def _match_one(row: dict, key: str, cond: str) -> bool:
         return v is None if val == "null" else str(v).lower() == val
     if op == "in":
         return str(v) in val.strip("()").split(",")
+    if op == "like":
+        return v is not None and str(v).startswith(val.rstrip("*"))
     if v is None:
         return False
     x, y = _cmp(v, val)
@@ -117,6 +121,14 @@ class FakeRest:
     def rpc(self, fn, args):
         with self.lock:
             self.rpcs.append(fn)
+            if fn == "pay_period":                  # biweekly only: the real maths is in SQL and tested there
+                st = next((s for s in self.rows("settings") if s.get("user_id") == args["p_user"]), None)
+                r = (st or {}).get("payday_rule")
+                if not r:
+                    return []
+                a, on = date.fromisoformat(r["next_date"]), date.fromisoformat(args["p_date"])
+                prev = a + timedelta(days=((on - a).days // 14) * 14)
+                return [{"period_start": prev.isoformat(), "period_end": (prev + timedelta(days=13)).isoformat(), "next_payday": (prev + timedelta(days=14)).isoformat()}]
             if fn in ("tick_vault_put", "tick_vault_upsert"):
                 for sid, (name, _) in self.vault.items():
                     if name == args["secret_name"]:

@@ -4,6 +4,7 @@ import 'money.dart';
 import 'payday.dart';
 import 'safe_to_spend.dart';
 import 'package:intl/intl.dart';
+import 'dates.dart';
 
 class PlannedNotification {
   const PlannedNotification(this.id, this.title, this.body, this.when, {this.repeatWeekly = false, this.payload});
@@ -37,7 +38,7 @@ List<PlannedNotification> planNotifications({
   final today = dayOnly(now);
   // Morning summary: 8:00 each day for the next [horizonDays] days.
   for (var i = 0; i < horizonDays; i++) {
-    final day = today.add(Duration(days: i));
+    final day = addDays(today, i);
     final when = _at(day, morningTime);
     if (!when.isAfter(now)) continue;
     final body = sts == null
@@ -50,9 +51,9 @@ List<PlannedNotification> planNotifications({
   // Bill reminder: the day before, 9:00.
   var n = 0;
   for (final r in recurring) {
-    final occ = occurrencesBetween(r.cadence, r.nextDate, today.add(const Duration(days: 1)), today.add(const Duration(days: 15)));
+    final occ = occurrencesBetween(r.cadence, r.nextDate, addDays(today, 1), addDays(today, 15));
     for (final d in occ) {
-      final when = _at(d.subtract(const Duration(days: 1)), '09:00');
+      final when = _at(addDays(d, -1), '09:00');
       if (when.isAfter(now)) out.add(PlannedNotification(2000 + n++, 'Due tomorrow: ${r.merchant}', '${formatCents(r.expectedCents)} comes out tomorrow.', when, payload: 'incoming'));
     }
   }
@@ -60,9 +61,9 @@ List<PlannedNotification> planNotifications({
   var k = 0;
   for (final a in accounts.where((a) => a.isCard && a.dueDate != null && a.statementDueCents > 0)) {
     final due = dayOnly(a.dueDate!);
-    if (due.isBefore(today) || due.difference(today).inDays > 15) continue;
-    var when = _at(due.subtract(const Duration(days: 2)), '09:00');
-    if (!when.isAfter(now)) when = _at(due.subtract(const Duration(days: 1)), '09:00');
+    if (due.isBefore(today) || daysBetween(today, due) > 15) continue;
+    var when = _at(addDays(due, -2), '09:00');
+    if (!when.isAfter(now)) when = _at(addDays(due, -1), '09:00');
     if (when.isAfter(now)) {
       out.add(PlannedNotification(5000 + k++, '${a.shortLabel} is due ${DateFormat('EEEE').format(due)}', '${formatDollars(a.statementDueCents)} statement balance. Pay it from checking to skip interest.', when, payload: 'card:${a.id}'));
     }
@@ -73,7 +74,7 @@ List<PlannedNotification> planNotifications({
     for (final a in accounts.where((a) => a.isCard)) {
       final cy = statementCycle(a, now);
       if (cy == null || cy.payForUnder30Cents <= 0) continue;
-      final when = _at(cy.closes.subtract(const Duration(days: 3)), '09:00');
+      final when = _at(addDays(cy.closes, -3), '09:00');
       if (when.isAfter(now)) {
         out.add(PlannedNotification(6000 + u++, '${a.shortLabel} closes ${DateFormat('EEEE').format(cy.closes)}',
             'Paying ${formatDollars(cy.payForUnder30Cents)} before then keeps the reported balance under 30%.', when, payload: 'card:${a.id}'));
@@ -93,16 +94,16 @@ List<PlannedNotification> planNotifications({
   // Payday plan on payday, 7:30.
   if (sts != null) {
     final when = _at(sts.nextPayday, '07:30');
-    if (when.isAfter(now) && sts.nextPayday.difference(today).inDays <= 14) {
+    if (when.isAfter(now) && daysBetween(today, sts.nextPayday) <= 14) {
       final save = goals.fold<int>(0, (s, g) => s + g.perPaydayCents);
       out.add(PlannedNotification(3000, 'Payday', save > 0 ? 'Move ${formatDollars(save)} to savings and you still have ${formatDollars(sts.cents + sts.goalsCents - save)} safe.' : 'Payday. Open Tick to plan it.', when, payload: 'payday'));
     }
   }
   // Weekly review: Sunday, repeating.
   var sunday = today;
-  while (sunday.weekday != DateTime.sunday) { sunday = sunday.add(const Duration(days: 1)); }
+  while (sunday.weekday != DateTime.sunday) { sunday = addDays(sunday, 1); }
   var w = _at(sunday, weeklyTime);
-  if (!w.isAfter(now)) w = w.add(const Duration(days: 7));
+  if (!w.isAfter(now)) w = addDays(w, 7);
   out.add(PlannedNotification(4000, 'Your week', 'Your weekly review is ready.', w, repeatWeekly: true));
   out.sort((a, b) => a.when.compareTo(b.when));
   return out;

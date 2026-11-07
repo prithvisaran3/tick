@@ -80,12 +80,15 @@ void main() {
     });
   }
 
-  test('Zelle to a friend is real money: it shows in the day total (it used to show zero)', () async {
+  test('Zelle to a friend stays out of the totals by default and counts with the toggle on', () async {
     final t = Txn(id: 'z', amountCents: -51146, accountId: 'chk', categoryId: 'ff', merchant: 'Zelle payment to Kaarthik', occurredAt: DateTime(2026, 11, 1, 12));
-    final src = LocalActivitySource(LedgerState(categories: cats, accounts: accts, txns: [t]));
-    final p = await src.page(const ActivityQuery());
-    expect(p.dayTotals.values.single, -51146);
-    expect((await src.totals(const ActivityQuery())).outCents, 51146);
+    final off = LocalActivitySource(LedgerState(categories: cats, accounts: accts, txns: [t]));
+    expect((await off.page(const ActivityQuery())).dayTotals.values.single, 0);
+    final tot = await off.totals(const ActivityQuery());
+    expect((tot.outCents, tot.friendsNetCents), (0, -51146));
+    final on = LocalActivitySource(LedgerState(categories: cats, accounts: accts, txns: [t]), includeFriends: true);
+    expect((await on.page(const ActivityQuery())).dayTotals.values.single, -51146);
+    expect((await on.totals(const ActivityQuery())).outCents, 51146);
   });
 
   test('both sides of an internal transfer are excluded; Tally settlements too; a card refund lowers spending', () async {

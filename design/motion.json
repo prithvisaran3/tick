@@ -16,7 +16,20 @@
     "shared_element": {"spring": "standard"},
     "tab_switch": {"spring": "standard"},
     "sheet": {"spring": "sheet"},
-    "skeleton_shimmerMs": 1400
+    "skeleton_shimmerMs": 1400,
+    "page": {"spring": "standard", "inMs": 380, "outMs": 260, "fromOffsetX": 0.12},
+    "sheet_timing": {"inMs": 420, "outMs": 220, "springSeconds": 0.55},
+    "square_up": {"durationMs": 900},
+    "list_stagger": {"spring": "standard", "stepMs": 45, "maxItems": 8, "fromOffsetY": 14},
+    "number_roll": {"spring": "standard"},
+    "settled": {"spring": "pop", "holdMs": 1400},
+    "undo": {"windowMs": 5000},
+    "swipe_reveal": {"spring": "sheet", "thresholdRatio": 0.4},
+    "splash": {"spring": "pop", "totalMs": 1200, "drawMs": 620, "fadeMs": 220},
+    "cinematic": {"sceneMs": 5400},
+    "avatar": {"idleMs": 4200, "winkMs": 380},
+    "card_tilt": {"spring": "standard", "maxDeg": 3},
+    "keypad_digit": {"spring": "pop", "fromOffsetY": 0.5, "durationMs": 220}
   },
   "performance": ["const widgets", "RepaintBoundary around animated pieces", "precache fonts and images", "skeletons, never spinners"]
 }

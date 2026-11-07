@@ -157,7 +157,44 @@ class TickCard extends StatelessWidget {
       decoration: BoxDecoration(color: color ?? (raised ? context.c.surface2 : context.c.surface1), borderRadius: BorderRadius.circular(TickRadius.card)),
       child: child,
     );
-    return onTap == null ? w : Pressable(onTap: onTap, scale: 0.985, child: w);
+    return onTap == null ? w : _Tilt(child: Pressable(onTap: onTap, scale: 0.985, child: w));
+  }
+}
+
+/// A held card leans toward your finger, a little, and springs back. Reduce Motion: it stays flat.
+class _Tilt extends StatefulWidget {
+  const _Tilt({required this.child});
+  final Widget child;
+  @override
+  State<_Tilt> createState() => _TiltState();
+}
+
+class _TiltState extends State<_Tilt> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController.unbounded(vsync: this);
+  Offset _dir = Offset.zero;
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  void _at(Offset local) {
+    final s = context.size;
+    if (s == null || s.isEmpty) return;
+    _dir = Offset((local.dx / s.width - 0.5) * 2, (local.dy / s.height - 0.5) * 2);
+    _c.value = 1;
+  }
+  void _end() => _c.animateWith(SpringSimulation(springOf(TickSprings.standard), _c.value, 0, 0));
+  @override
+  Widget build(BuildContext context) {
+    if (context.reduceMotion) return widget.child;
+    const max = TickMotion.cardTiltMaxDeg * math.pi / 180;
+    return GestureDetector(
+      onLongPressStart: (d) { TickHaptics.instance.selection(); _at(d.localPosition); },
+      onLongPressMoveUpdate: (d) => _at(d.localPosition),
+      onLongPressEnd: (_) => _end(),
+      child: AnimatedBuilder(animation: _c, child: widget.child, builder: (context, child) => Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateX(-_dir.dy * max * _c.value)..rotateY(_dir.dx * max * _c.value),
+        child: child,
+      )),
+    );
   }
 }
 
@@ -264,7 +301,7 @@ class Segmented extends StatelessWidget {
         for (var i = 0; i < options.length; i++)
           Expanded(
             child: Pressable(
-              onTap: () => onChanged(i), semanticLabel: options[i], scale: 0.97,
+              onTap: () { TickHaptics.instance.selection(); onChanged(i); }, semanticLabel: options[i], scale: 0.97,
               child: Container(
                 height: 40, alignment: Alignment.center,
                 decoration: BoxDecoration(color: i == index ? c.text : const Color(0x00000000), borderRadius: BorderRadius.circular(999)),
@@ -289,7 +326,7 @@ class TickToggle extends StatelessWidget {
       toggled: on, container: true, label: label, button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => onChanged(!on),
+        onTap: () { TickHaptics.instance.selection(); onChanged(!on); },
         child: SizedBox(width: 56, height: 44, child: Center(child: AnimatedContainer(
           duration: context.reduceMotion ? Duration.zero : const Duration(milliseconds: 180), curve: Curves.easeOutBack, width: 50, height: 30,
           padding: const EdgeInsets.all(3),

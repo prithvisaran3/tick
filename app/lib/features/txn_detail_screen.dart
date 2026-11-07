@@ -10,6 +10,7 @@ import '../design/widgets/more.dart';
 import '../domain/money.dart';
 import 'activity_screen.dart';
 import 'common.dart';
+import 'payback_card.dart';
 
 class TxnDetailScreen extends ConsumerWidget {
   const TxnDetailScreen({super.key, required this.id});
@@ -49,9 +50,10 @@ class TxnDetailScreen extends ConsumerWidget {
         Row(children: [
           Expanded(child: PillButton(t.isBusiness ? 'Business ✓' : 'Mark Business', style: t.isBusiness ? PillStyle.primary : PillStyle.quiet, icon: 'briefcase', onTap: () => ref.read(ledgerProvider.notifier).toggleBusiness(t.id))),
         ]),
+        PaybackDetail(t: t),
         if (t.amountCents < 0 && !t.isTransfer) ...[
           const SizedBox(height: 8),
-          PillButton('Split with friends', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')),
+          PillButton('Split this', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')),
         ],
         if (t.needsReview) ...[
           const SizedBox(height: 8),

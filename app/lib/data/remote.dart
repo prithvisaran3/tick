@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
+import '../domain/payday.dart';
 import '../services/session.dart';
 import 'env.dart';
 import 'ledger.dart';
@@ -55,9 +56,10 @@ class Remote {
       id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind'], orElse: () => ExpectedKind.refund), label: j['label'] as String,
       amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String));
 
-  /// Expected money that landed in the last two days.
+  /// Expected money that landed recently. A deposit can land up to 4 days either side of its expected date, so the window is wider than the
+  /// match tolerance; `tick.seenLanded` keeps each one from replaying.
   Future<List<Expected>> recentLanded() async {
-    final since = DateTime.now().subtract(const Duration(days: 2)).toIso8601String().substring(0, 10);
+    final since = DateTime.now().subtract(const Duration(days: 8)).toIso8601String().substring(0, 10);
     final rows = await db.from('expected').select().eq('status', 'landed').gte('expected_date', since);
     return [for (final j in rows) _exp(j)];
   }
@@ -123,12 +125,21 @@ class Remote {
     try {
       return PaydayRule(
         frequency: PayFrequency.values.firstWhere((f) => f.name == r['frequency'], orElse: () => PayFrequency.biweekly),
-        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt());
+        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt(), days: (r['days'] as List?)?.cast<int>());
     } catch (_) {
       return null;
     }
   }
 
+  /// The pay period from SQL, the one definition. Null when there's no rule yet.
+  Future<PayPeriod?> loadPayPeriod() async {
+    final rows = await db.rpc('pay_period', params: {'p_user': db.auth.currentUser!.id});
+    if (rows is! List || rows.isEmpty) return null;
+    final j = rows.first as Map;
+    return PayPeriod(start: DateTime.parse(j['period_start'] as String), end: DateTime.parse(j['period_end'] as String), nextPayday: DateTime.parse(j['next_payday'] as String));
+  }
+
+  Future<void> saveIncludeFriends(bool v) => db.from('settings').upsert({'user_id': db.auth.currentUser!.id, 'include_friends': v});
   Future<void> savePaydayRule(Map<String, dynamic> rule) => db.from('settings').update({'payday_rule': rule}).eq('user_id', db.auth.currentUser!.id);
 
   /// Learned rule: the next purchase at this merchant gets this category (rules win over AI).

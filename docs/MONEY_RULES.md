@@ -11,8 +11,7 @@ Money is integer cents. Negative = money out. Days are New York days.
 ## Spending (`out_c` > 0)
 - Card purchases (credit card account, any bank, including Apple Card from Wallet or the statement import).
 - Debit and checking purchases.
-- **Zelle, Venmo, Cash App and other person-to-person money sent to people.** "Zelle payment to Kaarthik" is real money out. Category:
-  Friends and family.
+- Person-to-person money only when "Include money with friends" is on (see Money with friends). Zelle to rent is Rent, always spending.
 - Bills, rent, subscriptions.
 - Fees and interest (own category).
 - **Student loan payments are a bill**: real cash out (`flow = 'bill'`), counted as spending but never as discretionary.
@@ -23,7 +22,7 @@ lowers the category it belongs to.
 
 ## Income (`in_c` > 0)
 - Payroll (for example "Institute Of Nuc Payroll").
-- **Zelle and P2P received from people**, unless it settles a Tally balance.
+- Zelle and P2P received from people only when "Include money with friends" is on, and never when it settles a Tally balance or is a payback.
 - Interest earned on savings.
 - Anything the person categorised Income.
 Money arriving on a card or loan is never income (it is a payment or a refund).
@@ -37,6 +36,21 @@ Money arriving on a card or loan is never income (it is a payment or a refund).
 - **Tally settlements** (`flow = 'settlement'`): the expense is tracked in Tally; the Zelle that settles it is not income or spending again.
 - Pending → posted duplicates and rows already seen in an import never become rows (reconcile and import de-duplication), so they are not
   counted twice.
+
+- **Paybacks** (`flow = 'reimbursement'`): a credit accepted as a friend paying me back for a purchase.
+- **Money with friends** (Friends and family rows with no flow), unless `settings.include_friends` is on.
+
+## Money with friends
+Zelle, Venmo, Cash App and PayPal to and from people is mostly Splitwise settling, so by default it is out of spending, income, budgets,
+Ask Tick and the recurring bills behind Safe to spend. `tick_classified.friends_c` keeps the signed amount, and `tick_flows` returns
+`friends_in`, `friends_out` and `friends_net` for the one net line in Insights. The toggle "Include money with friends" sets
+`settings.include_friends`; the SQL reads it, so every total follows.
+
+## Paybacks
+A person-to-person credit within 21 days after a purchase, no bigger than what is left of it, is suggested as a reimbursement
+(`api/app/paybacks.py`). Accepting writes `txn_paybacks`; a trigger sets the credit's flow and the purchase's `reimbursed_cents`, and `out_c`
+of the purchase is net of it (my real share). Several paybacks can link to one purchase, never more than the purchase. Nothing links without
+the person accepting, except a credit that matches an existing Tally settlement exactly (`paybacks.auto_link`).
 
 A Transfer-**category** never excludes anything on its own. Only the flow does. (That is how Zelle to Kaarthik used to show $0.00.)
 

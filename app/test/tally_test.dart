@@ -67,4 +67,96 @@ void main() {
     expect(looksLikeSettlement(t: t, personFirstName: 'Kaarthik', txnCents: -3000, merchant: 'Zelle to Kaarthik', txnAt: DateTime(2026, 11, 5), since: since), isFalse);
     expect(looksLikeSettlement(t: t, personFirstName: 'Kaarthik', txnCents: 2999, merchant: 'Zelle from Kaarthik', txnAt: DateTime(2026, 11, 5), since: since), isFalse);
   });
+
+  test('reminder text, spacing and the "reminded" line', () {
+    expect(reminderText(ReminderTone.firm, name: 'Asha', amount: r'$40.00', group: 'Flat'), r'Asha, $40.00 for Flat is still outstanding. Please pay it this week.');
+    expect(reminderText(ReminderTone.friendly, name: 'Asha', amount: r'$40.00', group: 'Flat', link: 'https://x'), endsWith('https://x'));
+    final now = DateTime(2026, 11, 6, 12);
+    expect(remindedAgo(now.subtract(const Duration(days: 2)), now), 'Reminded 2 days ago');
+    expect(remindedAgo(now.subtract(const Duration(hours: 1)), now), 'Reminded 1 hour ago');
+    expect(remindedAgo(null, now), isNull);
+    expect(canRemind(now.subtract(const Duration(hours: 23)), now), isFalse);
+    expect(canRemind(now.subtract(const Duration(hours: 24)), now), isTrue);
+  });
+
+  test('Venmo link follows the documented payment link; Cash App only opens', () {
+    final u = venmoLink(4050, 'Flat rent');
+    expect((u.host, u.queryParameters['txn'], u.queryParameters['amount'], u.queryParameters['note']), ('venmo.com', 'pay', '40.50', 'Flat rent'));
+    expect(cashAppLink.toString().contains('40'), isFalse);
+  });
+
+  test('per-person ledger only holds what is between us, and ends at the balance', () {
+    final d = DateTime(2026, 11, 1);
+    final es = [
+      TallyExpense(id: '1', groupId: 'g', description: 'Dinner', amountCents: 6000, paidBy: me, shares: {me: 2000, 'k': 2000, 'j': 2000}, spentOn: d),
+      TallyExpense(id: '2', groupId: 'g', description: 'Wifi', amountCents: 3000, paidBy: 'k', shares: {me: 1500, 'k': 1500}, spentOn: d.add(const Duration(days: 1))),
+      TallyExpense(id: '3', groupId: 'g', description: 'Not mine', amountCents: 1000, paidBy: 'j', shares: {'k': 1000}, spentOn: d),
+    ];
+    final ss = [TallySettlement(id: 's', groupId: 'g', from: 'k', to: me, amountCents: 300, on: d.add(const Duration(days: 2))), TallySettlement(id: 'p', groupId: 'g', from: 'k', to: me, amountCents: 999, on: d, status: 'pending')];
+    final l = personLedger('k', es, ss);
+    expect(l.map((x) => x.deltaCents), [2000, -1500, -300]);
+    expect(l.last.runningCents, 200);
+  });
+
+  test('itemised split: every cent lands, shared items split, tax and tip follow what you had', () {
+    final items = [ReceiptItem('Naan', 1000, {me}), ReceiptItem('Curry', 3001, {me, 'k'}), ReceiptItem('Beer', 1999, {'k'})];
+    final s = itemisedSplit(items, 750)!;
+    expect(s[me]! + s['k']!, 6750);
+    expect(s['k']! - 3500, closeTo(750 * 3500 / 6000, 1));     // the bigger order carries the bigger part of tax and tip
+    expect(itemisedSplit([ReceiptItem('Naan', 1000)], 0), isNull);
+    expect(itemisedSplit(const [], 0), isNull);
+    expect(itemisedSplit([ReceiptItem('Naan', 1000, {'k'})], 0), {'k': 1000});
+  });
+
+  test('settle plan nets one person across groups into one payment', () {
+    const g1 = TallyGroup(id: 'a', name: 'A', memberIds: ['k1']), g2 = TallyGroup(id: 'b', name: 'B', memberIds: ['k2', 'j']);
+    final d = DateTime(2026, 11, 1);
+    final es = [
+      TallyExpense(id: '1', groupId: 'a', description: 'x', amountCents: 2000, paidBy: me, shares: {me: 1000, 'k1': 1000}, spentOn: d),
+      TallyExpense(id: '2', groupId: 'b', description: 'y', amountCents: 600, paidBy: 'k2', shares: {me: 300, 'k2': 300}, spentOn: d),
+      TallyExpense(id: '3', groupId: 'b', description: 'z', amountCents: 400, paidBy: 'j', shares: {me: 200, 'j': 200}, spentOn: d),
+    ];
+    final plan = settlePlan([g1, g2], es, const [], identity: (m) => m.startsWith('k') ? 'kaarthik' : m, name: (m) => m);
+    expect(plan.length, 2);
+    final k = plan.firstWhere((p) => p.key == 'kaarthik');
+    expect((k.netCents, k.legs.length), (700, 2));
+    expect(plan.firstWhere((p) => p.key == 'j').netCents, -200);
+  });
+
+  test('settle plan ignores what two friends owe each other', () {
+    const g = TallyGroup(id: 'a', name: 'A', memberIds: ['k', 'j']);
+    final es = [TallyExpense(id: '1', groupId: 'a', description: 'x', amountCents: 1000, paidBy: 'k', shares: {'k': 500, 'j': 500}, spentOn: DateTime(2026, 11, 1))];
+    expect(settlePlan([g], es, const [], identity: (m) => m, name: (m) => m), isEmpty);
+  });
+
+  test('group insights: who usually pays, and spend by month with empty months kept', () {
+    final now = DateTime(2026, 11, 6);
+    final es = [
+      TallyExpense(id: '1', groupId: 'g', description: 'x', amountCents: 7000, paidBy: 'k', shares: {'k': 7000}, spentOn: DateTime(2026, 11, 1)),
+      TallyExpense(id: '2', groupId: 'g', description: 'y', amountCents: 3000, paidBy: me, shares: {me: 3000}, spentOn: DateTime(2026, 9, 30)),
+      TallyExpense(id: '3', groupId: 'g', description: 'z', amountCents: 500, paidBy: me, shares: {me: 500}, spentOn: DateTime(2025, 1, 1)),
+    ];
+    final i = groupInsights(es, now);
+    expect(i.paidBy.first, ('k', 7000));
+    expect(i.totalCents, 10500);
+    expect(i.monthly.length, 6);
+    expect((i.frontedCents, i.myShareCents), (3500, 3500));
+    final split = groupInsights([TallyExpense(id: '4', groupId: 'g', description: 'w', amountCents: 9000, paidBy: me, shares: {me: 3000, 'k': 6000}, spentOn: DateTime(2026, 11, 2))], now);
+    expect((split.frontedCents, split.myShareCents), (9000, 3000));
+    expect(i.monthly.last, (DateTime(2026, 11), 7000));
+    expect(i.monthly[2], (DateTime(2026, 8), 0));
+    expect(i.monthly[3], (DateTime(2026, 9), 3000));
+  });
+
+  test('bill dates move by cadence', () {
+    final d = DateTime(2026, 1, 15);
+    expect(nextBillDate(d, 'weekly'), DateTime(2026, 1, 22));
+    expect(nextBillDate(d, 'monthly'), DateTime(2026, 2, 15));
+    expect(nextBillDate(d, 'yearly'), DateTime(2027, 1, 15));
+  });
+
+  test('a reminder to a guest says where to send it', () {
+    expect(reminderText(ReminderTone.neutral, name: 'Asha', amount: r'$40.00', group: 'Flat', zelle: ' me@zelle.test ', link: 'https://x'), r'Asha, you owe $40.00 for Flat. My Zelle is me@zelle.test. https://x');
+    expect(reminderText(ReminderTone.neutral, name: 'Asha', amount: r'$40.00', group: 'Flat', zelle: ''), r'Asha, you owe $40.00 for Flat.');
+  });
 }

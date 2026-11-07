@@ -18,6 +18,11 @@ from .imports import router as imports_router
 from . import security
 from .account import router as account_router
 from .tally import router as tally_router
+from .paybacks import router as paybacks_router
+from .people import router as people_router
+from .rules import router as rules_router
+from .splitwise_mail import router as splitwise_router
+from .tally_bills import router as bills_router
 
 log = logging.getLogger("tick")
 security.configure_logging()
@@ -35,6 +40,11 @@ app.include_router(receipts_router)
 app.include_router(imports_router)
 app.include_router(account_router)
 app.include_router(tally_router)
+app.include_router(paybacks_router)
+app.include_router(people_router)
+app.include_router(bills_router)
+app.include_router(rules_router)
+app.include_router(splitwise_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 

@@ -21,6 +21,7 @@ import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
+import 'tally_people.dart';
 
 enum SettingsPage { root, appearance, data, labs, about }
 
@@ -63,6 +64,7 @@ class SettingsScreen extends ConsumerWidget {
             ]),
             if (Env.hasSupabase && !signedIn) ...[const SizedBox(height: 12), PillButton('Sign in with Google', height: 48, onTap: () => _signIn(context, ref))],
           ])),
+          if (signedIn) ...[const SectionLabel('Finding you on Tick'), const HandleSettings()],
           const SectionLabel('Security'),
           group([
             row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {
@@ -76,12 +78,15 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i])))),
           const SectionLabel('Banks and cards'),
           group([
-            row('bank', 'Bank connections', val('${l.linksUsed} of 10 used'), onTap: () => context.push('/banks')),
+            row('bank', 'Bank connections', val(l.connections.isEmpty ? 'None' : '${l.connections.length} linked'), onTap: () => context.push('/banks')),
             row('receipt', 'Capture token and Shortcuts', chevron(), onTap: () => _tokenSheet(context, ref)),
             row('import', 'Import statements', chevron(), onTap: () => context.push('/import')),
           ]),
           const SectionLabel('More'),
           group([
+            row('heart-check', 'Your avatar', chevron(), onTap: () => context.push('/avatar')),
+            row('ask', 'Ask Tick', chevron(), onTap: () => context.push('/settings/ask')),
+            row('calendar', 'Payday', chevron(), onTap: () => context.push('/settings/payday')),
             row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
             row('goal', 'Data', chevron(), onTap: () => context.push('/settings/data')),
             row('heart-check', 'Labs', val('${featureFlags.where((f) => s.flag(f.$1)).length} on'), onTap: () => context.push('/settings/labs')),
@@ -95,7 +100,10 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             Segmented(options: const ['System', 'Dark', 'Light'], index: ['system', 'dark', 'light'].indexOf(s.theme), onChanged: (i) { TickHaptics.instance.selection(); n.update((x) => x.copyWith(theme: ['system', 'dark', 'light'][i])); }),
             const SizedBox(height: 16),
-            Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+            Row(children: [
+              Expanded(child: Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),
+              TickToggle(label: 'Haptics', on: s.haptics != HapticMode.off, onChanged: (v) => n.update((x) => x.copyWith(haptics: v ? HapticMode.full : HapticMode.off))),
+            ]),
             const SizedBox(height: 8),
             Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
           ])),
@@ -133,9 +141,10 @@ class SettingsScreen extends ConsumerWidget {
         ]);
       case SettingsPage.about:
         return TickPage(title: 'About and safety', onBack: () => context.pop(), children: [
+          PillButton('Replay the intro', style: PillStyle.quiet, height: 48, onTap: () => context.push('/intro')),
+          const SizedBox(height: 8),
           group([
             row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
-            row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
             if (Env.hasSupabase && signedIn)
               row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
                 await ref.read(authServiceProvider).signOut();
@@ -237,8 +246,8 @@ class SettingsScreen extends ConsumerWidget {
     if (ref.read(userIdProvider) != null && !ref.read(settingsProvider).demoMode) {
       try {
         await ref.read(apiProvider).post('/me/delete', {'confirm': 'DELETE'}, const Duration(seconds: 60));
-      } catch (_) {
-        error = 'That didn\'t go through, so nothing was deleted on the server. Try again when you are online.';
+      } catch (e) {
+        error = '${describeError(e, action: 'delete')} Nothing was deleted on the server.';
       }
     }
     if (error != null) {
@@ -276,8 +285,8 @@ class _TokenSheetState extends State<_TokenSheet> {
       // The server makes the token (32 random bytes), keeps only its hash, turns older tokens off and records it in the audit log.
       final j = await widget.ref.read(apiProvider).post('/tokens', {'label': 'Shortcuts', 'replace': true});
       setState(() => _token = j['token'] as String?);
-    } catch (_) {
-      setState(() => _err = 'That didn\'t go through. Try again, nothing was lost.');
+    } catch (e) {
+      setState(() => _err = describeError(e, action: 'make a token'));
     }
   }
 

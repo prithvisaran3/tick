@@ -1,0 +1,8 @@
+[
+ {"id": "m1", "subject": "Asha R. added \"Dinner\" in \"Flat\"", "text": "Total: $90.00  You paid $90.00. You get back $60.00.", "on": "2026-10-10", "want": {"kind": "expense", "description": "Dinner", "total_cents": 9000, "my_share_cents": 3000}},
+ {"id": "m2", "subject": "Asha R. added “Wi-Fi” in “Flat”", "text": "Total: $60.00 Asha paid. You owe $20.00", "on": "2026-10-11", "want": {"kind": "expense", "description": "Wi-Fi", "total_cents": 6000, "my_share_cents": 2000}},
+ {"id": "m3", "subject": "Kaarthik R. paid you $45.00", "text": "Settled up in Flat", "on": "2026-10-12", "want": {"kind": "settle_in", "person": "Kaarthik R.", "total_cents": 4500}},
+ {"id": "m4", "subject": "You paid Asha R. $20.00", "text": "", "on": "2026-10-13", "want": {"kind": "settle_out", "person": "Asha R.", "total_cents": 2000}},
+ {"id": "m5", "subject": "Your weekly summary", "text": "Nothing much happened.", "on": "2026-10-14", "want": null},
+ {"id": "m6", "subject": "", "text": "", "on": "2026-10-14", "want": null}
+]

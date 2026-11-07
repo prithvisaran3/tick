@@ -1,0 +1,17 @@
+[
+ {"name": "anchor example", "rule": {"frequency": "biweekly", "next_date": "2026-11-13"}, "on": "2026-11-06", "prev": "2026-10-30", "next": "2026-11-13"},
+ {"name": "on payday it starts the new period", "rule": {"frequency": "biweekly", "next_date": "2026-11-13"}, "on": "2026-11-13", "prev": "2026-11-13", "next": "2026-11-27"},
+ {"name": "anchor example, two on", "rule": {"frequency": "biweekly", "next_date": "2026-11-13"}, "on": "2026-11-27", "prev": "2026-11-27", "next": "2026-12-11"},
+ {"name": "across the fall DST change", "rule": {"frequency": "biweekly", "next_date": "2026-10-23"}, "on": "2026-11-02", "prev": "2026-10-23", "next": "2026-11-06"},
+ {"name": "across the spring DST change", "rule": {"frequency": "weekly", "next_date": "2027-03-05"}, "on": "2027-03-15", "prev": "2027-03-12", "next": "2027-03-19"},
+ {"name": "an old anchor keeps working", "rule": {"frequency": "biweekly", "next_date": "2025-01-03"}, "on": "2026-11-06", "prev": "2026-11-06", "next": "2026-11-20"},
+ {"name": "a far-off next payday stays the next payday", "rule": {"frequency": "weekly", "next_date": "2026-11-13"}, "on": "2026-10-20", "prev": "2026-11-06", "next": "2026-11-13"},
+ {"name": "monthly clamps to a short month", "rule": {"frequency": "monthly", "next_date": "2026-01-31"}, "on": "2026-02-15", "prev": "2026-01-31", "next": "2026-02-28"},
+ {"name": "twice a month, plain", "rule": {"frequency": "semimonthly", "next_date": "2026-10-15", "days": [15, 30]}, "on": "2026-10-20", "prev": "2026-10-15", "next": "2026-10-30"},
+ {"name": "a Sunday 15th pays Friday", "rule": {"frequency": "semimonthly", "next_date": "2026-11-13", "days": [15, 30]}, "on": "2026-11-14", "prev": "2026-11-13", "next": "2026-11-30"},
+ {"name": "a Saturday 15th pays Friday", "rule": {"frequency": "semimonthly", "next_date": "2026-08-14", "days": [15, 31]}, "on": "2026-08-13", "prev": "2026-07-31", "next": "2026-08-14"},
+ {"name": "the 30th in February is the last day, a Friday holiday-free", "rule": {"frequency": "semimonthly", "next_date": "2027-02-15", "days": [15, 30]}, "on": "2027-02-20", "prev": "2027-02-12", "next": "2027-02-26"},
+ {"name": "Christmas Friday pays Thursday", "rule": {"frequency": "semimonthly", "next_date": "2026-12-10", "days": [10, 25]}, "on": "2026-12-20", "prev": "2026-12-10", "next": "2026-12-24"},
+ {"name": "Labor Day Monday pays Friday", "rule": {"frequency": "semimonthly", "next_date": "2026-09-07", "days": [7, 22]}, "on": "2026-09-05", "prev": "2026-09-04", "next": "2026-09-22"},
+ {"name": "Sunday New Year observed Monday", "rule": {"frequency": "semimonthly", "next_date": "2028-01-02", "days": [2, 17]}, "on": "2027-12-29", "prev": "2027-12-17", "next": "2027-12-31"}
+]

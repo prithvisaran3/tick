@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import audit as audit_mod
+from app import pay as pay_mod
 from app import plaid as P
 from app.auth import current_user
 from app.main import app
@@ -34,6 +35,7 @@ class FakeProv:
 def db(monkeypatch):
     f = FakeRest()
     monkeypatch.setattr(P, "rest", lambda: f)
+    monkeypatch.setattr(pay_mod, "rest", lambda: f)
     monkeypatch.setattr(audit_mod, "rest", lambda: f)
     f.insert("plaid_link_sessions", {"link_token": "link-production-abc", "user_id": U, "connection_id": None, "claimed_at": None,
                                      "finished_at": None, "connection_ids": []})
@@ -123,3 +125,107 @@ def test_complete_route_rejects_someone_elses_session(db, monkeypatch):
     finally:
         app.dependency_overrides.clear()
     assert P.links_used(U) == 0
+
+# ---------------- owner lock and the global cap (audit 2026-11) ----------------
+OTHER = "22222222-2222-2222-2222-222222222222"
+
+class _TokenProv:
+    def create_link_token(self, uid, access_token=None, accounts=False):
+        return {"link_token": "link-production-new1234", "hosted_link_url": "https://hosted.plaid/x"}
+
+def _as(user, fn):
+    app.dependency_overrides[current_user] = lambda: user
+    try:
+        return fn(TestClient(app))
+    finally:
+        app.dependency_overrides.clear()
+
+def test_links_route_owner_gets_can_link_and_both_counts(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    for i in range(3):
+        db.insert("plaid_items", {"item_id": f"o{i}", "user_id": U})
+    db.insert("plaid_items", {"item_id": "x1", "user_id": OTHER})
+    j = _as(U, lambda c: c.get("/plaid/links")).json()
+    assert j == {"used": 3, "cap": 10, "left": 7, "can_link": True, "total_left": 6}
+
+def test_links_route_non_owner_cannot_link_and_sees_the_global_count(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    for i in range(4):
+        db.insert("plaid_items", {"item_id": f"o{i}", "user_id": U})
+    j = _as(OTHER, lambda c: c.get("/plaid/links")).json()
+    assert j["can_link"] is False and j["used"] == 0 and j["total_left"] == 6     # per-user "10 left" is a lie; the global number is not
+
+def test_non_owner_link_token_is_403_with_a_clear_reason(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 403 and r.json()["detail"] == P.LINK_LIMITED
+    assert db.rows("plaid_link_sessions")[-1]["user_id"] == U              # no session was opened for the stranger
+
+def test_owner_gets_409_when_the_shared_cap_is_used_even_if_their_own_count_is_low(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    for i in range(10):
+        db.insert("plaid_items", {"item_id": f"i{i}", "user_id": OTHER if i else U})
+    r = _as(U, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 409 and r.json()["detail"] == P.LINK_LIMITED
+
+def test_owner_can_start_a_link_when_slots_are_left(db, monkeypatch):
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    r = _as(U, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 200 and r.json()["links_left"] == 10
+
+def test_non_owner_can_still_reconnect_their_own_connection(db, monkeypatch):
+    """Update mode never creates an Item, so the owner lock does not apply to a connection the user already has."""
+    monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
+    monkeypatch.setattr(P, "_provider", _TokenProv())
+    conn = db.insert("connections", {"user_id": OTHER, "provider": "plaid", "item_id": "z", "vault_secret_id": "s1", "status": "login_required"})[0]
+    monkeypatch.setattr(db, "rpc", lambda name, args: "access-x", raising=False)
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={"connection_id": conn["id"]}))
+    assert r.status_code == 200
+
+def test_sync_keeps_the_name_and_include_in_safe_the_person_set(db):
+    acct = {"account_id": "acc-1", "name": "Plaid Checking", "official_name": "Total Checking", "mask": "1173", "type": "depository", "subtype": "checking", "balances": {"current": 100.0, "available": 90.0}}
+    first = P._ensure_accounts(U, "conn-1", [acct], "Chase")["acc-1"]
+    db.update("accounts", {"id": first["id"]}, {"name": "Rent money", "include_in_safe": False})
+    acct["balances"] = {"current": 250.5, "available": 200.0}
+    again = P._ensure_accounts(U, "conn-1", [acct], "Chase")["acc-1"]
+    rows = db.rows("accounts")
+    assert len(rows) == 1 and again["id"] == first["id"]
+    assert rows[0]["name"] == "Rent money" and rows[0]["include_in_safe"] is False      # edits survive
+    assert rows[0]["balance_cents"] == 25050 and rows[0]["available_cents"] == 20000     # balances still refresh
+
+def test_payday_rule_creates_expected_paychecks_once_and_a_deposit_lands_one(db):
+    from datetime import date
+    db.insert("settings", {"user_id": U, "payday_rule": {"frequency": "biweekly", "next_date": "2026-11-06", "amount_cents": 231000}})
+    today = date(2026, 11, 7)
+    P.ensure_expected_paycheck(U, today)
+    P.ensure_expected_paycheck(U, today)                                  # idempotent
+    rows = db.rows("expected")
+    assert sorted(r["expected_date"] for r in rows) == ["2026-11-06", "2026-11-20"] and all(r["amount_cents"] == 231000 for r in rows)
+    exp = [dict(r) for r in rows if r.get("status", "expected") == "expected"]
+    from datetime import datetime as _dt, timezone as _tz
+    P._landed_in(exp, U, "txn-1", 230500, _dt(2026, 11, 6, 13, tzinfo=_tz.utc))
+    assert [r.get("status", "expected") for r in sorted(db.rows("expected"), key=lambda r: r["expected_date"])] == ["landed", "expected"]
+
+def test_a_card_payment_credit_can_never_land_a_paycheck():
+    class C: flow = None; account_id = "card"
+    assert P._is_income_deposit(C, {"x": {"id": "card", "type": "credit"}}) is False
+    C.account_id = "chk"
+    assert P._is_income_deposit(C, {"x": {"id": "chk", "type": "checking"}}) is True
+    C.flow = "transfer"
+    assert P._is_income_deposit(C, {}) is False
+
+def test_new_google_account_tapping_link_gets_403_before_any_plaid_call_or_session(db, monkeypatch):
+    """The friend's case: signed in with her own Google account, no banks, no profile dependency, taps Link."""
+    monkeypatch.delenv("TICK_OWNER_USER_IDS", raising=False)                # owner derived from the first item, as a fallback
+    db.insert("plaid_items", {"item_id": "item-owner", "user_id": U, "created_at": "2026-11-05T01:35:00+00:00"})
+    class Boom:
+        def create_link_token(self, *a, **k): raise AssertionError("Plaid must not be called")
+    monkeypatch.setattr(P, "_provider", Boom())
+    before = len(db.rows("plaid_link_sessions"))
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 403 and r.json()["detail"] == "Bank linking is limited to 10 accounts right now."
+    assert len(db.rows("plaid_link_sessions")) == before
+    assert _as(OTHER, lambda c: c.get("/plaid/links")).json()["can_link"] is False

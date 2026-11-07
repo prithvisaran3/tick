@@ -1,0 +1,57 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "Intro scenes / intro_flip"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.4
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.8
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.18,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.5
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.8
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.36,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.7
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.7
+     }
+    ]
+   }
+  }
+ ]
+}

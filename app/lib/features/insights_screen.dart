@@ -6,14 +6,18 @@ import '../data/activity.dart';
 import '../data/insights.dart';
 import '../data/ledger.dart';
 import '../data/nav.dart';
+import '../data/settings.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/scaffold.dart';
+import '../domain/flows.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/safe_to_spend.dart';
+import '../services/api.dart';
 import 'ask_button.dart';
 import 'common.dart';
 
@@ -33,7 +37,7 @@ class InsightsScreen extends ConsumerWidget {
         if (l.offline) OfflineBanner(onRetry: refresh),
         switch (data) {
           AsyncData(:final value) => _Body(d: value, ledger: l, sts: sts),
-          AsyncError() => ErrorState(onRetry: refresh),
+          AsyncError(:final error) => ErrorState(title: 'Insights didn\'t load', body: describeError(error, action: 'load Insights'), onRetry: refresh),
           _ => const Column(children: [Skeleton(height: 150, radius: 24), SizedBox(height: 12), Skeleton(height: 220, radius: 24), SizedBox(height: 12), Skeleton(height: 160, radius: 24)]),
         },
       ],
@@ -66,7 +70,7 @@ class _Body extends ConsumerWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Spent in $month', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
-            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(formatDollars(d.cur.outCents), style: context.ts(TickType.hero, size: 48))),
+            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: RollingNumber(value: d.cur.outCents, builder: (_, v) => Text(formatDollars(v), style: context.ts(TickType.hero, size: 48)))),
             const SizedBox(height: 6),
             if (vs != null)
               Text('${(vs.abs() * 100).round()}% ${vs <= 0 ? 'less' : 'more'} than last month at this point', style: context.ts(TickType.body, color: up ? c.alert : c.text))
@@ -81,7 +85,7 @@ class _Body extends ConsumerWidget {
               Text('On pace for ${formatDollars(d.projectedCents!)}${d.prevFull.outCents > 0 ? '. Last month ended at ${formatDollars(d.prevFull.outCents)}.' : '.'}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
             ],
             const SizedBox(height: 4),
-            Text('In ${formatDollars(d.cur.inCents)} · Out ${formatDollars(d.cur.outCents)}. Transfers and card payments aren\'t counted.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            Text('In ${formatDollars(d.cur.inCents)} · Out ${formatDollars(d.cur.outCents)}. ${d.cur.friendsIncluded ? 'Transfers and card payments aren\'t counted.' : 'Transfers, card payments and money with friends aren\'t counted.'}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
           ]),
         ),
       ),
@@ -93,10 +97,19 @@ class _Body extends ConsumerWidget {
         TickCard(padding: const EdgeInsets.fromLTRB(16, 4, 16, 8), child: Column(children: [
           for (final (i, r) in cats.indexed) ...[
             if (i > 0) const Hairline(),
-            _CatRow(name: r.$1 == 'none' ? 'Other' : (ledger.category(r.$1)?.name ?? 'Other'), now: r.$2, before: r.$3, max: maxCat,
-                onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1}))),
+            StaggerIn(scope: 'insights', index: i, child: _CatRow(name: r.$1 == 'none' ? 'Other' : (ledger.category(r.$1)?.name ?? 'Other'), now: r.$2, before: r.$3, max: maxCat,
+                onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1})))),
           ],
         ])),
+      // 2b. Money with friends: one net line, out of the totals unless the toggle says otherwise
+      if (d.cur.friendsCount > 0 || d.prevFull.friendsCount > 0 || d.cur.friendsIncluded) FriendsSection(t: d.cur, onToggle: (v) async {
+        await ref.read(settingsProvider.notifier).setIncludeFriends(v);
+        await ref.read(ledgerProvider.notifier).refresh();
+        ref.invalidate(insightsProvider);
+      }, onOpen: () {
+        final id = ledger.categories.where((x) => x.name == 'Friends and family').firstOrNull?.id;
+        if (id != null) openActivity(ref, ActivityQuery(categories: {id}));
+      }),
       // 3. Top merchants
       if (d.merchants.isNotEmpty) ...[
         const SectionLabel('Top merchants'),
@@ -122,6 +135,53 @@ class _Body extends ConsumerWidget {
       if (ledger.recurring.isNotEmpty) _Subscriptions(recurring: ledger.recurring),
       // 5. Ahead: card bills and cash runway
       if (sts != null) _Ahead(sts: sts!, ledger: ledger),
+    ]);
+  }
+}
+
+/// Friends and family as ONE net line: mostly paybacks and Splitwise settling, so it says nothing about spending.
+class FriendsSection extends StatefulWidget {
+  const FriendsSection({super.key, required this.t, required this.onToggle, this.onOpen});
+  final Totals t;
+  final Future<void> Function(bool) onToggle;
+  final VoidCallback? onOpen;
+  @override
+  State<FriendsSection> createState() => _FriendsSectionState();
+}
+
+class _FriendsSectionState extends State<FriendsSection> {
+  String? _error;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final t = widget.t;
+    final net = t.friendsNetCents;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const SectionLabel('Money with friends'),
+      TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Pressable(
+          onTap: widget.onOpen, scale: 0.99, semanticLabel: 'Friends and family, ${formatCents(net.abs())} net ${net < 0 ? 'out' : 'in'}. Show in Activity',
+          child: Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Friends and family', style: context.ts(TickType.title, size: 15.5)),
+              Text('In ${formatDollars(t.friendsInCents)} · Out ${formatDollars(t.friendsOutCents)}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            ])),
+            const SizedBox(width: 8),
+            Money(net),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        const Hairline(),
+        Row(children: [
+          Expanded(child: Text('Include money with friends', style: context.ts(TickType.body))),
+          TickToggle(on: t.friendsIncluded, label: 'Include money with friends', onChanged: (v) async {
+            setState(() => _error = null);
+            try { await widget.onToggle(v); } catch (e) { if (mounted) setState(() => _error = describeError(e, action: 'change that')); }
+          }),
+        ]),
+        Text(t.friendsIncluded ? 'Counted in spending and income.' : 'Not in spending, income or budgets.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(_error!, style: context.ts(TickType.bodyS, size: 12.5, color: c.alert))),
+      ])),
     ]);
   }
 }
