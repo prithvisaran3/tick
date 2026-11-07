@@ -265,7 +265,7 @@ class GroupBadge extends StatelessWidget {
   final double size;
   @override
   Widget build(BuildContext context) {
-    final icon = g.icon ?? iconForEmoji(g.emoji);
+    final icon = g.iconKey ?? iconForEmoji(g.emoji);
     if (icon == null) return Avatar(g.name, g.colorKey, size: size);
     return Container(width: size, height: size, alignment: Alignment.center, decoration: BoxDecoration(color: context.c.surface2, shape: BoxShape.circle), child: TallyIcon(icon, size: size * 0.55));
   }

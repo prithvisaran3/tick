@@ -32,8 +32,8 @@ class TallyPerson {
 }
 
 class TallyGroup {
-  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false, this.icon});
-  final String? icon;   // a key in [tallyIcons]
+  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false, this.iconKey});
+  final String? iconKey;   // a key in [tallyIcons]
   final bool isOwner;   // only the owner renames, archives, deletes or removes members
   final bool archived;
   final String id;
