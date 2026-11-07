@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/bank_step.dart';
+import '../data/remote.dart';
+import 'tally_people.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
@@ -75,6 +77,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _finish() async {
+    if (ref.read(remoteProvider) != null) await showHandleSheet(context);        // skippable; friends find you by it
+    if (!mounted) return;
     final n = ref.read(settingsProvider.notifier);
     final now = ref.read(clockProvider)();
     final amt = parseCents(_amount) ?? 0;

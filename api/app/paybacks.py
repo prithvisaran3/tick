@@ -79,22 +79,25 @@ def _recent(user_id: str, days: int) -> tuple[list[dict], dict[str, str]]:
 
 def auto_link(user_id: str) -> int:
     """A bank credit that is exactly a settlement already recorded in Tally: tie them together (the settlement trigger excludes the row)."""
-    open_ = rest().select("tally_settlements", user_id=f"eq.{user_id}", status="eq.confirmed", transaction_id="is.null", deleted_at="is.null", to_person="is.null", select="id,from_person,amount_cents,settled_on")
+    mine = [m["id"] for m in rest().select("tally_members", member_user_id=f"eq.{user_id}", status="eq.active", select="id")]
+    if not mine:
+        return 0
+    open_ = rest().select("tally_settlements", status="eq.confirmed", transaction_id="is.null", deleted_at="is.null", to_member=f"in.({','.join(mine)})", select="id,group_id,from_member,amount_cents,settled_on")
     if not open_:
         return 0
-    people = {p["id"]: p for p in rest().select("people", user_id=f"eq.{user_id}", select="id,name")}
+    names = {m["id"]: m.get("name") for m in rest().select("tally_members", group_id=f"in.({','.join(sorted({s['group_id'] for s in open_}))})", select="id,name")}
     rows, types = _recent(user_id, 60)
     credits = [r for r in rows if is_person_credit(r, types)]
     used: set[str] = set()
     n = 0
     for s in sorted(open_, key=lambda x: str(x["settled_on"])):
-        first = (people.get(s.get("from_person"), {}).get("name") or "").split(" ")[0].lower()
+        first = (names.get(s.get("from_member")) or "").split(" ")[0].lower()
         on = date.fromisoformat(str(s["settled_on"])[:10])
         hits = [c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and first and first in _text(c).lower()
                 and -SETTLE_BEFORE_DAYS <= (on - _day(c["occurred_at"])).days <= SETTLE_AFTER_DAYS]
         if len(hits) == 1:
             used.add(hits[0]["id"])
-            rest().update("tally_settlements", {"id": s["id"], "user_id": user_id}, {"transaction_id": hits[0]["id"]})
+            rest().update("tally_settlements", {"id": s["id"]}, {"transaction_id": hits[0]["id"]})
             n += 1
     return n
 

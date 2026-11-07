@@ -4,7 +4,7 @@ do $$
 declare
   a uuid := gen_random_uuid(); b uuid := gen_random_uuid();
   r record; n int; fails text := ''; ok boolean; txn_a uuid; acct_a uuid; conn_a uuid; tok_a uuid; cat_a uuid;
-  callable text[] := array['tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used','tick_account_counts','tick_top_merchants','tick_classified','tally_save_expense','tally_balances','tally_owed_to_me'];
+  callable text[] := array['tick_flows','tick_activity_page','tick_months','tick_filtered','tick_links_used','tick_account_counts','tick_top_merchants','tick_classified','tally_save_expense','tally_balances','tally_owed_to_me','is_tally_member','is_tally_owner','tally_my_member','tally_net','tally_create_group','tally_add_guest','tally_remove_member','tally_leave_group','tally_invite_user','tally_invite_respond'];
 begin
   insert into auth.users (id, aud, role, email) values (a, 'authenticated', 'authenticated', 'a@test.local'), (b, 'authenticated', 'authenticated', 'b@test.local');
   select id into cat_a from public.categories where user_id = a limit 1;

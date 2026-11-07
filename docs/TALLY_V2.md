@@ -34,3 +34,36 @@ Assumed
 
 Deferred
 - Demo mode has no payback suggestions (they come from the server).
+
+## Phase 2: shared groups
+Done: data model, RLS, search, invites, activity, guests, API port, and the app's data layer, search, inbox and handle screens. Group
+management screens are in phase 3.
+- `20261110000001_tally_shared.sql`. Members are rows with an id; a member is a Tick user (`member_user_id`) or a guest. Expenses, shares and
+  settlements point at member ids, because "me" now depends on who is reading. `tools/test_tally_migration.py` seeds old-shape data, applies the
+  migration and checks every row and balance survived, including a person who had left the group but still has history.
+- `is_tally_member` and friends are SECURITY DEFINER. `supabase/tests/tally_shared.sql` covers member vs stranger, creator vs owner, removed
+  member, leave and remove blocked with a balance, invite flow, search, and the activity log.
+
+Decisions
+- `user_id` on Tally rows stays the group owner (the tenant); `created_by` is the writer. That kept every composite key and account deletion.
+- Old columns are renamed `legacy_*`, not dropped, so a bad migration can be undone. Drop them one release later.
+- Writes are narrow: expenses and shares change only through `tally_save_expense` so an amount can't drift from its shares. Direct grants are
+  insert plus `deleted_at` (and `status` on settlements). Nobody hard deletes, including the owner.
+- A guest's phone and email stay in the adder's private `people` book. Other members only ever see the name.
+- Search matches email against `auth.users`, not the editable profile copy, so nobody can claim someone else's address.
+- Inviting checks `discoverable` too, so a hidden person can't be invited by id. Pending invites are capped at 30 per inviter.
+- Any member can add a guest or invite someone. Only removal is owner-only, as specified.
+- The owner can't leave (they delete the group instead). Transferring ownership isn't built.
+- Any member can make a share link. The row belongs to the group owner.
+- "Delete all my data" now removes groups I own. Before this, deleting `people` would have failed on the restrict keys once Tally had rows.
+  Groups I only belong to keep my member row with my name and no account link.
+
+Check before `supabase db push`
+- The migration stops if its role lacks BYPASSRLS, because the helpers would recurse. This was only tested locally as a superuser.
+
+Known gaps
+- Phone numbers on profiles aren't verified, so someone could enter another person's number and be found by it. The searcher sees their name
+  and handle before inviting.
+- A settlement holds one bank row. In a group of two Tick users only one side's Zelle can be linked; the other stays a Friends and family row,
+  which is out of the totals by default anyway.
+- Avatars: the column and search field exist, there is no upload yet, so everyone gets initials.

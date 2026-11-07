@@ -104,11 +104,16 @@ def test_bad_ids_and_other_peoples_rows_are_404(api):
     assert c.post("/paybacks/dismiss", json={"payback_id": uid(77)}).status_code == 404
 
 def settle(f, cents, on, person="p1", status="confirmed", **kw):
-    return f.insert("tally_settlements", {"user_id": U, "group_id": "g", "from_person": person, "to_person": None, "amount_cents": cents, "status": status, "transaction_id": None, "deleted_at": None, "settled_on": on, **kw})[0]
+    return f.insert("tally_settlements", {"user_id": U, "group_id": "g", "from_member": person, "to_member": "mine", "amount_cents": cents, "status": status, "transaction_id": None, "deleted_at": None, "settled_on": on, **kw})[0]
+
+def members(f, *names):
+    f.insert("tally_members", {"id": "mine", "group_id": "g", "member_user_id": U, "name": "Me", "status": "active"})
+    for i, n in enumerate(names, 1):
+        f.insert("tally_members", {"id": f"p{i}", "group_id": "g", "name": n, "status": "active"})
 
 def test_auto_link_only_on_an_exact_settlement(api):
     f, _ = api
-    f.insert("people", {"id": "p1", "user_id": U, "name": "Asha Rao"})
+    members(f, "Asha Rao")
     today = datetime.now(timezone.utc).date().isoformat()
     exact, other = settle(f, 4000, today), settle(f, 3999, today)
     assert P.auto_link(U) == 1
@@ -117,7 +122,7 @@ def test_auto_link_only_on_an_exact_settlement(api):
 
 def test_auto_link_needs_the_friends_name_and_one_candidate(api):
     f, _ = api
-    f.insert("people", [{"id": "p1", "user_id": U, "name": "Asha Rao"}, {"id": "p2", "user_id": U, "name": "Jo Lee"}])
+    members(f, "Asha Rao", "Jo Lee")
     today = datetime.now(timezone.utc).date().isoformat()
     settle(f, 4000, today, person="p2")
     assert P.auto_link(U) == 0

@@ -20,19 +20,19 @@ class TallyRest(FakeRest):
     def rpc(self, fn, args):
         if fn != "tally_balances":
             return super().rpc(fn, args)
-        uid, gid = args["p_uid"], args.get("p_group")
+        gid = args.get("p_group")
         net: dict = {}
         def add(p, c): net[p] = net.get(p, 0) + c
         for e in self.rows("tally_expenses"):
-            if e["user_id"] == uid and not e.get("deleted_at") and (gid is None or e["group_id"] == gid):
-                add(e.get("paid_by"), e["amount_cents"])
+            if not e.get("deleted_at") and (gid is None or e["group_id"] == gid):
+                add(e.get("paid_by_member"), e["amount_cents"])
                 for s in self.rows("tally_shares"):
                     if s["expense_id"] == e["id"]:
-                        add(s.get("person_id"), -s["owed_cents"])
+                        add(s.get("member_id"), -s["owed_cents"])
         for st in self.rows("tally_settlements"):
-            if st["user_id"] == uid and not st.get("deleted_at") and st["status"] == "confirmed" and (gid is None or st["group_id"] == gid):
-                add(st.get("from_person"), st["amount_cents"]); add(st.get("to_person"), -st["amount_cents"])
-        return [{"group_id": gid, "person_id": p, "net_cents": c} for p, c in net.items() if c]
+            if not st.get("deleted_at") and st["status"] == "confirmed" and (gid is None or st["group_id"] == gid):
+                add(st.get("from_member"), st["amount_cents"]); add(st.get("to_member"), -st["amount_cents"])
+        return [{"group_id": gid, "member_id": p, "net_cents": c} for p, c in net.items() if c]
 
 @pytest.fixture
 def world(monkeypatch):
@@ -43,15 +43,13 @@ def world(monkeypatch):
     for mod in (T, audit_mod):
         monkeypatch.setattr(mod, "rest", lambda: f)
     f.insert("profiles", {"user_id": U, "display_name": "Prithvi Saran Sathyasaran"})
-    k = f.insert("people", {"user_id": U, "name": "Kaarthik Kumar"})[0]
-    j = f.insert("people", {"user_id": U, "name": "<script>alert(1)</script> Jo"})[0]
-    g = f.insert("tally_groups", {"user_id": U, "name": "Roommates <b>", "emoji": "🏠"})[0]
-    for p in (k, j):
-        f.insert("tally_members", {"group_id": g["id"], "person_id": p["id"], "user_id": U})
-    e = f.insert("tally_expenses", {"user_id": U, "group_id": g["id"], "description": "Groceries", "amount_cents": 9000, "paid_by": None})[0]
-    f.insert("tally_shares", {"expense_id": e["id"], "person_id": None, "user_id": U, "owed_cents": 3000})
-    f.insert("tally_shares", {"expense_id": e["id"], "person_id": k["id"], "user_id": U, "owed_cents": 3000})
-    f.insert("tally_shares", {"expense_id": e["id"], "person_id": j["id"], "user_id": U, "owed_cents": 3000})
+    g = f.insert("tally_groups", {"user_id": U, "name": "Roommates <b>", "emoji": "🏠", "deleted_at": None})[0]
+    me = f.insert("tally_members", {"group_id": g["id"], "user_id": U, "member_user_id": U, "name": "Prithvi Saran Sathyasaran", "role": "owner", "status": "active"})[0]
+    k = f.insert("tally_members", {"group_id": g["id"], "user_id": U, "name": "Kaarthik Kumar", "role": "member", "status": "active"})[0]
+    j = f.insert("tally_members", {"group_id": g["id"], "user_id": U, "name": "<script>alert(1)</script> Jo", "role": "member", "status": "active"})[0]
+    e = f.insert("tally_expenses", {"user_id": U, "group_id": g["id"], "description": "Groceries", "amount_cents": 9000, "paid_by_member": me["id"]})[0]
+    for m in (me, k, j):
+        f.insert("tally_shares", {"expense_id": e["id"], "member_id": m["id"], "user_id": U, "owed_cents": 3000})
     return f, g, k, j
 
 def mk_link(c, gid, days=30):
@@ -101,7 +99,7 @@ def test_only_five_live_links_per_group_and_only_my_groups(world, signed_in):
     f, g, k, j = world
     for _ in range(5): mk_link(signed_in, g["id"])
     assert signed_in.post(f"/tally/groups/{g['id']}/links", json={}).status_code == 409
-    other = f.insert("tally_groups", {"user_id": OTHER, "name": "Theirs"})[0]
+    other = f.insert("tally_groups", {"user_id": OTHER, "name": "Theirs", "deleted_at": None})[0]
     assert signed_in.post(f"/tally/groups/{other['id']}/links", json={}).status_code == 404
     assert signed_in.post("/tally/groups/not-a-uuid/links", json={}).status_code == 404
 
@@ -147,12 +145,12 @@ def test_i_paid_creates_a_pending_settlement_and_never_changes_a_balance(world, 
     f, g, k, j = world
     tok = token_of(mk_link(signed_in, g["id"])["url"])
     pub = TestClient(app)
-    before = {r["person_id"]: r["net_cents"] for r in f.rpc("tally_balances", {"p_uid": U, "p_group": g["id"]})}
+    before = {r["member_id"]: r["net_cents"] for r in f.rpc("tally_balances", {"p_uid": U, "p_group": g["id"]})}
     r = pub.post(f"/t/{tok}/paid", data={"person": k["id"], "amount": "3000"})
     assert r.status_code == 200 and "Thanks" in r.text and "Nothing was paid from here" in r.text
     st = f.rows("tally_settlements")[0]
-    assert (st["status"], st["from_person"], st["to_person"], st["amount_cents"], st["user_id"]) == ("pending", k["id"], None, 3000, U)
-    assert {r["person_id"]: r["net_cents"] for r in f.rpc("tally_balances", {"p_uid": U, "p_group": g["id"]})} == before        # pending is not money
+    assert (st["status"], st["from_member"], st["amount_cents"]) == ("pending", k["id"], 3000) and st["to_member"] == next(m["id"] for m in f.rows("tally_members") if m["role"] == "owner")
+    assert {r["member_id"]: r["net_cents"] for r in f.rpc("tally_balances", {"p_uid": U, "p_group": g["id"]})} == before        # pending is not money
 
 def test_i_paid_is_validated_and_capped(world, signed_in):
     f, g, k, j = world

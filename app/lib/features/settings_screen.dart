@@ -21,6 +21,7 @@ import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
+import 'tally_people.dart';
 
 enum SettingsPage { root, appearance, data, labs, about }
 
@@ -63,6 +64,7 @@ class SettingsScreen extends ConsumerWidget {
             ]),
             if (Env.hasSupabase && !signedIn) ...[const SizedBox(height: 12), PillButton('Sign in with Google', height: 48, onTap: () => _signIn(context, ref))],
           ])),
+          if (signedIn) ...[const SectionLabel('Finding you on Tick'), const HandleSettings()],
           const SectionLabel('Security'),
           group([
             row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {

@@ -28,13 +28,13 @@ view_limiter = RateLimiter(40, 60)
 paid_limiter = RateLimiter(6, 3600)
 MAX_LINKS_PER_GROUP = 5
 
-def simplify(net: dict[str | None, int]) -> list[tuple[str | None, str | None, int]]:
+def simplify(net: dict) -> list[tuple]:
     """Minimum-ish transfers that settle everyone: greedy largest debtor pays largest creditor. net: person -> cents, positive = is owed.
     Same algorithm and tie-breaking as app/lib/domain/tally.dart (shared test vectors keep them identical)."""
     cred = sorted(((p, c) for p, c in net.items() if c > 0), key=lambda x: (-x[1], "me" if x[0] is None else str(x[0])))
     debt = sorted(((p, -c) for p, c in net.items() if c < 0), key=lambda x: (-x[1], "me" if x[0] is None else str(x[0])))
     cred, debt = [list(x) for x in cred], [list(x) for x in debt]
-    out: list[tuple[str | None, str | None, int]] = []
+    out: list[tuple] = []
     i = j = 0
     while i < len(debt) and j < len(cred):
         pay = min(debt[i][1], cred[j][1])
@@ -57,23 +57,23 @@ class LinkBody(BaseModel):
 def _group(user_id: str, group_id: str) -> dict:
     if not re.fullmatch(r"[0-9a-f\-]{36}", group_id):
         raise HTTPException(404, "group not found")
-    rows = rest().select("tally_groups", id=f"eq.{group_id}", user_id=f"eq.{user_id}", select="id,name,emoji")
-    if not rows:
+    rows = rest().select("tally_groups", id=f"eq.{group_id}", deleted_at="is.null", select="id,name,emoji,user_id")
+    if not rows or not rest().select("tally_members", group_id=f"eq.{group_id}", member_user_id=f"eq.{user_id}", status="eq.active", select="id"):
         raise HTTPException(404, "group not found")
     return rows[0]
 
 @router.post("/tally/groups/{group_id}/links")
 def create_link(group_id: str, body: LinkBody, request: Request, user_id: str = Depends(current_user)):
     user_limiter.check(f"tallylink:{user_id}", 10, 60)
-    _group(user_id, group_id)
+    owner = _group(user_id, group_id)["user_id"]                # any member can share; the link belongs to the group, the row to its owner
     now = datetime.now(timezone.utc)
-    live = [l for l in rest().select("tally_links", group_id=f"eq.{group_id}", user_id=f"eq.{user_id}", revoked_at="is.null", select="id,expires_at")
+    live = [l for l in rest().select("tally_links", group_id=f"eq.{group_id}", revoked_at="is.null", select="id,expires_at")
             if datetime.fromisoformat(l["expires_at"].replace("Z", "+00:00")) > now]
     if len(live) >= MAX_LINKS_PER_GROUP:
         raise HTTPException(409, "This group has enough live links. Revoke one first.")
     token = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
     exp = now + timedelta(days=body.days)
-    row = rest().insert("tally_links", {"user_id": user_id, "group_id": group_id, "token_hash": hash_token(token), "expires_at": exp.isoformat()})[0]
+    row = rest().insert("tally_links", {"user_id": owner, "group_id": group_id, "token_hash": hash_token(token), "expires_at": exp.isoformat()})[0]
     audit(user_id, "tally_share", {"scope": "link_created", "count": body.days})
     if not settings().public_base_url:
         raise HTTPException(503, "Sharing isn't set up yet.")    # never build a link from the Host header
@@ -83,15 +83,17 @@ def create_link(group_id: str, body: LinkBody, request: Request, user_id: str = 
 @router.get("/tally/groups/{group_id}/links")
 def list_links(group_id: str, user_id: str = Depends(current_user)):
     _group(user_id, group_id)
-    return {"links": rest().select("tally_links", group_id=f"eq.{group_id}", user_id=f"eq.{user_id}", select="id,created_at,expires_at,revoked_at,views,last_viewed_at", order="created_at.desc")}
+    return {"links": rest().select("tally_links", group_id=f"eq.{group_id}", select="id,created_at,expires_at,revoked_at,views,last_viewed_at", order="created_at.desc")}
 
 @router.post("/tally/links/{link_id}/revoke")
 def revoke_link(link_id: str, user_id: str = Depends(current_user)):
     if not re.fullmatch(r"[0-9a-f\-]{36}", link_id):
         raise HTTPException(404, "link not found")
-    rows = rest().update("tally_links", {"id": link_id, "user_id": user_id}, {"revoked_at": datetime.now(timezone.utc).isoformat()})
-    if not rows:
+    found = rest().select("tally_links", id=f"eq.{link_id}", select="group_id")
+    if not found:
         raise HTTPException(404, "link not found")
+    _group(user_id, found[0]["group_id"])
+    rest().update("tally_links", {"id": link_id}, {"revoked_at": datetime.now(timezone.utc).isoformat()})
     audit(user_id, "tally_share", {"scope": "link_revoked"})
     return {"revoked": True}
 
@@ -108,14 +110,14 @@ def _link(token: str) -> dict | None:
 
 def _snapshot(link: dict) -> dict:
     uid, gid = link["user_id"], link["group_id"]
-    g = rest().select("tally_groups", id=f"eq.{gid}", user_id=f"eq.{uid}", select="name,emoji")[0]
-    people = {p["id"]: p for p in rest().select("people", user_id=f"eq.{uid}", select="id,name")}
-    members = {m["person_id"] for m in rest().select("tally_members", group_id=f"eq.{gid}", user_id=f"eq.{uid}", select="person_id")}
-    net: dict[str | None, int] = {r["person_id"]: int(r["net_cents"]) for r in rest().rpc("tally_balances", {"p_uid": uid, "p_group": gid})}
+    g = rest().select("tally_groups", id=f"eq.{gid}", deleted_at="is.null", select="name,emoji")[0]
+    rows = rest().select("tally_members", group_id=f"eq.{gid}", select="id,name,role,status")
+    owner_id = next(m["id"] for m in rows if m["role"] == "owner")
+    net: dict[str, int] = {r["member_id"]: int(r["net_cents"]) for r in rest().rpc("tally_balances", {"p_uid": uid, "p_group": gid})}
     prof = rest().select("profiles", user_id=f"eq.{uid}", select="display_name")
     owner = _first(prof[0].get("display_name") if prof else None, "Your friend")
-    names = {None: owner, **{pid: _first(people.get(pid, {}).get("name"), "Someone") for pid in members}}
-    return {"group": g, "net": net, "names": names, "owner": owner, "members": members}
+    names = {**{m["id"]: _first(m.get("name"), "Someone") for m in rows}, owner_id: owner}
+    return {"group": g, "net": net, "names": names, "owner": owner, "owner_id": owner_id, "members": {m["id"] for m in rows if m["status"] == "active" and m["id"] != owner_id}}
 
 _CSS = ("body{margin:0;background:#0E0E12;color:#F5F3EC;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:start center}"
         "main{width:100%;max-width:440px;padding:32px 20px 56px}h1{font-size:30px;letter-spacing:-.5px;margin:0 0 4px}p{color:#A3A3AF;margin:4px 0 20px}"
@@ -156,11 +158,10 @@ def public_page(token: str, request: Request):
     return _page("Tally", _render(snap, token, done=False))
 
 def _render(snap: dict, token: str, done: bool) -> str:
-    g, net, names, owner = snap["group"], snap["net"], snap["names"], snap["owner"]
+    g, net, names, owner, oid = snap["group"], snap["net"], snap["names"], snap["owner"], snap["owner_id"]
     title = f"{html.escape(g.get('emoji') or '')} {html.escape(g['name'])}".strip()
-    owes = {p: -c for p, c in net.items() if p is not None and c < 0}           # friends who owe the group (the owner, here)
-    owed = {p: c for p, c in net.items() if p is not None and c > 0}
-    me = net.get(None, 0)
+    owes = {p: -c for p, c in net.items() if p != oid and c < 0}                # friends who owe the group (the owner, here)
+    owed = {p: c for p, c in net.items() if p != oid and c > 0}
     out = [f"<h1>{title}</h1>"]
     if done:
         out.append("<div class=card><b class=ok>Thanks!</b><p style='margin:6px 0 0'>That's sent to " + html.escape(owner) + " to confirm. Nothing was paid from here.</p></div>")
@@ -170,7 +171,7 @@ def _render(snap: dict, token: str, done: bool) -> str:
         out.append(f"<p>Who owes who, kept by {html.escape(owner)}.</p>")
         for frm, to, c in simplify(net):
             out.append(f"<div class=card><div class=row><span>{html.escape(names.get(frm, 'Someone'))} → {html.escape(names.get(to, 'Someone'))}</span><span class='amt big' style='font-size:26px'>{_money(c)}</span></div>")
-            if frm is not None and to is None:
+            if frm != oid and to == oid:
                 out.append(f"<form method=post action='/t/{html.escape(token)}/paid'><input type=hidden name=person value='{html.escape(frm)}'>"
                            f"<input type=hidden name=amount value='{c}'><button type=submit>I paid {_money(c)}</button></form>"
                            f"<p class=small style='margin:8px 0 0'>Pay {html.escape(owner)} yourself (Zelle, Venmo or cash), then tap this so they know.</p>")
@@ -193,9 +194,9 @@ def i_paid(token: str, request: Request, person: str = Form(..., max_length=40),
     owed = -snap["net"].get(person, 0)
     if person not in snap["members"] or owed <= 0 or amount > owed:
         return _page("Tally", "<h1>That doesn't match</h1><p>The balance changed. Reload the page and try again.</p>", 409)
-    already = rest().select("tally_settlements", user_id=f"eq.{link['user_id']}", group_id=f"eq.{link['group_id']}", from_person=f"eq.{person}", status="eq.pending", deleted_at="is.null", select="id")
+    already = rest().select("tally_settlements", group_id=f"eq.{link['group_id']}", from_member=f"eq.{person}", status="eq.pending", deleted_at="is.null", select="id")
     if len(already) >= 3:
         return _page("Tally", "<h1>Already sent</h1><p>You've told them. They'll confirm it soon.</p>", 429)
-    rest().insert("tally_settlements", {"user_id": link["user_id"], "group_id": link["group_id"], "from_person": person, "to_person": None, "amount_cents": amount,
+    rest().insert("tally_settlements", {"group_id": link["group_id"], "from_member": person, "to_member": snap["owner_id"], "amount_cents": amount,
                                         "method": "other", "status": "pending", "note": "Marked as paid from the share page"}, returning=False)
     return _page("Tally", _render(snap, token, done=True))

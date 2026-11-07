@@ -1,4 +1,5 @@
-/// Tally: splitting shared expenses with friends. Integer cents everywhere; "me" is the person id [me] (null on the server).
+/// Tally: splitting shared expenses with friends. Integer cents everywhere. Groups have members; the store turns MY member id in each group into [me],
+/// so everything here reads the same whoever is looking. Ids are member ids in live mode.
 /// Balances: positive = that person is owed, negative = they owe. The server computes the same numbers (`tally_balances`);
 /// this Dart mirror powers demo/guest mode and the live screens' previews, and `simplify` is checked against the shared vectors in
 /// api/tests/data/tally_simplify.json so Python and Dart always agree.
@@ -9,7 +10,11 @@ const me = 'me';
 enum SplitType { equal, exact, percent, shares }
 
 class TallyPerson {
-  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone});
+  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active'});
+  /// Set when this member is a Tick user; null for a guest.
+  final String? userId;
+  final String status; // active | left | removed
+  bool get isGuest => userId == null;
   final String id;
   final String name;
   final String colorKey;
@@ -18,7 +23,9 @@ class TallyPerson {
 }
 
 class TallyGroup {
-  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop'});
+  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false});
+  final bool isOwner;   // only the owner renames, archives, deletes or removes members
+  final bool archived;
   final String id;
   final String name;
   final String? emoji;
@@ -29,7 +36,10 @@ class TallyGroup {
 
 class TallyExpense {
   const TallyExpense({required this.id, required this.groupId, required this.description, required this.amountCents, required this.paidBy,
-      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note, this.weights = const {}});
+      required this.shares, required this.spentOn, this.splitType = SplitType.equal, this.transactionId, this.note, this.weights = const {}, this.createdBy, this.category, this.receiptPath});
+  final String? createdBy; // user id of who added it; null for a local one
+  final String? category;
+  final String? receiptPath;
   /// What was typed per person (percent, share count) so editing shows it again; empty for equal and exact.
   final Map<String, num> weights;
   final String id;
@@ -46,7 +56,8 @@ class TallyExpense {
 
 class TallySettlement {
   const TallySettlement({required this.id, required this.groupId, required this.from, required this.to, required this.amountCents, required this.on,
-      this.method = 'zelle', this.status = 'confirmed', this.transactionId});
+      this.method = 'zelle', this.status = 'confirmed', this.transactionId, this.createdBy});
+  final String? createdBy;
   final String id;
   final String groupId;
   final String from; // who paid
