@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../domain/merchant_name.dart';
 import '../domain/models.dart';
 import '../domain/natural_input.dart';
 import '../domain/payday.dart';
@@ -224,7 +225,8 @@ class LedgerNotifier extends Notifier<LedgerState> {
     await patch(id, (t) => t.copyWith(categoryId: categoryId, needsReview: false));
     final remote = ref.read(remoteProvider);
     if (remote != null && !ref.read(settingsProvider).demoMode && !id.startsWith('local-')) {
-      try { await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
+      // A person isn't a merchant: Zelle to Kaarthik can be rent one day and a settle-up the next, so no blanket rule. The Rent offer makes a narrow one.
+      try { if (p2pName(t.merchant) == null) await remote.learnRule(t.merchant, categoryId); await remote.markUserEdited(id, ['category']); } catch (_) {}
     }
   }
 

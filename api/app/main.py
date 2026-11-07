@@ -20,6 +20,7 @@ from .account import router as account_router
 from .tally import router as tally_router
 from .paybacks import router as paybacks_router
 from .people import router as people_router
+from .rules import router as rules_router
 from .tally_bills import router as bills_router
 
 log = logging.getLogger("tick")
@@ -41,6 +42,7 @@ app.include_router(tally_router)
 app.include_router(paybacks_router)
 app.include_router(people_router)
 app.include_router(bills_router)
+app.include_router(rules_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 

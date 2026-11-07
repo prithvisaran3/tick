@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from . import applecard as AC
 from . import splitwise as SW
+from . import rules as category_rules
 from . import statements as ST
 from . import store
 from .audit import audit
@@ -140,6 +141,7 @@ def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), 
     try:
         from .plaid import pair_transfers
         pair_transfers(user_id, days=800)                        # statement payments pair with the checking side; Zelle becomes Friends and family
+        category_rules.apply(user_id)
     except Exception:
         pass
     audit(user_id, "import_batch", {"count": len(p.inserts), "scope": parsed.source})

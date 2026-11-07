@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import audit as audit_mod
+from app import pay as pay_mod
 from app import plaid as P
 from app.auth import current_user
 from app.main import app
@@ -34,6 +35,7 @@ class FakeProv:
 def db(monkeypatch):
     f = FakeRest()
     monkeypatch.setattr(P, "rest", lambda: f)
+    monkeypatch.setattr(pay_mod, "rest", lambda: f)
     monkeypatch.setattr(audit_mod, "rest", lambda: f)
     f.insert("plaid_link_sessions", {"link_token": "link-production-abc", "user_id": U, "connection_id": None, "claimed_at": None,
                                      "finished_at": None, "connection_ids": []})

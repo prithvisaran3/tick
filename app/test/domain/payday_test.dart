@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tick/domain/merchant_name.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/domain/payday.dart';
 
@@ -24,5 +25,11 @@ void main() {
     final r = PaydayRule(frequency: PayFrequency.biweekly, anchor: DateTime(2026, 11, 13), amountCents: 0);
     expect(nextPayday(r, DateTime(2026, 11, 13)), DateTime(2026, 11, 13));
     expect(payPeriod(r, DateTime(2026, 11, 13)).nextPayday, DateTime(2026, 11, 27));
+  });
+
+  test('the person in a Zelle line', () {
+    expect(p2pName('Zelle payment to KAARTHIK ROSHAN 31446078428'), 'Kaarthik Roshan');
+    expect(p2pName('Zelle® Payment to K. Roshan JPM99cr1tlu9'), 'K Roshan');
+    expect(p2pName('Whole Foods'), isNull);
   });
 }

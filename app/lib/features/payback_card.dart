@@ -11,6 +11,7 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
+import 'rule_cards.dart';
 
 /// "Reimbursement for Dishoom?" A question, never an action: nothing links until it is accepted.
 class PaybackCard extends ConsumerStatefulWidget {
@@ -111,8 +112,10 @@ class PaybackBanner extends ConsumerWidget {
     final list = ref.watch(paybackSuggestionsProvider).value ?? const <PaybackSuggestion>[];
     final landed = ref.watch(landedSettlementsProvider).value ?? const <LandedSettlement>[];
     final balances = ref.watch(balanceMatchesProvider).value ?? const <BalanceMatch>[];
-    if (list.isEmpty && landed.isEmpty && balances.isEmpty) return const SizedBox.shrink();
+    final rules = ref.watch(ruleSuggestionsProvider).value ?? const <RuleSuggestion>[];
+    if (list.isEmpty && landed.isEmpty && balances.isEmpty && rules.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (rules.isNotEmpty) RuleSuggestionCard(key: ValueKey('r${rules.first.person}'), s: rules.first),
       for (final b in balances) BalanceMatchCard(key: ValueKey('b${b.paybackId}'), b: b),
       for (final s in landed) Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('${formatCents(s.amountCents)} from ${s.from} landed. Mark it received?', style: context.ts(TickType.title, size: 15.5)),

@@ -61,3 +61,12 @@ String cleanMerchant(String raw) {
   }
   return _title(s);
 }
+
+/// The person in a Zelle, Venmo, Cash App or PayPal line, or null if it isn't one. "Zelle payment to KAARTHIK ROSHAN 3144" -> "Kaarthik Roshan".
+String? p2pName(String text) {
+  if (!RegExp(r'\b(zelle|venmo|cash ?app|paypal)', caseSensitive: false).hasMatch(text)) return null;
+  const noise = {'zelle', 'payment', 'payments', 'to', 'from', 'venmo', 'cash', 'app', 'cashapp', 'paypal', 'transfer', 'sent', 'received', 'send', 'conf', 'ref', 'id', 'web', 'ach', 'credit', 'debit', 'for', 'pmt'};
+  final words = text.toLowerCase().replaceAll(RegExp(r'[®™.,;:#*()/\\-]'), ' ').split(RegExp(r'\s+')).where((w) => w.isNotEmpty && !RegExp(r'[0-9]').hasMatch(w) && !noise.contains(w));
+  final name = words.map((w) => '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
+  return name.isEmpty ? null : name;
+}

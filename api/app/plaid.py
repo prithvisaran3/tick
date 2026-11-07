@@ -30,6 +30,7 @@ from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
 from . import paybacks
+from . import rules as rules_mod
 from . import transfers as transfers_mod
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
@@ -647,6 +648,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
         _ai_categorise(user_id, uncategorised, name_to_id)
         try:
             pair_transfers(user_id)
+            rules_mod.apply(user_id)                      # after pairing, before anything reads a category
             paybacks.auto_link(user_id)
         except Exception:
             pass                                          # pairing is re-run on the next sync; never block the cursor
