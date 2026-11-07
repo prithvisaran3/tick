@@ -21,6 +21,9 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TickImport") {
       TickImportPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TickAskModel") {
+      TickAskModelPlugin.register(with: registrar)
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "TickPrivacy") {
       TickPrivacyPlugin.register(with: registrar)
     }

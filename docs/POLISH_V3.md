@@ -21,3 +21,19 @@ Decisions
 - A manual category on a Zelle row no longer learns a blanket merchant rule, which would have turned every payment to that person into rent.
 - "Other bill" uses the Other category. Aliases match exactly, so Kaarthik Kumar can't fall into Kaarthik Roshan's rule.
 - `tools/seed_rent_rule.py` is the seed. It needs the migration live, so it runs at deploy.
+
+## Phase 3: Ask Tick
+Done. `api/app/ask_brain.py`: `parse_range` makes every date, typed tools compute every number from `ask_rows` (the SQL money rules plus the person), and templates write every sentence.
+The router only picks a tool: rules, then the learned matcher, then this phone's model, then a free OpenRouter model. `ask_log` and `ask_memory` hold what it learned; Settings > Ask Tick shows the
+share answered without a model, 👍 rate, a cloud toggle and Clear. A nightly job rebuilds the matcher index and promotes a shape with three 👍 and one tool to an exact rule.
+Eval: `python3 api/tests/ask_eval.py`, 50 questions plus paraphrases. Rules 50/50, learned 2/2.
+
+Decisions
+- Templates phrase every path, including cloud. The model never writes a sentence, so it can't restate a number wrongly, and bank text never reaches it, which closes prompt injection through merchant names.
+- Tools sum classified rows in Python rather than a SQL function per tool: the rows and every rule about them come from SQL; the sum is plain code that's the same for every path.
+- `safe_to_spend` here is cash minus bills, card statements due and goals before payday. It has no loan step, so it can differ slightly from Today, which also subtracts loan payments.
+- Cloud few-shot sends the shape of the three closest 👍 questions, scrubbed, and only with the toggle on. Everything else in `ask_log` stays put.
+- A correction for the category or person needs the word it was about; the sheet asks for the reason only, so aliases from the app come from the period picker for now. The API takes `term` + `category`/`person`.
+
+On-device model: `ios/Runner/TickAskModel.swift` uses Foundation Models guided generation, behind an availability check. It compiles against the iOS 27.2 SDK with no entitlement, so a Personal Team should
+be fine. Whether Apple Intelligence is on for this phone can only be seen on the phone: when it's off, the step is skipped.

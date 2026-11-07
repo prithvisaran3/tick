@@ -25,8 +25,11 @@ const accountTypeChips = <(String, String)>[('checking', 'Checking'), ('savings'
 /// tick_activity_page / tick_flows. [upTo] ("Jump to month") starts the list at the end of that New York month instead of today.
 @immutable
 class ActivityQuery {
-  const ActivityQuery({this.upTo, this.types = const {}, this.accounts = const {}, this.categories = const {}, this.query = '', this.business = false, this.review = false});
+  const ActivityQuery({this.since, this.until, this.upTo, this.types = const {}, this.accounts = const {}, this.categories = const {}, this.query = '', this.business = false, this.review = false});
   final DateTime? upTo;
+  /// An exact range (UTC instants, [since, until)), from Ask Tick's "See the transactions".
+  final DateTime? since;
+  final DateTime? until;
   final Set<String> types;
   final Set<String> accounts;
   final Set<String> categories;
@@ -36,19 +39,19 @@ class ActivityQuery {
 
   bool get anyFilter => filterCount > 0;
   /// How many filters are active (the badge on the filter button). Search counts as one.
-  int get filterCount => (types.isNotEmpty ? 1 : 0) + (accounts.isNotEmpty ? 1 : 0) + (categories.isNotEmpty ? 1 : 0) + (query.trim().isNotEmpty ? 1 : 0) + (business ? 1 : 0) + (review ? 1 : 0);
-  DateTime? get to => upTo == null ? null : etToUtc(DateTime(upTo!.year, upTo!.month + 1, 1));
+  int get filterCount => (types.isNotEmpty ? 1 : 0) + (accounts.isNotEmpty ? 1 : 0) + (categories.isNotEmpty ? 1 : 0) + (query.trim().isNotEmpty ? 1 : 0) + (business ? 1 : 0) + (review ? 1 : 0) + (since != null ? 1 : 0);
+  DateTime? get to => upTo == null ? until : etToUtc(DateTime(upTo!.year, upTo!.month + 1, 1));
 
   ActivityQuery copyWith({DateTime? upTo, bool clearUpTo = false, Set<String>? types, Set<String>? accounts, Set<String>? categories, String? query, bool? business, bool? review}) =>
-      ActivityQuery(upTo: clearUpTo ? null : (upTo ?? this.upTo), types: types ?? this.types, accounts: accounts ?? this.accounts, categories: categories ?? this.categories,
+      ActivityQuery(since: since, until: until, upTo: clearUpTo ? null : (upTo ?? this.upTo), types: types ?? this.types, accounts: accounts ?? this.accounts, categories: categories ?? this.categories,
           query: query ?? this.query, business: business ?? this.business, review: review ?? this.review);
   ActivityQuery clearFilters() => ActivityQuery(upTo: upTo);
   /// The same filters with no month limit (used for month totals, which apply their own bounds).
-  ActivityQuery get filtersOnly => ActivityQuery(types: types, accounts: accounts, categories: categories, query: query, business: business, review: review);
+  ActivityQuery get filtersOnly => ActivityQuery(since: since, until: until, types: types, accounts: accounts, categories: categories, query: query, business: business, review: review);
 
   /// Arguments for the server. [from]/[to] override the list bounds (month totals, day totals).
   Map<String, dynamic> rpcArgs({DateTime? from, DateTime? to, bool useBounds = true}) => {
-        'p_from': from?.toUtc().toIso8601String(),
+        'p_from': (from ?? since)?.toUtc().toIso8601String(),
         'p_to': (to ?? (useBounds ? this.to : null))?.toUtc().toIso8601String(),
         'p_types': types.isEmpty ? null : types.toList(),
         'p_accounts': accounts.isEmpty ? null : accounts.toList(),
@@ -62,7 +65,8 @@ class ActivityQuery {
   bool matches(Txn t, LedgerState l, {DateTime? from, DateTime? until}) {
     final at = t.occurredAt.toUtc();
     final hi = until ?? to;
-    if (from != null && at.isBefore(from)) return false;
+    final lo = from ?? since;
+    if (lo != null && at.isBefore(lo)) return false;
     if (hi != null && !at.isBefore(hi)) return false;
     if (types.isNotEmpty && !types.contains(l.account(t.accountId)?.type ?? 'checking')) return false;
     if (accounts.isNotEmpty && !accounts.contains(t.accountId)) return false;
@@ -79,10 +83,10 @@ class ActivityQuery {
 
   @override
   bool operator ==(Object other) =>
-      other is ActivityQuery && other.upTo == upTo && setEquals(other.types, types) && setEquals(other.accounts, accounts) && setEquals(other.categories, categories) &&
+      other is ActivityQuery && other.upTo == upTo && other.since == since && other.until == until && setEquals(other.types, types) && setEquals(other.accounts, accounts) && setEquals(other.categories, categories) &&
       other.query == query && other.business == business && other.review == review;
   @override
-  int get hashCode => Object.hash(upTo, Object.hashAllUnordered(types), Object.hashAllUnordered(accounts), Object.hashAllUnordered(categories), query, business, review);
+  int get hashCode => Object.hash(upTo, since, until, Object.hashAllUnordered(types), Object.hashAllUnordered(accounts), Object.hashAllUnordered(categories), query, business, review);
 }
 
 DateTime monthOf(DateTime d) => DateTime(d.year, d.month, 1);

@@ -132,34 +132,23 @@ def test_parse_alert_ai_and_scrubbing(mem_cache):
     sent = json.dumps(f.calls[0][1])
     assert "4421" not in sent and "703-555" not in sent
 
-def test_ask_tool_loop_sends_only_tool_results_and_last_six(mem_cache):
-    from datetime import date
-    from app.ask import llm_answer, Ledger
-    l = Ledger([{"id": "t1", "merchant": "Whole Foods", "amount_cents": -4218, "date": date(2026, 11, 3), "category": "Groceries", "tags": [], "account": None}], today=date(2026, 11, 18))
-    tc = {"id": "c1", "name": "spend_by_category", "arguments": {}}
-    f = Fake([AIResult(None, [tc], raw_message={"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "spend_by_category", "arguments": "{}"}}]}),
-              AIResult("$42 on groceries this month.")])
+def test_cloud_routing_sends_the_question_only_and_never_a_number_back(mem_cache):
+    from app.ask import cloud_route
+    from app import ask_brain as B
+    f = Fake([AIResult('{"tool": "safe_to_spend", "params": {}}')])
     ai.set_provider(f)
-    hist = [{"role": "user" if i % 2 == 0 else "assistant", "text": f"msg {i}"} for i in range(10)]
-    text, blocks = llm_answer("u", "how much on groceries?", hist, l)
-    assert text.startswith("$42") and len(f.calls) == 2
-    first = f.calls[0][1]
-    assert len([m for m in first if m["role"] in ("user", "assistant")]) == 7        # last 6 + the question
-    tool_msg = [m for m in f.calls[1][1] if m["role"] == "tool"][0]
-    assert "Groceries" in tool_msg["content"]
-    assert f.calls[0][2]["tools"]                                                      # tools were offered
-    # model returning nothing -> None -> deterministic fallback in the route
-    ai.set_provider(Fake([None]))
-    assert llm_answer("u", "q", [], l) is None
+    assert cloud_route("u", "how am I doing, call 703-555-1212", B.Matcher([]), {}) == ("safe_to_spend", {})
+    sent = json.dumps(f.calls[0][1])
+    assert "703-555" not in sent and "Whole Foods" not in sent
 
-def test_ask_unknown_tool_is_harmless(mem_cache):
-    from datetime import date
-    from app.ask import llm_answer, Ledger
-    l = Ledger([], today=date(2026, 11, 18))
-    f = Fake([AIResult(None, [{"id": "c", "name": "drop_database", "arguments": {}}], raw_message={"role": "assistant", "content": None}), AIResult("$0 spent.")])
+def test_cloud_routing_retries_once_then_gives_up(mem_cache):
+    from app.ask import cloud_route
+    from app import ask_brain as B
+    f = Fake([AIResult("not json"), AIResult('{"tool": "drop_database"}')])
     ai.set_provider(f)
-    assert llm_answer("u", "q", [], l)[0] == "$0 spent."
-    assert "unknown tool" in [m for m in f.calls[1][1] if m["role"] == "tool"][0]["content"]
+    assert cloud_route("u", "q", B.Matcher([]), {}) is None and len(f.calls) == 2
+    ai.set_provider(Fake([AIResult('{"tool": null}')]))
+    assert cloud_route("u", "q", B.Matcher([]), {}) is None
 
 def test_null_provider_when_disabled(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "none"); ai.set_provider(None)

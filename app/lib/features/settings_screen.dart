@@ -84,6 +84,7 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           const SectionLabel('More'),
           group([
+            row('ask', 'Ask Tick', chevron(), onTap: () => context.push('/settings/ask')),
             row('calendar', 'Payday', chevron(), onTap: () => context.push('/settings/payday')),
             row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
             row('goal', 'Data', chevron(), onTap: () => context.push('/settings/data')),
