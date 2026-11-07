@@ -113,9 +113,11 @@ class PaybackBanner extends ConsumerWidget {
     final landed = ref.watch(landedSettlementsProvider).value ?? const <LandedSettlement>[];
     final balances = ref.watch(balanceMatchesProvider).value ?? const <BalanceMatch>[];
     final rules = ref.watch(ruleSuggestionsProvider).value ?? const <RuleSuggestion>[];
-    if (list.isEmpty && landed.isEmpty && balances.isEmpty && rules.isEmpty) return const SizedBox.shrink();
+    final likely = ref.watch(likelySplitwiseProvider).value ?? const <LikelySplitwise>[];
+    if (list.isEmpty && landed.isEmpty && balances.isEmpty && rules.isEmpty && likely.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (rules.isNotEmpty) RuleSuggestionCard(key: ValueKey('r${rules.first.person}'), s: rules.first),
+      if (likely.isNotEmpty) LikelySplitwiseCard(key: ValueKey('l${likely.first.txnId}'), s: likely.first),
       for (final b in balances) BalanceMatchCard(key: ValueKey('b${b.paybackId}'), b: b),
       for (final s in landed) Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('${formatCents(s.amountCents)} from ${s.from} landed. Mark it received?', style: context.ts(TickType.title, size: 15.5)),

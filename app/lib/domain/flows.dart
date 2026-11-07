@@ -47,7 +47,7 @@ String? _kind(String? categoryId, Map<String, Category>? cats) =>
     cats?[categoryId]?.kind ?? (categoryId == 'cat-transfer' ? 'transfer' : categoryId == 'cat-income' ? 'income' : null);
 
 /// A Friends and family row with no flow: money with friends, shown as one net line (docs/MONEY_RULES.md).
-bool isFriends(Txn t, {Map<String, Category>? cats}) => t.flow == null && (cats?[t.categoryId]?.name == 'Friends and family' || t.categoryId == 'cat-friends');
+bool isFriends(Txn t, {Map<String, Category>? cats}) => t.flow == null && (const {'Friends and family', 'Splitwise'}.contains(cats?[t.categoryId]?.name) || t.categoryId == 'cat-friends');
 
 /// A Transfer-kind category is a label and excludes nothing. The flow does, and so does being money with friends while the toggle is off.
 bool isExcluded(Txn t, {Map<String, Category>? cats, bool includeFriends = false}) =>

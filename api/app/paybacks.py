@@ -29,7 +29,7 @@ MAX_CANDIDATES = 3
 SETTLE_BEFORE_DAYS, SETTLE_AFTER_DAYS = 2, 10      # a settlement recorded up to 2 days after, or 10 days before, the money landed
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _NOT_A_PERSON = re.compile(r"\b(cash ?out|instant transfer|standard transfer|transfer to bank|add(ed)? money|refund)\b", re.I)
-_FROM = re.compile(r"\b(?:from|by)\s+([A-Za-z][A-Za-z'.-]*(?:\s+[A-Za-z][A-Za-z'.-]*){0,3})", re.I)
+_FROM = re.compile(r"\b(?:from|by|to)\s+([A-Za-z][A-Za-z'.-]*(?:\s+[A-Za-z][A-Za-z'.-]*){0,3})", re.I)
 
 def _day(s) -> date:
     d = s if isinstance(s, datetime) else datetime.fromisoformat(str(s).replace("Z", "+00:00"))

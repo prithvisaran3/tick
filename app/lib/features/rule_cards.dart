@@ -71,6 +71,48 @@ class _RuleSuggestionCardState extends ConsumerState<RuleSuggestionCard> {
   }
 }
 
+class LikelySplitwise {
+  const LikelySplitwise(this.txnId, this.label, this.cents);
+  final String txnId;
+  final String label;
+  final int cents;
+}
+
+final likelySplitwiseProvider = FutureProvider<List<LikelySplitwise>>((ref) async {
+  ref.watch(ledgerRevisionProvider);
+  if (ref.watch(settingsProvider.select((s) => s.demoMode)) || ref.watch(remoteProvider) == null) return const [];
+  try {
+    final j = await ref.read(apiProvider).get('/splitwise/likely');
+    return [for (final s in (j['suggestions'] as List? ?? const [])) LikelySplitwise(s['txn_id'] as String, s['label'] as String, (s['cents'] as num).toInt())];
+  } catch (_) {
+    return const [];
+  }
+});
+
+/// "Likely Splitwise". Yes teaches the category; No never asks about this row again.
+class LikelySplitwiseCard extends ConsumerWidget {
+  const LikelySplitwiseCard({super.key, required this.s});
+  final LikelySplitwise s;
+  Future<void> _answer(WidgetRef ref, bool yes) async {
+    TickHaptics.instance.confirm();
+    try {
+      await ref.read(apiProvider).post('/splitwise/answer', {'txn_id': s.txnId, 'yes': yes});
+      await ref.read(ledgerProvider.notifier).refresh();
+      ref.invalidate(likelySplitwiseProvider);
+    } catch (_) {/* it asks again next time */}
+  }
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Likely Splitwise: ${s.label}, ${formatCents(s.cents)}', style: context.ts(TickType.title, size: 15.5)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: PillButton('Yes', height: 44, onTap: () => _answer(ref, true))),
+          const SizedBox(width: 8),
+          Expanded(child: PillButton('No', height: 44, style: PillStyle.quiet, onTap: () => _answer(ref, false))),
+        ]),
+      ])));
+}
+
 /// After moving a person-to-person row to Rent by hand: make it a rule, or leave it a one-off.
 Future<void> showRuleOffer(BuildContext context, WidgetRef ref, Txn t, Category cat, String who) => showTickSheet<void>(context, builder: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
       Text('Always for ${who.split(' ').first} around ${formatDollars(-t.amountCents)}?', style: ctx.ts(TickType.title)),

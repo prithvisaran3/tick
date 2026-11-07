@@ -41,6 +41,16 @@ begin
   select count(*) into n from public.category_rules;                       if n <> 0 then fails := fails || 'B reads A rules; '; end if;
   begin insert into public.category_rules (user_id, person_key, ignored) values (a, 'x', true); fails := fails || 'B wrote A rule; '; exception when insufficient_privilege then null; end;
   reset role;
+  -- Splitwise: out of the totals like friends; a matched charge counts my share only
+  declare sw uuid; t1 uuid; t2 uuid; begin
+    select id into sw from public.categories where user_id = a and name = 'Splitwise';
+    if sw is null then fails := fails || 'no Splitwise category; '; end if;
+    insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, category_id) values (a, acct, -4500, '2026-10-03 15:00Z', 'Zelle payment to ASHA', sw) returning id into t1;
+    insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw, shared_cents) values (a, acct, -9000, '2026-10-03 15:00Z', 'Dishoom', 6000) returning id into t2;
+    if (select out_c from public.tick_classified(a, null, null) where id = t1) <> 0 then fails := fails || 'Splitwise counted; '; end if;
+    if (select friends_c from public.tick_classified(a, null, null) where id = t1) <> -4500 then fails := fails || 'Splitwise not in friends net; '; end if;
+    if (select out_c from public.tick_classified(a, null, null) where id = t2) <> 3000 then fails := fails || 'my share wrong; '; end if;
+  end;
   -- removing the rule puts rows back
   delete from public.category_rules where id = rule;
   perform public.tick_apply_category_rules(a);
