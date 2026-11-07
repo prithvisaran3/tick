@@ -66,6 +66,7 @@ class ExpenseSheet extends ConsumerStatefulWidget {
 class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
   late final TextEditingController _desc, _amount, _note;
   String? _category;
+  String? _repeat;     // weekly | monthly | yearly
   String? _receipt;
   bool _scanning = false;
   final Map<String, TextEditingController> _w = {};
@@ -143,7 +144,13 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         spentOn: widget.edit?.spentOn ?? widget.on ?? DateTime.now(), splitType: _type, note: _note.text.trim().isEmpty ? null : _note.text.trim(), category: _category, receiptPath: _receipt, createdBy: widget.edit?.createdBy,
         weights: _type == SplitType.percent || _type == SplitType.shares ? {for (final p in shares.keys) p: num.tryParse(_ctl(p).text) ?? 0} : const {}, transactionId: widget.edit?.transactionId ?? widget.transactionId));
     if (!mounted) return;
-    if (ok) { TickHaptics.instance.confirm(); Navigator.of(context).pop(); } else { setState(() => _busy = false); }
+    if (ok) {
+      if (_repeat != null) {
+        await ref.read(tallyProvider.notifier).addBill(TallyExpense(id: '', groupId: widget.group.id, description: _desc.text.trim(), amountCents: _total, paidBy: _paidBy, shares: shares, spentOn: widget.on ?? DateTime.now(), splitType: _type, category: _category), _repeat!).catchError((_) {});
+        if (!mounted) return;
+      }
+      TickHaptics.instance.confirm(); Navigator.of(context).pop();
+    } else { setState(() => _busy = false); }
   }
 
   @override
@@ -175,6 +182,12 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
           for (final k in const ['Groceries', 'Restaurants', 'Rent', 'Utilities', 'Travel', 'Fun']) TickChip(k, on: _category == k, onTap: () => setState(() => _category = _category == k ? null : k)),
           TickChip(_scanning ? 'Adding photo…' : _receipt != null ? 'Receipt added' : 'Add receipt', icon: 'receipt', on: _receipt != null, onTap: _scanning ? null : _addReceipt),
         ]),
+        if (widget.edit == null) ...[
+          const SizedBox(height: 8),
+          Text('Repeat', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          const SizedBox(height: 4),
+          Wrap(spacing: 8, children: [for (final k in const ['weekly', 'monthly', 'yearly']) TickChip('${k[0].toUpperCase()}${k.substring(1)}', on: _repeat == k, onTap: () => setState(() => _repeat = _repeat == k ? null : k))]),
+        ],
         const SizedBox(height: 16),
         PillButton(shares == null || _desc.text.trim().isEmpty ? 'Split it' : 'Split ${formatCents(_total)}', busy: _busy, onTap: shares == null || _desc.text.trim().isEmpty ? null : _save),
         if (widget.edit != null) ...[

@@ -53,8 +53,9 @@ def _even_split(total: int, part: int) -> bool:
     n = round(total / part)
     return n >= 2 and abs(total - part * n) <= n          # "half of dinner", give or take the rounding cents
 
-def suggest(rows: list[dict], types: dict[str, str], dismissed: set[str]) -> list[dict]:
-    """One entry per credit worth asking about, newest first, each with up to MAX_CANDIDATES purchases, the likeliest first."""
+def suggest(rows: list[dict], types: dict[str, str], dismissed: set[str], split: set[str] = frozenset()) -> list[dict]:
+    """One entry per credit worth asking about, newest first, each with up to MAX_CANDIDATES purchases, the likeliest first. A purchase already
+    split in Tally ([split]) comes first: that is the payback Tick is expecting."""
     purchases = [r for r in rows if is_purchase(r, types)]
     out = []
     for c in sorted((r for r in rows if is_person_credit(r, types) and r["id"] not in dismissed), key=lambda r: str(r["occurred_at"]), reverse=True):
@@ -63,13 +64,13 @@ def suggest(rows: list[dict], types: dict[str, str], dismissed: set[str]) -> lis
             gap = (day - _day(p["occurred_at"])).days
             left = -p["amount_cents"] - int(p.get("reimbursed_cents") or 0)
             if 0 <= gap <= WINDOW_DAYS and c["amount_cents"] <= left:
-                found.append((not _even_split(left, c["amount_cents"]), gap, p["id"], p, left))
+                found.append((p["id"] not in split, not _even_split(left, c["amount_cents"]), gap, p["id"], p, left))
         if not found:
             continue
-        found.sort(key=lambda x: x[:3])
+        found.sort(key=lambda x: x[:4])
         out.append({"payback_id": c["id"], "amount_cents": c["amount_cents"], "from": payer_name(_text(c)), "date": day.isoformat(),
                     "candidates": [{"purchase_id": p["id"], "merchant": p.get("merchant_clean") or clean_merchant(_text(p)), "amount_cents": -p["amount_cents"], "left_cents": left,
-                                    "date": _day(p["occurred_at"]).isoformat()} for _, _, _, p, left in found[:MAX_CANDIDATES]]})
+                                    "date": _day(p["occurred_at"]).isoformat()} for *_, p, left in found[:MAX_CANDIDATES]]})
     return out
 
 def _recent(user_id: str, days: int) -> tuple[list[dict], dict[str, str]]:
@@ -99,7 +100,44 @@ def auto_link(user_id: str) -> int:
             used.add(hits[0]["id"])
             rest().update("tally_settlements", {"id": s["id"]}, {"transaction_id": hits[0]["id"]})
             n += 1
+            _net_the_purchase(user_id, s, hits[0])
     return n
+
+def _split_expense(group_id: str | None, purchase_id: str | None, member: str, cents: int) -> dict | None:
+    """The expense in Tally that was split from this purchase, if [member]'s share of it is exactly [cents]."""
+    where = {"transaction_id": f"eq.{purchase_id}"} if purchase_id else {"group_id": f"eq.{group_id}", "transaction_id": "not.is.null"}
+    for e in rest().select("tally_expenses", deleted_at="is.null", select="id,group_id,transaction_id", **where):
+        if rest().select("tally_shares", expense_id=f"eq.{e['id']}", member_id=f"eq.{member}", owed_cents=f"eq.{cents}", select="member_id"):
+            return e
+    return None
+
+def _net_the_purchase(user_id: str, s: dict, credit: dict) -> None:
+    """A settlement that matched exactly, for a share of a split card charge: the purchase now counts net of it. Part of the same exact match."""
+    e = _split_expense(s["group_id"], None, s["from_member"], s["amount_cents"])
+    if e and rest().select("transactions", id=f"eq.{e['transaction_id']}", user_id=f"eq.{user_id}", select="id"):
+        try:
+            rest().rpc("tick_payback_link", {"p_uid": user_id, "p_purchase": e["transaction_id"], "p_payback": credit["id"], "p_source": "settlement"})
+        except httpx.HTTPStatusError:
+            pass                                     # already linked, or more than is left: the settlement still stands
+
+def settle_split(user_id: str, purchase_id: str, payback_id: str) -> bool:
+    """After I accept a payback for a purchase I split in Tally: if it is exactly one friend's share, their balance is settled by the same tap."""
+    credit = rest().select("transactions", id=f"eq.{payback_id}", user_id=f"eq.{user_id}", select="id,amount_cents,merchant_raw,merchant_clean")
+    expenses = rest().select("tally_expenses", transaction_id=f"eq.{purchase_id}", deleted_at="is.null", select="id,group_id")
+    if not credit or not expenses:
+        return False
+    text = _text(credit[0]).lower()
+    for e in expenses:
+        mine = rest().select("tally_members", group_id=f"eq.{e['group_id']}", member_user_id=f"eq.{user_id}", status="eq.active", select="id")
+        if not mine:
+            continue
+        for m in rest().select("tally_members", group_id=f"eq.{e['group_id']}", status="eq.active", select="id,name"):
+            first = (m.get("name") or "").split(" ")[0].lower()
+            if m["id"] != mine[0]["id"] and first and first in text and _split_expense(None, purchase_id, m["id"], credit[0]["amount_cents"]):
+                rest().insert("tally_settlements", {"group_id": e["group_id"], "from_member": m["id"], "to_member": mine[0]["id"], "amount_cents": credit[0]["amount_cents"], "method": "other",
+                                                    "status": "confirmed", "transaction_id": payback_id, "created_by": user_id, "settled_on": datetime.now(ET).date().isoformat(), "deleted_at": None}, returning=False)
+                return True
+    return False
 
 def landed(user_id: str, rows: list[dict], types: dict[str, str], dismissed: set[str]) -> list[dict]:
     """Someone said "I paid" and a credit of exactly that amount from them has now landed: ask whether to mark it received."""
@@ -147,13 +185,16 @@ def suggestions(user_id: str = Depends(current_user)):
     linked = {x["payback_id"] for x in rest().select("txn_paybacks", user_id=f"eq.{user_id}", select="payback_id")}
     dismissed = {x["payback_id"] for x in rest().select("txn_payback_dismissals", user_id=f"eq.{user_id}", select="payback_id")}
     live = [r for r in rows if r["id"] not in linked]
-    return {"suggestions": suggest(live, types, dismissed), "settlements": landed(user_id, live, types, dismissed)}
+    ids = [r["id"] for r in live if r["amount_cents"] < 0]
+    split = {e["transaction_id"] for e in rest().select("tally_expenses", transaction_id=f"in.({','.join(ids)})", deleted_at="is.null", select="transaction_id")} if ids else set()
+    return {"suggestions": suggest(live, types, dismissed, split), "settlements": landed(user_id, live, types, dismissed)}
 
 @router.post("/paybacks/link")
 def link(body: LinkBody, user_id: str = Depends(current_user)):
     user_limiter.check(f"paybacks-w:{user_id}", 30, 60)
     try:
-        return rest().rpc("tick_payback_link", {"p_uid": user_id, "p_purchase": _uuid(body.purchase_id), "p_payback": _uuid(body.payback_id), "p_source": "user"})
+        out = rest().rpc("tick_payback_link", {"p_uid": user_id, "p_purchase": _uuid(body.purchase_id), "p_payback": _uuid(body.payback_id), "p_source": "user"})
+        return {**out, "settled": settle_split(user_id, body.purchase_id, body.payback_id)}
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404 or "not found" in e.response.text:
             raise HTTPException(404, "not found")

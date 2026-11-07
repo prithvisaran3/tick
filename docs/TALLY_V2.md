@@ -94,3 +94,37 @@ Decisions
 
 Follow-up
 - **APNs.** No push notifications: the free Apple Personal Team can't send them. Reminders and invites wait in the inbox until the app is opened.
+
+## Phase 4: better than Splitwise
+All five built. The brief was cut off mid-sentence at item 5 ("who usually pays, the group's monthly spend, and"), so item 5 has those two
+insights only, and anything after that line in the brief wasn't seen.
+
+1. Split from the card charge. "Split this" on a purchase prefills the expense and keeps the link. The friend's payback then ranks that purchase
+   first. **Decision:** the brief says Tick "pairs it automatically", but phase 1 says never auto-link without acceptance unless a settlement
+   already matches. Phase 1's rule won, because money rules shouldn't move on a guess. So it is one tap: accepting the payback nets the purchase
+   and, when it is exactly that friend's share, settles them too (`settle_split`). If a settlement already exists and matches exactly, it does
+   happen on its own (`auto_link`, `_net_the_purchase`).
+2. Recurring shared bills. Choose Repeat on a new expense. `tally_recurring`, `tally_post_recurring`, and a daily job (`/jobs/tally-recurring`, in
+   `api/app/tally_bills.py`). A charge on the payer's bank that names the bill, is within 5% and within 5 days posts it early and links it.
+   Otherwise it posts on its date. A retry of the same date does nothing. A bill stops itself if its payer or a sharer has left. The expense keeps
+   the bill's amount even when the charge differs by a little. A charge that arrives after the bill already posted isn't linked back.
+3. Receipt itemised split. "Split a receipt" in a group: `/tally/receipts/items` reads lines with the existing OpenRouter vision models, tap items
+   onto people, tax and tip shared in proportion, exact to the cent. Any failure opens the ordinary split. I am always the payer here, and the
+   photo isn't stored. Extraction wasn't tried against a real model or receipt.
+4. Smart settle plan. "Settle everything" on Tally: each group simplified, then netted per person across groups. The same person is matched by
+   Tick account, then address book entry, then name. Only my own payments show. "Mark as paid" records each group's settlement with method Other.
+5. Group insights: who usually pays, and six months of spend, on the group screen.
+
+## Not verified
+- Nothing ran on a device or simulator, and `flutter build ios` wasn't run. New screens are checked by widget tests at 320pt; one found a real
+  overflow in group settings, now fixed.
+- The golden suite already fails on this Mac, so visual changes to Insights, Activity and Tally aren't covered by it.
+- The migrations have only run on local Postgres 16, not on Supabase.
+- The Venmo link, Messages prefill, camera and share sheet need a phone to try.
+- The Splitwise format is assumed (see phase 1).
+
+## Before deploying, in order
+1. Push the migrations. `20261110000001` stops if the role lacks BYPASSRLS.
+2. Release the API in the same window: the old API and old app both read columns phase 2 renamed, so Tally breaks until both are out.
+3. Build the app. `url_launcher` means a new pod.
+4. `20261112000001` schedules `tick-tally-recurring` through `tick_call_api`, the same way as the other jobs.

@@ -38,6 +38,7 @@ class TallyScreen extends ConsumerWidget {
           for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t)),
         ],
         if (t.offline) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Couldn\'t reach Tick. Showing what is saved on this phone.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+        if (t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1)) ...[const SizedBox(height: 8), PillButton('Settle everything', icon: 'check', style: PillStyle.quiet, onTap: () => context.push('/tally/plan'))],
         const SizedBox(height: 16),
         PillButton('New tally', icon: 'plus', style: t.groups.isEmpty ? PillStyle.primary : PillStyle.quiet, onTap: () => showNewGroupSheet(context)),
       ],

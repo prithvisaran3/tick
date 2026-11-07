@@ -25,6 +25,8 @@ def _cmp(a, b):
 def _match_one(row: dict, key: str, cond: str) -> bool:
     op, _, val = cond.partition(".")
     v = row.get(key)
+    if op == "not":
+        return not _match_one(row, key, val)
     if op == "eq":
         return str(v) == val if v is not None else False
     if op == "neq":

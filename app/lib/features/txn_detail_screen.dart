@@ -53,7 +53,7 @@ class TxnDetailScreen extends ConsumerWidget {
         PaybackDetail(t: t),
         if (t.amountCents < 0 && !t.isTransfer) ...[
           const SizedBox(height: 8),
-          PillButton('Split with friends', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')),
+          PillButton('Split this', style: PillStyle.quiet, icon: 'tally', onTap: () => context.push('/tally/split/${t.id}')),
         ],
         if (t.needsReview) ...[
           const SizedBox(height: 8),

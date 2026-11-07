@@ -17,6 +17,7 @@ import '../services/api.dart';
 import 'common.dart';
 import 'tally_expense_sheet.dart';
 import 'tally_manage.dart';
+import 'tally_more.dart';
 import 'tally_square.dart';
 
 class TallyGroupScreen extends ConsumerWidget {
@@ -46,6 +47,8 @@ class TallyGroupScreen extends ConsumerWidget {
         ])),
         const SizedBox(height: 12),
         PillButton('Add expense', icon: 'plus', onTap: () => showExpenseSheet(context, group: g)),
+        const SizedBox(height: 8),
+        PillButton('Split a receipt', icon: 'receipt', style: PillStyle.quiet, onTap: () => context.push('/tally/$id/receipt')),
         if (pending.isNotEmpty) ...[
           const SizedBox(height: 20), const SectionLabel('To confirm'),
           for (final s in pending) _Pending(s: s, g: g),
@@ -61,6 +64,8 @@ class TallyGroupScreen extends ConsumerWidget {
         const SizedBox(height: 20),
         if (expenses.isNotEmpty) const SectionLabel('Expenses'),
         for (final e in expenses) _ExpenseRow(e: e, g: g),
+        if (t.billsOf(id).isNotEmpty) ...[const SizedBox(height: 20), const SectionLabel('Repeats'), for (final b in t.billsOf(id)) BillRow(b: b, g: g)],
+        if (expenses.length >= 2) GroupInsightsCard(expenses: expenses, t: t),
         const SizedBox(height: 12),
         PillButton('Group activity', icon: 'tally', style: PillStyle.quiet, onTap: () => context.push('/tally/$id/activity')),
         const SizedBox(height: 20),

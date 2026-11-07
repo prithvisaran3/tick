@@ -13,14 +13,16 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import ai
 from .audit import audit
 from .auth import RateLimiter, current_user, hash_token, user_limiter
 from .config import settings
 from .db import rest
+from .receipts import sniff_image
 from .security import client_ip
 
 router = APIRouter()
@@ -113,6 +115,38 @@ def receipt_link(expense_id: str, user_id: str = Depends(current_user)):
     if r.status_code >= 300:
         raise HTTPException(502, "Couldn't open that receipt. Try again.")
     return {"url": f"{s.supabase_url.rstrip('/')}/storage/v1{r.json()['signedURL']}"}
+
+def clean_items(raw) -> dict | None:
+    """Model output -> integer cents, or None if nothing usable came back. Never trusted further than this."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("items"), list):
+        return None
+    def cents(v) -> int:
+        try:
+            c = round(float(v) * 100)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+        return c if 0 < c < 100_000_000 else 0
+    items = [{"name": str(i.get("name") or "Item")[:80], "cents": cents(i.get("price"))} for i in raw["items"][:60] if isinstance(i, dict)]
+    items = [i for i in items if i["cents"] > 0]
+    if not items:
+        return None
+    return {"merchant": str(raw.get("merchant") or "")[:80] or None, "items": items, "tax_cents": cents(raw.get("tax")), "tip_cents": cents(raw.get("tip"))}
+
+@router.post("/tally/receipts/items")
+def receipt_items(file: UploadFile = File(...), user_id: str = Depends(current_user)):
+    """A photo in, line items out. {"items": []} on any failure: the app then opens the ordinary split. The photo isn't stored here."""
+    user_limiter.check(f"scan:{user_id}", 10, 60)
+    data = file.file.read(8_000_001)
+    if len(data) > 8_000_000:
+        raise HTTPException(413, "Photo too large")
+    mime = sniff_image(data)
+    if mime is None:
+        raise HTTPException(415, "That isn't a photo Tick can read.")
+    try:
+        got = clean_items(ai.receipt_items(user_id, data, mime))
+    except Exception:
+        got = None
+    return got or {"items": []}
 
 # ---------------- public page ----------------
 def _link(token: str) -> dict | None:

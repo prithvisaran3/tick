@@ -98,6 +98,14 @@ begin
   insert into public.tally_settlements (group_id, from_member, to_member, amount_cents, created_by) values (g, mo, mm, 100, m2) returning id into st;
   begin insert into public.tally_settlements (group_id, from_member, to_member, amount_cents, created_by) values (g, mo, mm, 100, o); fails := fails || 'created_by spoofed; '; exception when insufficient_privilege then null; end;
 
+  -- editing a payment: its creator or the owner, nobody else
+  perform public.tally_edit_settlement(st, 150, 'venmo');
+  if (select amount_cents from public.tally_settlements where id = st) <> 150 then fails := fails || 'settlement edit; '; end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
+  begin perform public.tally_edit_settlement(st, 1, 'cash'); fails := fails || 'non-creator edited a settlement; '; exception when insufficient_privilege then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', m2, 'role', 'authenticated')::text, true);
+  perform public.tally_edit_settlement(st, 100, 'venmo');
+
   -- creator can edit and delete their own
   perform set_config('request.jwt.claims', json_build_object('sub', m, 'role', 'authenticated')::text, true);
   update public.tally_settlements set deleted_at = now() where id = st; get diagnostics n = row_count;  if n <> 0 then fails := fails || 'non-creator deleted a settlement; '; end if;
@@ -176,6 +184,30 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', m2, 'role', 'authenticated')::text, true);
   begin perform public.tally_remind(st); fails := fails || 'non-member reminded; '; exception when no_data_found then null; end;
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+
+  -- recurring bills: members add, the server posts once per date, nobody else stops them, a bill with a departed member stops itself
+  declare rid uuid; ex uuid; begin
+    rid := public.tally_save_recurring(jsonb_build_object('group_id', g, 'description', 'Wifi', 'amount_cents', 6000, 'cadence', 'monthly', 'next_on', '2026-11-30', 'shares',
+           jsonb_build_array(jsonb_build_object('member_id', null, 'owed_cents', 3000), jsonb_build_object('member_id', mm, 'owed_cents', 3000))));
+    begin perform public.tally_post_recurring(rid); fails := fails || 'app posted a bill; '; exception when insufficient_privilege then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', m2, 'role', 'authenticated')::text, true);
+    select count(*) into n from public.tally_recurring;                        if n <> 0 then fails := fails || 'non-member reads bills; '; end if;
+    begin perform public.tally_stop_recurring(rid); fails := fails || 'non-member stopped a bill; '; exception when no_data_found then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+    reset role;
+    ex := public.tally_post_recurring(rid);
+    if ex is null then fails := fails || 'bill did not post; '; end if;
+    if (select next_on from public.tally_recurring where id = rid) <> '2026-12-30' then fails := fails || 'next date; '; end if;
+    select count(*) into n from public.tally_shares where expense_id = ex;     if n <> 2 then fails := fails || 'bill shares; '; end if;
+    update public.tally_recurring set next_on = '2026-11-30' where id = rid;
+    if public.tally_post_recurring(rid) is not null then fails := fails || 'same date posted twice; '; end if;
+    update public.tally_expenses set deleted_at = now() where id = ex;          -- keep the balances the checks below expect
+    update public.tally_members set status = 'left' where id = mm;
+    if public.tally_post_recurring(rid) is not null then fails := fails || 'bill posted to a departed member; '; end if;
+    if (select active from public.tally_recurring where id = rid) then fails := fails || 'bill kept running after a member left; '; end if;
+    update public.tally_members set status = 'active' where id = mm;
+    set local role authenticated;
+  end;
 
   -- the history says who did what, with old and new amounts
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);

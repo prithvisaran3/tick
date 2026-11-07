@@ -97,4 +97,58 @@ void main() {
     expect(l.map((x) => x.deltaCents), [2000, -1500, -300]);
     expect(l.last.runningCents, 200);
   });
+
+  test('itemised split: every cent lands, shared items split, tax and tip follow what you had', () {
+    final items = [ReceiptItem('Naan', 1000, {me}), ReceiptItem('Curry', 3001, {me, 'k'}), ReceiptItem('Beer', 1999, {'k'})];
+    final s = itemisedSplit(items, 750)!;
+    expect(s[me]! + s['k']!, 6750);
+    expect(s['k']! - 3500, closeTo(750 * 3500 / 6000, 1));     // the bigger order carries the bigger part of tax and tip
+    expect(itemisedSplit([ReceiptItem('Naan', 1000)], 0), isNull);
+    expect(itemisedSplit(const [], 0), isNull);
+    expect(itemisedSplit([ReceiptItem('Naan', 1000, {'k'})], 0), {'k': 1000});
+  });
+
+  test('settle plan nets one person across groups into one payment', () {
+    const g1 = TallyGroup(id: 'a', name: 'A', memberIds: ['k1']), g2 = TallyGroup(id: 'b', name: 'B', memberIds: ['k2', 'j']);
+    final d = DateTime(2026, 11, 1);
+    final es = [
+      TallyExpense(id: '1', groupId: 'a', description: 'x', amountCents: 2000, paidBy: me, shares: {me: 1000, 'k1': 1000}, spentOn: d),
+      TallyExpense(id: '2', groupId: 'b', description: 'y', amountCents: 600, paidBy: 'k2', shares: {me: 300, 'k2': 300}, spentOn: d),
+      TallyExpense(id: '3', groupId: 'b', description: 'z', amountCents: 400, paidBy: 'j', shares: {me: 200, 'j': 200}, spentOn: d),
+    ];
+    final plan = settlePlan([g1, g2], es, const [], identity: (m) => m.startsWith('k') ? 'kaarthik' : m, name: (m) => m);
+    expect(plan.length, 2);
+    final k = plan.firstWhere((p) => p.key == 'kaarthik');
+    expect((k.netCents, k.legs.length), (700, 2));
+    expect(plan.firstWhere((p) => p.key == 'j').netCents, -200);
+  });
+
+  test('settle plan ignores what two friends owe each other', () {
+    const g = TallyGroup(id: 'a', name: 'A', memberIds: ['k', 'j']);
+    final es = [TallyExpense(id: '1', groupId: 'a', description: 'x', amountCents: 1000, paidBy: 'k', shares: {'k': 500, 'j': 500}, spentOn: DateTime(2026, 11, 1))];
+    expect(settlePlan([g], es, const [], identity: (m) => m, name: (m) => m), isEmpty);
+  });
+
+  test('group insights: who usually pays, and spend by month with empty months kept', () {
+    final now = DateTime(2026, 11, 6);
+    final es = [
+      TallyExpense(id: '1', groupId: 'g', description: 'x', amountCents: 7000, paidBy: 'k', shares: {'k': 7000}, spentOn: DateTime(2026, 11, 1)),
+      TallyExpense(id: '2', groupId: 'g', description: 'y', amountCents: 3000, paidBy: me, shares: {me: 3000}, spentOn: DateTime(2026, 9, 30)),
+      TallyExpense(id: '3', groupId: 'g', description: 'z', amountCents: 500, paidBy: me, shares: {me: 500}, spentOn: DateTime(2025, 1, 1)),
+    ];
+    final i = groupInsights(es, now);
+    expect(i.paidBy.first, ('k', 7000));
+    expect(i.totalCents, 10500);
+    expect(i.monthly.length, 6);
+    expect(i.monthly.last, (DateTime(2026, 11), 7000));
+    expect(i.monthly[2], (DateTime(2026, 8), 0));
+    expect(i.monthly[3], (DateTime(2026, 9), 3000));
+  });
+
+  test('bill dates move by cadence', () {
+    final d = DateTime(2026, 1, 15);
+    expect(nextBillDate(d, 'weekly'), DateTime(2026, 1, 22));
+    expect(nextBillDate(d, 'monthly'), DateTime(2026, 2, 15));
+    expect(nextBillDate(d, 'yearly'), DateTime(2027, 1, 15));
+  });
 }

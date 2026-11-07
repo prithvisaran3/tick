@@ -20,6 +20,7 @@ import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
 import 'features/tally_manage.dart';
+import 'features/tally_more.dart';
 import 'features/tally_people.dart';
 import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
@@ -93,6 +94,8 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/card/:id', pageBuilder: (c, s) => _page(s, CardScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/receipt', pageBuilder: (c, s) => _page(s, const ReceiptScreen())),
         GoRoute(path: '/tally/split/:txnId', pageBuilder: (c, s) => _page(s, TallySplitScreen(txnId: s.pathParameters['txnId']!))),
+        GoRoute(path: '/tally/plan', pageBuilder: (c, s) => _page(s, const TallyPlanScreen())),
+        GoRoute(path: '/tally/:id/receipt', pageBuilder: (c, s) => _page(s, TallyReceiptScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/tally/inbox', pageBuilder: (c, s) => _page(s, const TallyInboxScreen())),
         GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/tally/:id/settings', pageBuilder: (c, s) => _page(s, TallyGroupSettingsScreen(id: s.pathParameters['id']!))),

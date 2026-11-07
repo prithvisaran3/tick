@@ -234,3 +234,91 @@ List<LedgerLine> personLedger(String person, Iterable<TallyExpense> expenses, It
   var run = 0;
   return [for (final r in rows) LedgerLine(r.$1, r.$2, r.$3, run += r.$3)];
 }
+
+/// One line on a receipt. [people]: who had it; empty means it isn't assigned yet.
+class ReceiptItem {
+  const ReceiptItem(this.name, this.cents, [this.people = const {}]);
+  final String name;
+  final int cents;
+  final Set<String> people;
+  ReceiptItem withPeople(Set<String> p) => ReceiptItem(name, cents, p);
+}
+
+/// Each person's cents: their items (shared items split equally), plus tax and tip in proportion to what they had. Always adds up to the receipt exactly.
+/// Null until every item has someone on it.
+Map<String, int>? itemisedSplit(List<ReceiptItem> items, int extraCents) {
+  if (items.isEmpty || items.any((i) => i.people.isEmpty)) return null;
+  final sub = <String, int>{};
+  for (final i in items) {
+    splitEqual(i.cents, i.people.toList()..sort()).forEach((p, c) => sub[p] = (sub[p] ?? 0) + c);
+  }
+  final extra = extraCents <= 0 ? const <String, int>{} : splitWeighted(extraCents, sub)!;
+  return {for (final e in sub.entries) e.key: e.value + (extra[e.key] ?? 0)};
+}
+
+/// One person across every group: how much moves between us, and which group balances it clears. A debt in one group and credit in another become one payment.
+class PlanItem {
+  const PlanItem(this.key, this.name, this.netCents, this.legs);
+  final String key;
+  final String name;
+  final int netCents; // positive = they pay me
+  final List<(String, Transfer)> legs;
+}
+
+/// The fewest payments that clear my balances: each group simplified, then netted per person. [identity] says which members are the same human.
+List<PlanItem> settlePlan(Iterable<TallyGroup> groups, Iterable<TallyExpense> expenses, Iterable<TallySettlement> settlements, {required String Function(String member) identity, required String Function(String member) name}) {
+  final net = <String, int>{}, names = <String, String>{};
+  final legs = <String, List<(String, Transfer)>>{};
+  for (final g in groups) {
+    for (final t in simplify(balances(expenses.where((e) => e.groupId == g.id), settlements.where((s) => s.groupId == g.id)))) {
+      if (t.from != me && t.to != me) continue;
+      final other = t.from == me ? t.to : t.from;
+      final k = identity(other);
+      net[k] = (net[k] ?? 0) + (t.to == me ? t.cents : -t.cents);
+      names[k] = name(other);
+      (legs[k] ??= []).add((g.id, t));
+    }
+  }
+  final out = [for (final e in net.entries) PlanItem(e.key, names[e.key]!, e.value, legs[e.key]!)]
+    ..sort((a, b) { final d = b.netCents.abs().compareTo(a.netCents.abs()); return d != 0 ? d : a.key.compareTo(b.key); });
+  return out;
+}
+
+/// What a group's history says: who usually pays, and spend per month (oldest first, up to [months], including this one).
+class GroupInsights {
+  const GroupInsights(this.paidBy, this.monthly, this.totalCents);
+  final List<(String, int)> paidBy; // biggest first
+  final List<(DateTime, int)> monthly;
+  final int totalCents;
+}
+
+GroupInsights groupInsights(Iterable<TallyExpense> expenses, DateTime now, {int months = 6}) {
+  final by = <String, int>{};
+  final month = {for (var i = months - 1; i >= 0; i--) DateTime(now.year, now.month - i): 0};
+  var total = 0;
+  for (final e in expenses) {
+    by[e.paidBy] = (by[e.paidBy] ?? 0) + e.amountCents;
+    total += e.amountCents;
+    final m = DateTime(e.spentOn.year, e.spentOn.month);
+    if (month.containsKey(m)) month[m] = month[m]! + e.amountCents;
+  }
+  final paid = [for (final e in by.entries) (e.key, e.value)]..sort((a, b) { final d = b.$2.compareTo(a.$2); return d != 0 ? d : a.$1.compareTo(b.$1); });
+  return GroupInsights(paid, [for (final e in month.entries) (e.key, e.value)], total);
+}
+
+class TallyBill {
+  const TallyBill({required this.id, required this.groupId, required this.description, required this.amountCents, required this.cadence, required this.nextOn, this.createdBy});
+  final String id;
+  final String groupId;
+  final String description;
+  final int amountCents;
+  final String cadence; // weekly | monthly | yearly
+  final DateTime nextOn;
+  final String? createdBy;
+}
+
+DateTime nextBillDate(DateTime from, String cadence) => switch (cadence) {
+      'weekly' => DateTime(from.year, from.month, from.day + 7),
+      'yearly' => DateTime(from.year + 1, from.month, from.day),
+      _ => DateTime(from.year, from.month + 1, from.day),
+    };

@@ -299,9 +299,11 @@ class _GroupSettingsState extends ConsumerState<TallyGroupSettingsScreen> {
               Text(t.person(m)?.name ?? t.nameOf(m), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body)),
               if (t.person(m)?.isGuest ?? false) Text('Guest', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
             ])),
-            if (t.person(m)?.isGuest ?? false) PillButton('Invite', expand: false, height: 40, style: PillStyle.quiet, onTap: () => _run(() => _inviteByMessage(t.nameOf(m)), action: 'make a link')),
-            if (g.isOwner) ...[const SizedBox(width: 6), PillButton('Remove', expand: false, height: 40, style: PillStyle.quiet, onTap: () => _run(() => n.removeMember(g.id, m), action: 'remove them'))],
           ])),
+          if ((t.person(m)?.isGuest ?? false) || g.isOwner) Padding(padding: const EdgeInsets.only(bottom: 8), child: Align(alignment: Alignment.centerRight, child: Wrap(spacing: 6, runSpacing: 6, children: [
+            if (t.person(m)?.isGuest ?? false) PillButton('Invite by message', expand: false, height: 40, style: PillStyle.quiet, onTap: () => _run(() => _inviteByMessage(t.nameOf(m)), action: 'make a link')),
+            if (g.isOwner) PillButton('Remove', expand: false, height: 40, style: PillStyle.quiet, onTap: () => _run(() => n.removeMember(g.id, m), action: 'remove them')),
+          ]))),
         ],
       ])),
       const SectionLabel('Add someone'),

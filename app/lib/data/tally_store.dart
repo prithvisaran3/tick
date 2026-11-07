@@ -40,7 +40,7 @@ class TallyActivity {
 }
 
 class TallyState {
-  const TallyState({this.reminders = const [], this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
+  const TallyState({this.reminders = const [], this.bills = const [], this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
       this.myMember = const {}, this.myUserId, this.loading = false, this.offline = false});
   /// Everyone with a name in my groups, by member id, plus (locally) my friends.
   final List<TallyPerson> people;
@@ -51,15 +51,16 @@ class TallyState {
   final List<TallySettlement> settlements;
   final List<TallyInvite> invites;
   final List<TallyReminder> reminders;
+  final List<TallyBill> bills;
   /// group id -> my member id in it (live only).
   final Map<String, String> myMember;
   final String? myUserId;
   final bool loading;
   final bool offline;
 
-  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, bool? loading, bool? offline}) =>
+  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, List<TallyBill>? bills, bool? loading, bool? offline}) =>
       TallyState(people: people ?? this.people, contacts: contacts ?? this.contacts, groups: groups ?? this.groups, expenses: expenses ?? this.expenses, settlements: settlements ?? this.settlements,
-          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline);
+          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, bills: bills ?? this.bills, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline);
 
   List<TallyReminder> get inbox => [for (final r in reminders) if (r.toMe) r];
   int get inboxBadge => invites.length + inbox.where((r) => !r.read).length;
@@ -68,6 +69,11 @@ class TallyState {
     for (final r in reminders) { if (r.groupId == gid && r.toMember == member && (best == null || r.at.isAfter(best))) best = r.at; }
     return best;
   }
+
+  List<TallyBill> billsOf(String gid) => [for (final b in bills) if (b.groupId == gid) b];
+  /// The same human in several groups: a Tick account, else my address book entry, else the name.
+  String identityOf(String member) { final p = person(member); return p?.userId ?? p?.personId ?? (p?.name ?? member).toLowerCase(); }
+  List<PlanItem> get plan => settlePlan(groups, expenses, settlements, identity: identityOf, name: nameOf);
 
   /// An expense or settlement can be changed by whoever added it, or the group's owner.
   bool canEdit(TallyGroup g, String? createdBy) => g.isOwner || createdBy == null || createdBy == myUserId;
@@ -118,6 +124,7 @@ class TallyNotifier extends Notifier<TallyState> {
         db.from('tally_settlements').select().filter('deleted_at', 'is', null),
         db.from('tally_invites').select().eq('status', 'pending').eq('invitee', uid ?? ''),
         db.from('tally_reminders').select().order('created_at', ascending: false).limit(200),
+        db.from('tally_recurring').select().eq('active', true),
       ]);
       final mine = <String, String>{};           // group -> my member id
       final members = <String, List<String>>{};
@@ -156,6 +163,8 @@ class TallyNotifier extends Notifier<TallyState> {
         invites: [for (final j in res[6]) TallyInvite(id: j['id'] as String, groupId: j['group_id'] as String, groupName: j['group_name'] as String, inviterName: j['inviter_name'] as String, at: DateTime.parse(j['created_at'] as String))],
         reminders: [for (final j in res[7]) TallyReminder(id: j['id'] as String, groupId: j['group_id'] as String, toMember: j['to_member'] as String, fromName: j['from_name'] as String, groupName: j['group_name'] as String,
             amountCents: (j['amount_cents'] as num).toInt(), tone: j['tone'] as String, at: DateTime.parse(j['created_at'] as String).toLocal(), toMe: j['to_user'] == uid, read: j['read_at'] != null)],
+        bills: [for (final j in res[8]) TallyBill(id: j['id'] as String, groupId: j['group_id'] as String, description: j['description'] as String, amountCents: (j['amount_cents'] as num).toInt(), cadence: j['cadence'] as String,
+            nextOn: DateTime.parse(j['next_on'] as String), createdBy: _id(j['created_by']))],
       );
     } catch (_) {
       state = state.copyWith(loading: false, offline: true);
@@ -350,6 +359,39 @@ class TallyNotifier extends Notifier<TallyState> {
     if (net != 0) throw TallyBlocked(net);
     if (_remote == null) { state = state.copyWith(groups: [for (final g in state.groups) if (g.id != groupId) g]); return; }
     await _rpc('tally_leave_group', {'p_group': groupId});
+  }
+
+  /// Repeats [e] on a schedule, from the next date after it.
+  Future<void> addBill(TallyExpense e, String cadence) async {
+    final next = nextBillDate(e.spentOn, cadence);
+    final r = _remote;
+    if (r == null) {
+      state = state.copyWith(bills: [...state.bills, TallyBill(id: _local(), groupId: e.groupId, description: e.description, amountCents: e.amountCents, cadence: cadence, nextOn: next)]);
+      return;
+    }
+    await _rpc('tally_save_recurring', {'p': {'group_id': e.groupId, 'description': e.description, 'amount_cents': e.amountCents, 'paid_by': e.paidBy == me ? null : e.paidBy, 'split_type': e.splitType.name,
+      'category': e.category, 'cadence': cadence, 'next_on': next.toIso8601String().substring(0, 10), 'match_text': e.description,
+      'shares': [for (final s in e.shares.entries) {'member_id': s.key == me ? null : s.key, 'owed_cents': s.value}]}});
+  }
+  Future<void> stopBill(String id) async {
+    if (_remote != null) { await _rpc('tally_stop_recurring', {'p_id': id}); return; }
+    state = state.copyWith(bills: [for (final b in state.bills) if (b.id != id) b]);
+  }
+
+  /// One person's plan item: every group's balance with them is recorded as settled.
+  Future<void> settlePlanItem(PlanItem p, {String method = 'other'}) async {
+    for (final (gid, t) in p.legs) { await settle(gid, t.from, t.to, t.cents, method: method); }
+  }
+
+  /// A receipt's line items from the photo. Empty on any failure, and the app falls back to the ordinary split.
+  Future<({String? merchant, List<ReceiptItem> items, int extraCents})> readReceipt(List<int> bytes) async {
+    try {
+      final j = await ref.read(apiProvider).postFile('/tally/receipts/items', 'file', bytes, 'receipt.jpg');
+      return (merchant: j['merchant'] as String?, extraCents: ((j['tax_cents'] as num?)?.toInt() ?? 0) + ((j['tip_cents'] as num?)?.toInt() ?? 0),
+          items: [for (final i in (j['items'] as List? ?? const [])) ReceiptItem(i['name'] as String, (i['cents'] as num).toInt())]);
+    } catch (_) {
+      return (merchant: null, extraCents: 0, items: const <ReceiptItem>[]);
+    }
   }
 
   /// Records a reminder. Guests also get a message the sender sends themselves.
