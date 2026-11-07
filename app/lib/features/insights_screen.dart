@@ -11,6 +11,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/flows.dart';
 import '../domain/models.dart';
@@ -36,7 +37,7 @@ class InsightsScreen extends ConsumerWidget {
         if (l.offline) OfflineBanner(onRetry: refresh),
         switch (data) {
           AsyncData(:final value) => _Body(d: value, ledger: l, sts: sts),
-          AsyncError() => ErrorState(onRetry: refresh),
+          AsyncError(:final error) => ErrorState(title: 'Insights didn\'t load', body: describeError(error, action: 'load Insights'), onRetry: refresh),
           _ => const Column(children: [Skeleton(height: 150, radius: 24), SizedBox(height: 12), Skeleton(height: 220, radius: 24), SizedBox(height: 12), Skeleton(height: 160, radius: 24)]),
         },
       ],
@@ -69,7 +70,7 @@ class _Body extends ConsumerWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Spent in $month', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
-            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(formatDollars(d.cur.outCents), style: context.ts(TickType.hero, size: 48))),
+            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: RollingNumber(value: d.cur.outCents, builder: (_, v) => Text(formatDollars(v), style: context.ts(TickType.hero, size: 48)))),
             const SizedBox(height: 6),
             if (vs != null)
               Text('${(vs.abs() * 100).round()}% ${vs <= 0 ? 'less' : 'more'} than last month at this point', style: context.ts(TickType.body, color: up ? c.alert : c.text))
@@ -96,8 +97,8 @@ class _Body extends ConsumerWidget {
         TickCard(padding: const EdgeInsets.fromLTRB(16, 4, 16, 8), child: Column(children: [
           for (final (i, r) in cats.indexed) ...[
             if (i > 0) const Hairline(),
-            _CatRow(name: r.$1 == 'none' ? 'Other' : (ledger.category(r.$1)?.name ?? 'Other'), now: r.$2, before: r.$3, max: maxCat,
-                onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1}))),
+            StaggerIn(scope: 'insights', index: i, child: _CatRow(name: r.$1 == 'none' ? 'Other' : (ledger.category(r.$1)?.name ?? 'Other'), now: r.$2, before: r.$3, max: maxCat,
+                onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1})))),
           ],
         ])),
       // 2b. Money with friends: one net line, out of the totals unless the toggle says otherwise

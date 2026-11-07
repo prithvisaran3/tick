@@ -284,6 +284,7 @@ class ActivityRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return SwipeActions(
+      onThreshold: TickHaptics.instance.selection,
       onOpen: () => TickHaptics.instance.sortLeft(),
       actions: [
         SwipeAction('Categorise', 'edit', () => showCategorySheet(context, ref, t)),

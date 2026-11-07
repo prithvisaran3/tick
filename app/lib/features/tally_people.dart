@@ -11,6 +11,7 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/money.dart';
+import '../domain/tally.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
 import 'common.dart';
@@ -230,4 +231,15 @@ class HandleNudge extends ConsumerWidget {
     if (info == null || info.handle != null) return const SizedBox.shrink();
     return Padding(padding: const EdgeInsets.only(bottom: 12), child: TickCard(onTap: () => showHandleSheet(context), child: Text('Pick a handle so friends can add you.', style: context.ts(TickType.body))));
   }
+}
+
+/// A group's emoji or monogram. The element that flies from the group card to the group screen.
+class GroupBadge extends StatelessWidget {
+  const GroupBadge({super.key, required this.g, this.size = 40});
+  final TallyGroup g;
+  final double size;
+  @override
+  Widget build(BuildContext context) => g.emoji == null ? Avatar(g.name, g.colorKey, size: size) : Container(
+        width: size, height: size, alignment: Alignment.center, decoration: BoxDecoration(color: context.c.surface2, shape: BoxShape.circle),
+        child: ExcludeSemantics(child: Text(g.emoji!, style: TextStyle(fontSize: size / 2, decoration: TextDecoration.none))));
 }

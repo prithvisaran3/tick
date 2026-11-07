@@ -113,7 +113,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       children: [
         switch (_step) {
           _Step.pick => _Pick(onChoose: _choose),
-          _Step.reading => Padding(padding: const EdgeInsets.symmetric(vertical: 48), child: Column(children: [const TickLoader(), const SizedBox(height: 16), Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary))])),
+          _Step.reading => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary)), const SizedBox(height: 16), const Skeleton(height: 96, radius: 24), const SizedBox(height: 12), const ListSkeleton(rows: 4)]),
           _Step.mapping => _Mapping(p: p!, map: _map, split: _splitCols, onSplit: (v) => setState(() => _splitCols = v), onChanged: () => setState(() {}),
               onContinue: () { _map = {..._map, 'header_row': p.mappingHeaderRow}; _analyse(mapping: _map); }),
           _Step.preview || _Step.importing when p!.isSplitwise => _SplitwisePreview(p: p, me: _me ?? p.meGuess, busy: _step == _Step.importing, onMe: (m) => setState(() => _me = m), onImport: _commit),

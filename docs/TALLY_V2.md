@@ -6,7 +6,7 @@ Branch `feat/tally-v2`. Nothing here is deployed: migrations are not pushed, the
 - SQL: `tools/local_db.py test` against a throwaway Postgres 16 (binaries in a scratch folder, `PG_BIN` and `TICK_PGDATA` set).
 - API: `cd api && pytest`.
 - App: `flutter analyze`, `flutter test`. On this Mac 67 tests fail before any of this work (66 goldens rendered elsewhere, and
-  `bank_status_test`). Those same tests still fail; nothing new does.
+  `bank_status_test`). Phase 5 fixed those; the full suite now passes.
 
 ## Phase 1: friends-and-family money
 Done.
@@ -96,8 +96,7 @@ Follow-up
 - **APNs.** No push notifications: the free Apple Personal Team can't send them. Reminders and invites wait in the inbox until the app is opened.
 
 ## Phase 4: better than Splitwise
-All five built. The brief was cut off mid-sentence at item 5 ("who usually pays, the group's monthly spend, and"), so item 5 has those two
-insights only, and anything after that line in the brief wasn't seen.
+All five built.
 
 1. Split from the card charge. "Split this" on a purchase prefills the expense and keeps the link. The friend's payback then ranks that purchase
    first. **Decision:** the brief says Tick "pairs it automatically", but phase 1 says never auto-link without acceptance unless a settlement
@@ -113,15 +112,34 @@ insights only, and anything after that line in the brief wasn't seen.
    photo isn't stored. Extraction wasn't tried against a real model or receipt.
 4. Smart settle plan. "Settle everything" on Tally: each group simplified, then netted per person across groups. The same person is matched by
    Tick account, then address book entry, then name. Only my own payments show. "Mark as paid" records each group's settlement with method Other.
-5. Group insights: who usually pays, and six months of spend, on the group screen.
+5. Group insights: who usually pays, six months of spend, and my real share against what I fronted, on the group screen.
+
+## Phase 5: polish
+Same look; new timing lives in `design/motion.json` and is generated into `motion.g.dart`. The durations and curves hard-coded in routes, sheets and
+the square-up moment moved there too.
+- `design/widgets/motion.dart`: `TickHero` (flies on the standard spring), `RollingNumber` (lands exactly, never overshoots the target), `StaggerIn`
+  (first load only, per list), `SpringCurve`. Page transitions now use the spring instead of `easeOutBack`.
+- Shared elements: group card to group screen, expense row to a new expense detail screen (`/tally/:id/expense/:eid`). The detail also opens the
+  receipt, which closes the "no viewer" gap from phase 3.
+- Balances roll. A member reaching zero shows "Settled up" with a Volt tick and the success haptic, then the row goes. A whole group settling uses only the
+  existing square-up moment, so the two never stack.
+- Expense rows swipe to edit and delete, with a haptic at the threshold and undo. Activity rows get the same haptic. Group screen gets pull to refresh.
+- Skeletons on Tally, the group screen and Import. Empty states for expenses and "No tallies yet". Errors carry the specific reason plus Retry on Tally,
+  Insights and group activity; failed saves now say why in the expense and settle sheets, which used to fail silently.
+- Insights hero rolls, categories and Banks tiles stagger.
+- Reduce Motion: no Hero flight, fades instead of movement, numbers cross-fade. `dynamic_type_test` now covers the new Tally screens at 320 to 430pt up
+  to text x2.35. It and `motion_test` found two real bugs, now fixed: an entrance that left rows mid-state, and a settled row that never finished.
+- Copy: the public page's "Slow down a little" and "That's plenty for now" became plain lines. The rest passed the check.
+
+Goldens were regenerated on this Mac and reviewed by eye. In them the emoji and the ✓ render as boxes because the test fonts lack those glyphs; on a phone
+the system font draws them.
+`bank_status_test` was stale: 207ac1b deliberately removed link wording from the Reconnect line and the test kept the old sentence. The test now pins the
+new copy and also fails if link wording returns.
 
 ## Not verified
-- Nothing ran on a device or simulator, and `flutter build ios` wasn't run. New screens are checked by widget tests at 320pt; one found a real
-  overflow in group settings, now fixed.
-- The golden suite already fails on this Mac, so visual changes to Insights, Activity and Tally aren't covered by it.
+- Nothing ran on a device or simulator. Motion feel, the Venmo link, Messages prefill, camera and share sheet need a phone.
 - The migrations have only run on local Postgres 16, not on Supabase.
-- The Venmo link, Messages prefill, camera and share sheet need a phone to try.
-- The Splitwise format is assumed (see phase 1).
+- The Splitwise format is assumed (see phase 1). Receipt extraction hasn't met a real model or receipt.
 
 ## Before deploying, in order
 1. Push the migrations. `20261110000001` stops if the role lacks BYPASSRLS.

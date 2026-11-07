@@ -5,6 +5,7 @@ import '../data/ledger.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/more.dart';
 import '../data/bank_step.dart';
 import '../data/link_info.dart';
@@ -116,8 +117,8 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
     return TickPage(
       title: 'Banks', onBack: () => context.pop(), onRefresh: _refresh,
       children: [
-        for (final conn in l.connections) ...[
-          _BankTile(conn: conn, ledger: l, now: ref.watch(clockProvider)(), counts: ref.watch(accountCountsProvider).value ?? const {}, busy: _busy,
+        for (final (i, conn) in l.connections.indexed) ...[
+          StaggerIn(scope: 'banks', index: i, child: _BankTile(conn: conn, ledger: l, now: ref.watch(clockProvider)(), counts: ref.watch(accountCountsProvider).value ?? const {}, busy: _busy,
               onAction: (a) {
                 switch (a) {
                   case BankAction.reconnect: _link(connectionId: conn.id);
@@ -125,7 +126,7 @@ class _BanksScreenState extends ConsumerState<BanksScreen> {
                   case BankAction.retry: _retry(conn);
                   case BankAction.none: break;
                 }
-              }),
+              })),
           const SizedBox(height: 8),
         ],
         if (l.connections.isEmpty && !l.loading) const EmptyState('Track your accounts', 'Link a bank and purchases and balances show up on their own.', icon: 'bank'),

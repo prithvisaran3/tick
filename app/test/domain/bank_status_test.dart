@@ -17,7 +17,8 @@ void main() {
   test('every state has a plain-words status and the right action', () {
     final login = bankStatus(c('login_required'), now);
     expect((login.title, login.action, login.actionLabel), ('Reconnect needed', BankAction.reconnect, 'Reconnect'));
-    expect(login.detail, contains('doesn\'t use one of your links'));
+    expect(login.detail, 'One tap to sign in again.');
+    expect('${login.detail} ${bankStatus(c('partial'), now).detail}', isNot(contains('link')));      // never talk about link limits here
     final partial = bankStatus(c('partial'), now);
     expect((partial.title, partial.action, partial.actionLabel), ('Some accounts aren\'t shared', BankAction.fixAccounts, 'Fix'));
     expect(bankStatus(c('bank_issue'), now).title, 'Bank is having issues');

@@ -140,6 +140,9 @@ void main() {
     expect(i.paidBy.first, ('k', 7000));
     expect(i.totalCents, 10500);
     expect(i.monthly.length, 6);
+    expect((i.frontedCents, i.myShareCents), (3500, 3500));
+    final split = groupInsights([TallyExpense(id: '4', groupId: 'g', description: 'w', amountCents: 9000, paidBy: me, shares: {me: 3000, 'k': 6000}, spentOn: DateTime(2026, 11, 2))], now);
+    expect((split.frontedCents, split.myShareCents), (9000, 3000));
     expect(i.monthly.last, (DateTime(2026, 11), 7000));
     expect(i.monthly[2], (DateTime(2026, 8), 0));
     expect(i.monthly[3], (DateTime(2026, 9), 3000));

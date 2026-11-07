@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../data/tally_store.dart';
+import '../design/motion.g.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/money.dart';
@@ -32,7 +34,39 @@ class BillRow extends ConsumerWidget {
   }
 }
 
-/// Who usually pays, and what the group spends a month.
+/// A member just reached zero: "Settled up" with a short Volt tick, then the row goes. Reduce Motion: it fades.
+class SettledLine extends StatefulWidget {
+  const SettledLine({super.key, required this.name, required this.onDone});
+  final String name;
+  final VoidCallback onDone;
+  @override
+  State<SettledLine> createState() => _SettledLineState();
+}
+
+class _SettledLineState extends State<SettledLine> with SingleTickerProviderStateMixin {
+  late final AnimationController _hold;
+  @override
+  void initState() {
+    super.initState();
+    _hold = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.settledHoldMs))
+      ..addStatusListener((s) { if (s == AnimationStatus.completed) widget.onDone(); })
+      ..forward();
+  }
+  @override
+  void dispose() { _hold.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Semantics(liveRegion: true, label: '${widget.name} settled up', excludeSemantics: true, child: StaggerIn(scope: 'settled-${identityHashCode(this)}', index: 0, child: Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
+      Expanded(child: Text(widget.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
+      Container(width: 22, height: 22, alignment: Alignment.center, decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle), child: TickIcon('check', size: 14, color: c.onAccent)),
+      const SizedBox(width: 6),
+      Text('Settled up', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+    ]))));
+  }
+}
+
+/// Who usually pays, what the group spends a month, and my real share against what I fronted.
 class GroupInsightsCard extends StatelessWidget {
   const GroupInsightsCard({super.key, required this.expenses, required this.t});
   final List<TallyExpense> expenses;
@@ -59,6 +93,13 @@ class GroupInsightsCard extends StatelessWidget {
         ]))),
         const SizedBox(height: 6),
         Text('${formatDollars(i.monthly.last.$2)} this month', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        if (i.frontedCents > 0 || i.myShareCents > 0) ...[
+          const SizedBox(height: 10),
+          const Hairline(),
+          const SizedBox(height: 10),
+          Text('${formatDollars(i.myShareCents)} was your real share', style: context.ts(TickType.body)),
+          Text('You fronted ${formatDollars(i.frontedCents)}.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+        ],
       ])),
     ]);
   }

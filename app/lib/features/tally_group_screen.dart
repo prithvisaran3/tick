@@ -8,16 +8,21 @@ import '../data/tally_store.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
+import '../design/motion.g.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
+import '../design/widgets/swipe.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/tally.dart';
 import '../services/api.dart';
+import '../services/haptics.dart';
 import 'common.dart';
 import 'tally_expense_sheet.dart';
 import 'tally_manage.dart';
 import 'tally_more.dart';
+import 'tally_people.dart';
 import 'tally_square.dart';
 
 class TallyGroupScreen extends ConsumerWidget {
@@ -27,6 +32,7 @@ class TallyGroupScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(tallyProvider);
     final g = t.groups.where((x) => x.id == id).firstOrNull;
+    if (g == null && t.loading) return TickPage(title: 'Tally', onBack: () => context.pop(), children: const [Skeleton(height: 120, radius: 24), SizedBox(height: 12), ListSkeleton(rows: 4)]);
     if (g == null) return TickPage(title: 'Tally', onBack: () => context.pop(), children: const [EmptyState('Not found', 'This tally is gone.')]);
     final c = context.c;
     final net = t.balancesOf(id);
@@ -35,16 +41,11 @@ class TallyGroupScreen extends ConsumerWidget {
     final expenses = t.expensesOf(id);
     final txns = ref.watch(ledgerProvider).txns;
     return TickPage(
-      title: g.name, onBack: () => context.pop(), bottomPad: 40,
+      title: g.name, onBack: () => context.pop(), bottomPad: 40, onRefresh: () => ref.read(tallyProvider.notifier).refresh(),
       trailing: Pressable(onTap: () => context.push('/tally/$id/settings'), semanticLabel: 'Group settings', minSize: 44, child: SizedBox(width: 40, height: 44, child: Center(child: TickIcon('sliders', size: 22, color: c.text)))),
       children: [
-        TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (net.isEmpty) Text(expenses.isEmpty ? 'Nothing split yet.' : 'All square ✓', style: context.ts(TickType.title))
-          else for (final e in net.entries) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
-            Expanded(child: Pressable(onTap: e.key == me ? null : () => context.push('/tally/$id/person/${e.key}'), scale: 0.99, child: Text(e.key == me ? (e.value > 0 ? 'You\'re owed' : 'You owe') : (e.value > 0 ? '${t.nameOf(e.key)} is owed' : '${t.nameOf(e.key)} owes'), style: context.ts(TickType.body)))),
-            Text(formatCents(e.value.abs()), style: context.ts(TickType.mono, color: e.key == me && e.value < 0 ? c.alert : null)),
-          ])),
-        ])),
+        Center(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TickHero(tag: 'group-${g.id}', child: GroupBadge(g: g, size: 56)))),
+        BalancesCard(id: id, net: net, hasExpenses: expenses.isNotEmpty),
         const SizedBox(height: 12),
         PillButton('Add expense', icon: 'plus', onTap: () => showExpenseSheet(context, group: g)),
         const SizedBox(height: 8),
@@ -62,8 +63,9 @@ class TallyGroupScreen extends ConsumerWidget {
           for (final s in t.settlementsOf(id)) if (s.status == 'confirmed') SettlementRow(s: s, g: g),
         ],
         const SizedBox(height: 20),
-        if (expenses.isNotEmpty) const SectionLabel('Expenses'),
-        for (final e in expenses) _ExpenseRow(e: e, g: g),
+        const SectionLabel('Expenses'),
+        if (expenses.isEmpty) const EmptyState('Nothing split yet', 'Add an expense and it shows up here.', icon: 'tally'),
+        for (final (i, e) in expenses.indexed) StaggerIn(scope: 'expenses-$id', index: i, child: _ExpenseRow(e: e, g: g)),
         if (t.billsOf(id).isNotEmpty) ...[const SizedBox(height: 20), const SectionLabel('Repeats'), for (final b in t.billsOf(id)) BillRow(b: b, g: g)],
         if (expenses.length >= 2) GroupInsightsCard(expenses: expenses, t: t),
         const SizedBox(height: 12),
@@ -95,9 +97,11 @@ class _ExpenseRow extends ConsumerWidget {
     final t = ref.watch(tallyProvider);
     final c = context.c;
     final mine = e.shares[me] ?? 0;
-    return Pressable(
-      onTap: t.canEdit(g, e.createdBy) ? () => showExpenseSheet(context, group: g, edit: e) : null, semanticLabel: '${e.description}, ${formatCents(e.amountCents)}',
+    final row = Pressable(
+      onTap: () => context.push('/tally/${g.id}/expense/${e.id}'), semanticLabel: '${e.description}, ${formatCents(e.amountCents)}',
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
+        TickHero(tag: 'expense-${e.id}', child: Avatar(e.description, 'shop', size: 36)),
+        const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(e.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyL)),
           Text('${t.nameOf(e.paidBy)} paid ${formatCents(e.amountCents)} · ${DateFormat('MMM d').format(e.spentOn)}', maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyS, color: c.textSecondary)),
@@ -106,6 +110,56 @@ class _ExpenseRow extends ConsumerWidget {
         Text(e.paidBy == me ? '+${formatCents(e.amountCents - mine)}' : '−${formatCents(mine)}', style: context.ts(TickType.mono, color: e.paidBy == me ? c.moneyIn : c.moneyOut)),
       ])),
     );
+    if (!t.canEdit(g, e.createdBy)) return row;
+    return SwipeActions(
+      onThreshold: TickHaptics.instance.selection,
+      actions: [
+        SwipeAction('Edit', 'edit', () => showExpenseSheet(context, group: g, edit: e)),
+        SwipeAction('Delete', 'trash', () => deleteExpenseWithUndo(context, ref, e)),
+      ],
+      child: row,
+    );
+  }
+}
+
+/// What everyone owes, rolling to new values. Someone who just reached zero gets a moment on their row before it goes.
+class BalancesCard extends ConsumerStatefulWidget {
+  const BalancesCard({super.key, required this.id, required this.net, required this.hasExpenses});
+  final String id;
+  final Map<String, int> net;
+  final bool hasExpenses;
+  @override
+  ConsumerState<BalancesCard> createState() => _BalancesCardState();
+}
+
+class _BalancesCardState extends ConsumerState<BalancesCard> {
+  final _settled = <String>{};
+
+  @override
+  void didUpdateWidget(BalancesCard old) {
+    super.didUpdateWidget(old);
+    if (old.id != widget.id || widget.net.isEmpty) { _settled.clear(); return; }    // the whole group: that is the square-up moment, not this
+    final gone = old.net.keys.where((k) => !widget.net.containsKey(k)).toSet();
+    if (gone.isNotEmpty) { _settled.addAll(gone); TickHaptics.instance.success(); }
+    _settled.removeAll(widget.net.keys);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = ref.watch(tallyProvider);
+    final c = context.c;
+    final id = widget.id;
+    return TickCard(child: AnimatedSize(
+      duration: Duration(milliseconds: context.reduceMotion ? 0 : TickMotion.reduceMotionFadeMs), alignment: Alignment.topCenter,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (widget.net.isEmpty) Text(widget.hasExpenses ? 'All square ✓' : 'Nothing split yet.', style: context.ts(TickType.title))
+        else for (final e in widget.net.entries) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
+          Expanded(child: Pressable(onTap: e.key == me ? null : () => context.push('/tally/$id/person/${e.key}'), scale: 0.99, child: Text(e.key == me ? (e.value > 0 ? 'You\'re owed' : 'You owe') : (e.value > 0 ? '${t.nameOf(e.key)} is owed' : '${t.nameOf(e.key)} owes'), style: context.ts(TickType.body)))),
+          RollingNumber(value: e.value.abs(), semanticLabel: formatCents(e.value.abs()), builder: (_, v) => Text(formatCents(v), style: context.ts(TickType.mono, color: e.key == me && e.value < 0 ? c.alert : null))),
+        ])),
+        for (final k in _settled) SettledLine(key: ValueKey(k), name: k == me ? 'You' : t.nameOf(k), onDone: () { if (mounted) setState(() => _settled.remove(k)); }),
+      ]),
+    ));
   }
 }
 

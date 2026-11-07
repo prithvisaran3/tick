@@ -286,7 +286,10 @@ List<PlanItem> settlePlan(Iterable<TallyGroup> groups, Iterable<TallyExpense> ex
 
 /// What a group's history says: who usually pays, and spend per month (oldest first, up to [months], including this one).
 class GroupInsights {
-  const GroupInsights(this.paidBy, this.monthly, this.totalCents);
+  const GroupInsights(this.paidBy, this.monthly, this.totalCents, this.frontedCents, this.myShareCents);
+  /// What I paid at the till, and what was really mine. The gap is what I carried for everyone else.
+  final int frontedCents;
+  final int myShareCents;
   final List<(String, int)> paidBy; // biggest first
   final List<(DateTime, int)> monthly;
   final int totalCents;
@@ -295,15 +298,17 @@ class GroupInsights {
 GroupInsights groupInsights(Iterable<TallyExpense> expenses, DateTime now, {int months = 6}) {
   final by = <String, int>{};
   final month = {for (var i = months - 1; i >= 0; i--) DateTime(now.year, now.month - i): 0};
-  var total = 0;
+  var total = 0, fronted = 0, mine = 0;
   for (final e in expenses) {
+    if (e.paidBy == me) fronted += e.amountCents;
+    mine += e.shares[me] ?? 0;
     by[e.paidBy] = (by[e.paidBy] ?? 0) + e.amountCents;
     total += e.amountCents;
     final m = DateTime(e.spentOn.year, e.spentOn.month);
     if (month.containsKey(m)) month[m] = month[m]! + e.amountCents;
   }
   final paid = [for (final e in by.entries) (e.key, e.value)]..sort((a, b) { final d = b.$2.compareTo(a.$2); return d != 0 ? d : a.$1.compareTo(b.$1); });
-  return GroupInsights(paid, [for (final e in month.entries) (e.key, e.value)], total);
+  return GroupInsights(paid, [for (final e in month.entries) (e.key, e.value)], total, fronted, mine);
 }
 
 class TallyBill {

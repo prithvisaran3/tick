@@ -20,7 +20,10 @@ import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
 import 'features/tally_manage.dart';
+import 'features/tally_expense_screen.dart';
 import 'features/tally_more.dart';
+import 'design/motion.g.dart';
+import 'design/widgets/motion.dart';
 import 'features/tally_people.dart';
 import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
@@ -48,11 +51,11 @@ import 'services/notifications.dart';
 import 'services/widget_sync.dart';
 
 CustomTransitionPage<void> _page(GoRouterState s, Widget child) => CustomTransitionPage<void>(
-      key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: 380), reverseTransitionDuration: const Duration(milliseconds: 260),
+      key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: TickMotion.pageInMs), reverseTransitionDuration: const Duration(milliseconds: TickMotion.pageOutMs),
       transitionsBuilder: (ctx, a, sa, ch) {
         if (ctx.reduceMotion) return FadeTransition(opacity: a, child: ch);
-        final curved = CurvedAnimation(parent: a, curve: Curves.easeOutBack, reverseCurve: Curves.easeIn);
-        return SlideTransition(position: Tween(begin: const Offset(0.12, 0), end: Offset.zero).animate(curved), child: FadeTransition(opacity: a, child: ch));
+        final curved = CurvedAnimation(parent: a, curve: const SpringCurve(TickSprings.standard), reverseCurve: Curves.easeIn);
+        return SlideTransition(position: Tween(begin: const Offset(TickMotion.pageFromOffsetX, 0), end: Offset.zero).animate(curved), child: FadeTransition(opacity: a, child: ch));
       },
     );
 
@@ -98,6 +101,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/tally/:id/receipt', pageBuilder: (c, s) => _page(s, TallyReceiptScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/tally/inbox', pageBuilder: (c, s) => _page(s, const TallyInboxScreen())),
         GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/expense/:eid', pageBuilder: (c, s) => _page(s, TallyExpenseScreen(groupId: s.pathParameters['id']!, id: s.pathParameters['eid']!))),
         GoRoute(path: '/tally/:id/settings', pageBuilder: (c, s) => _page(s, TallyGroupSettingsScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/tally/:id/activity', pageBuilder: (c, s) => _page(s, TallyActivityScreen(id: s.pathParameters['id']!))),
         GoRoute(path: '/tally/:id/person/:member', pageBuilder: (c, s) => _page(s, TallyPersonScreen(groupId: s.pathParameters['id']!, member: s.pathParameters['member']!))),

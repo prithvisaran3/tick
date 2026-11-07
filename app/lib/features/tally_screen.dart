@@ -6,6 +6,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/money.dart';
 import '../domain/tally.dart';
@@ -21,7 +22,6 @@ class TallyScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(tallyProvider);
-    final c = context.c;
     final s = t.totals;
     return TickPage(
       title: 'Tally', trailing: const AskButton(), bottomPad: 130,
@@ -29,15 +29,17 @@ class TallyScreen extends ConsumerWidget {
       children: [
         if (t.inboxBadge > 0 || t.inbox.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Align(alignment: Alignment.centerLeft, child: TickChip(t.inboxBadge > 0 ? 'Inbox ${t.inboxBadge}' : 'Inbox', icon: 'tally', onTap: () => context.push('/tally/inbox')))),
         const HandleNudge(),
-        if (t.groups.isEmpty)
-          const EmptyState('All square ✓', 'Split a purchase with a friend and it shows up here.', icon: 'tally')
+        if (t.loading && t.groups.isEmpty) const Column(children: [Skeleton(height: 96, radius: 24), SizedBox(height: 12), ListSkeleton(rows: 4)])
+        else if (t.error != null && t.groups.isEmpty) ErrorState(title: 'Tally didn\'t load', body: t.error!, onRetry: () => ref.read(tallyProvider.notifier).refresh())
+        else if (t.groups.isEmpty)
+          const EmptyState('No tallies yet', 'Split a purchase with a friend and it shows up here.', icon: 'tally')
         else ...[
           _Summary(owed: s.owedToMe, owe: s.iOwe, square: t.allSquare),
           const SizedBox(height: 20),
-          for (final g in t.groups) if (!g.archived) _GroupRow(g: g, t: t),
+          for (final (i, g) in t.groups.where((g) => !g.archived).indexed) StaggerIn(scope: 'tally', index: i, child: _GroupRow(g: g, t: t)),
           for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t)),
         ],
-        if (t.offline) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Couldn\'t reach Tick. Showing what is saved on this phone.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+        if (t.offline && t.groups.isNotEmpty) OfflineBanner(onRetry: () => ref.read(tallyProvider.notifier).refresh()),
         if (t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1)) ...[const SizedBox(height: 8), PillButton('Settle everything', icon: 'check', style: PillStyle.quiet, onTap: () => context.push('/tally/plan'))],
         const SizedBox(height: 16),
         PillButton('New tally', icon: 'plus', style: t.groups.isEmpty ? PillStyle.primary : PillStyle.quiet, onTap: () => showNewGroupSheet(context)),
@@ -63,12 +65,12 @@ class _Summary extends StatelessWidget {
     return TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (owed > 0) Semantics(label: 'You\'re owed ${formatCents(owed)}', excludeSemantics: true, child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 10, children: [
         Text('You\'re owed', style: context.ts(TickType.body, color: c.textSecondary)),
-        Sticker(glow: false, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), tilt: 2, child: Text(formatCents(owed), style: context.ts(TickType.monoL, color: c.onAccent))),
+        Sticker(glow: false, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), tilt: 2, child: RollingNumber(value: owed, builder: (_, v) => Text(formatCents(v), style: context.ts(TickType.monoL, color: c.onAccent)))),
       ])),
       if (owed > 0 && owe > 0) const SizedBox(height: 10),
       if (owe > 0) Row(children: [
         Expanded(child: Text('You owe', style: context.ts(TickType.body, color: c.textSecondary))),
-        Text(formatCents(owe), style: context.ts(TickType.monoL)),
+        RollingNumber(value: owe, semanticLabel: formatCents(owe), builder: (_, v) => Text(formatCents(v), style: context.ts(TickType.monoL))),
       ]),
     ]));
   }
@@ -89,7 +91,7 @@ class _GroupRow extends StatelessWidget {
       child: TickCard(
         onTap: () => context.push('/tally/${g.id}'),
         child: Row(children: [
-          g.emoji != null ? Container(width: 40, height: 40, alignment: Alignment.center, decoration: BoxDecoration(color: c.surface2, shape: BoxShape.circle), child: Text(g.emoji!, style: const TextStyle(fontSize: 20, decoration: TextDecoration.none))) : Avatar(g.name, g.colorKey),
+          TickHero(tag: 'group-${g.id}', child: GroupBadge(g: g)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(g.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyL)),

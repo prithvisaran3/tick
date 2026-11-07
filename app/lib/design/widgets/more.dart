@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 import '../motion.g.dart';
 import '../theme.dart';
 import '../tokens.g.dart';
 import '../../services/haptics.dart';
 import 'core.dart';
+import 'motion.dart';
 
 /// Press and hold ~600 ms to confirm. Fires HOLD ramp while held, a click on completion, a soft cancel if released early.
 class HoldToConfirm extends StatefulWidget {
@@ -138,23 +138,14 @@ class TickTabBar extends StatelessWidget {
 Future<T?> showTickSheet<T>(BuildContext context, {required WidgetBuilder builder, bool full = false, bool fill = false}) {
   return Navigator.of(context, rootNavigator: true).push<T>(PageRouteBuilder<T>(
     opaque: false, barrierDismissible: true, barrierColor: const Color(0x99000000), barrierLabel: 'Close',
-    transitionDuration: const Duration(milliseconds: 420), reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionDuration: const Duration(milliseconds: TickMotion.sheetInMs), reverseTransitionDuration: const Duration(milliseconds: TickMotion.sheetOutMs),
     pageBuilder: (ctx, a, b) => _SheetHost(full: full, fill: fill, child: builder(ctx)),
     transitionsBuilder: (ctx, a, b, child) {
       if (ctx.reduceMotion) return FadeTransition(opacity: a, child: child);
-      final spring = CurvedAnimation(parent: a, curve: const _SpringCurve(), reverseCurve: Curves.easeIn);
+      final spring = CurvedAnimation(parent: a, curve: const SpringCurve(TickSprings.sheet), reverseCurve: Curves.easeIn);
       return SlideTransition(position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(spring), child: child);
     },
   ));
-}
-
-class _SpringCurve extends Curve {
-  const _SpringCurve();
-  @override
-  double transformInternal(double t) {
-    final sim = SpringSimulation(springOf(TickSprings.sheet), 0, 1, 0);
-    return sim.x(t * 0.55);
-  }
 }
 
 class _SheetHost extends StatelessWidget {

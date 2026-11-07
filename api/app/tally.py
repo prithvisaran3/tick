@@ -196,14 +196,14 @@ def public_page(token: str, request: Request):
     try:
         view_limiter.check(f"v:{ip}")
     except HTTPException:
-        return _page("Tally", "<h1>Slow down a little</h1><p>Try again in a minute.</p>", 429)
+        return _page("Tally", "<h1>Too many views</h1><p>Try again in a minute.</p>", 429)
     link = _link(token)
     if not link:
         return _gone()
     try:
         view_limiter.check(f"vt:{link['id']}", 120, 60)
     except HTTPException:
-        return _page("Tally", "<h1>Slow down a little</h1><p>Try again in a minute.</p>", 429)
+        return _page("Tally", "<h1>Too many views</h1><p>Try again in a minute.</p>", 429)
     snap = _snapshot(link)
     rest().update("tally_links", {"id": link["id"]}, {"views": int(link.get("views") or 0) + 1, "last_viewed_at": datetime.now(timezone.utc).isoformat()})
     return _page("Tally", _render(snap, token, done=False))
@@ -240,7 +240,7 @@ def i_paid(token: str, request: Request, person: str = Form(..., max_length=40),
         paid_limiter.check(f"p:{link['id']}", 6, 3600)
         paid_limiter.check(f"pi:{ip}", 12, 3600)
     except HTTPException:
-        return _page("Tally", "<h1>That's plenty for now</h1><p>Try again later.</p>", 429)
+        return _page("Tally", "<h1>Too many tries</h1><p>Try again later.</p>", 429)
     snap = _snapshot(link)
     owed = -snap["net"].get(person, 0)
     if person not in snap["members"] or owed <= 0 or amount > owed:

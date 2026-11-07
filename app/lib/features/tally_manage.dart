@@ -8,9 +8,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/tally_store.dart';
 import '../design/theme.dart';
+import '../design/motion.g.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/pickers.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/money.dart';
@@ -29,17 +31,25 @@ void showUndo(OverlayState overlay, String text, Future<void> Function() onUndo)
   void close() { timer?.cancel(); if (entry.mounted) entry.remove(); }
   entry = OverlayEntry(builder: (context) {
     final c = context.c;
-    return Positioned(left: 16, right: 16, bottom: MediaQuery.of(context).padding.bottom + 96, child: Semantics(liveRegion: true, child: Container(
+    return Positioned(left: 16, right: 16, bottom: MediaQuery.of(context).padding.bottom + 96, child: Semantics(liveRegion: true, child: StaggerIn(scope: 'undo-${identityHashCode(entry)}', index: 0, child: Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(TickRadius.card)),
       child: Row(children: [
         Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
         PillButton('Undo', expand: false, height: 40, style: PillStyle.inverse, onTap: () { close(); onUndo(); }),
       ]),
-    )));
+    ))));
   });
   overlay.insert(entry);
-  timer = Timer(const Duration(seconds: 5), close);
+  timer = Timer(const Duration(milliseconds: TickMotion.undoWindowMs), close);
+}
+
+Future<void> deleteExpenseWithUndo(BuildContext context, WidgetRef ref, TallyExpense e) async {
+  final n = ref.read(tallyProvider.notifier);
+  final overlay = Overlay.of(context, rootOverlay: true);
+  await n.deleteExpense(e.id);
+  TickHaptics.instance.confirm();
+  showUndo(overlay, '${e.description} deleted', () => n.restoreExpense(e));
 }
 
 /// Settle up with one person: the simplified amount, or less. Tick records it; the money moves somewhere else.
@@ -83,8 +93,9 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
     setState(() => _busy = true);
     final n = ref.read(tallyProvider.notifier);
     final wasSquare = ref.read(tallyProvider).balancesOf(widget.g.id).isEmpty;
-    await n.settle(widget.g.id, widget.m.from, widget.m.to, _cents, method: _method);
+    final ok = await n.settle(widget.g.id, widget.m.from, widget.m.to, _cents, method: _method);
     if (!mounted) return;
+    if (!ok) { setState(() { _busy = false; _note = n.lastError; }); return; }
     TickHaptics.instance.confirm();
     final square = ref.read(tallyProvider).balancesOf(widget.g.id).isEmpty;
     Navigator.of(context).pop();
@@ -418,7 +429,7 @@ class TallyActivityScreen extends ConsumerWidget {
               ])),
             ],
           ])),
-        AsyncError() => ErrorState(onRetry: () async => ref.invalidate(_activityProvider(id))),
+        AsyncError(:final error) => ErrorState(title: 'Activity didn\'t load', body: describeError(error, action: 'load the activity'), onRetry: () async => ref.invalidate(_activityProvider(id))),
         _ => const ListSkeleton(rows: 6),
       },
     ]);

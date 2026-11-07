@@ -10,7 +10,7 @@ import '../domain/money.dart';
 import '../domain/tally.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
-import 'tally_manage.dart' show showUndo;
+import 'tally_manage.dart' show deleteExpenseWithUndo;
 
 /// A one-line text field in the app's own look (no Material). Owns its FocusNode: creating one inside build would drop focus (and the
 /// keyboard) on every keystroke.
@@ -69,6 +69,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
   String? _repeat;     // weekly | monthly | yearly
   String? _receipt;
   bool _scanning = false;
+  String? _saveError;
   final Map<String, TextEditingController> _w = {};
   late SplitType _type;
   late Set<String> _in; // who shares it
@@ -150,7 +151,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         if (!mounted) return;
       }
       TickHaptics.instance.confirm(); Navigator.of(context).pop();
-    } else { setState(() => _busy = false); }
+    } else { setState(() { _busy = false; _saveError = ref.read(tallyProvider.notifier).lastError ?? 'That didn\'t save. Try again.'; }); }
   }
 
   @override
@@ -190,6 +191,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         ],
         const SizedBox(height: 16),
         PillButton(shares == null || _desc.text.trim().isEmpty ? 'Split it' : 'Split ${formatCents(_total)}', busy: _busy, onTap: shares == null || _desc.text.trim().isEmpty ? null : _save),
+        if (_saveError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_saveError!, style: context.ts(TickType.bodyS, color: c.alert))),
         if (widget.edit != null) ...[
           const SizedBox(height: 8),
           PillButton('Delete expense', style: PillStyle.quiet, onTap: _delete),
@@ -199,13 +201,8 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
   }
 
   Future<void> _delete() async {
-    final e = widget.edit!;
-    final n = ref.read(tallyProvider.notifier);
-    final overlay = Overlay.of(context, rootOverlay: true);
-    await n.deleteExpense(e.id);
-    TickHaptics.instance.confirm();
+    await deleteExpenseWithUndo(context, ref, widget.edit!);
     if (mounted) Navigator.of(context).pop();
-    showUndo(overlay, '${e.description} deleted', () => n.restoreExpense(e));
   }
 
   Future<void> _addReceipt() async {

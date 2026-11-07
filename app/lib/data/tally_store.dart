@@ -41,7 +41,9 @@ class TallyActivity {
 
 class TallyState {
   const TallyState({this.reminders = const [], this.bills = const [], this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
-      this.myMember = const {}, this.myUserId, this.loading = false, this.offline = false});
+      this.myMember = const {}, this.myUserId, this.loading = false, this.offline = false, this.error});
+  /// Why the last load failed, in words for a person. Null when it worked.
+  final String? error;
   /// Everyone with a name in my groups, by member id, plus (locally) my friends.
   final List<TallyPerson> people;
   /// My own address book: who I can put in a new group as a guest. Ids are person ids.
@@ -58,9 +60,9 @@ class TallyState {
   final bool loading;
   final bool offline;
 
-  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, List<TallyBill>? bills, bool? loading, bool? offline}) =>
+  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, List<TallyBill>? bills, bool? loading, bool? offline, String? error}) =>
       TallyState(people: people ?? this.people, contacts: contacts ?? this.contacts, groups: groups ?? this.groups, expenses: expenses ?? this.expenses, settlements: settlements ?? this.settlements,
-          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, bills: bills ?? this.bills, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline);
+          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, bills: bills ?? this.bills, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline, error: error ?? this.error);
 
   List<TallyReminder> get inbox => [for (final r in reminders) if (r.toMe) r];
   int get inboxBadge => invites.length + inbox.where((r) => !r.read).length;
@@ -95,6 +97,8 @@ String? _id(Object? v) => v as String?;
 
 class TallyNotifier extends Notifier<TallyState> {
   int _n = 0;
+  /// Why the last save failed, for the sheet that asked.
+  String? lastError;
   @override
   TallyState build() {
     final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
@@ -166,8 +170,8 @@ class TallyNotifier extends Notifier<TallyState> {
         bills: [for (final j in res[8]) TallyBill(id: j['id'] as String, groupId: j['group_id'] as String, description: j['description'] as String, amountCents: (j['amount_cents'] as num).toInt(), cadence: j['cadence'] as String,
             nextOn: DateTime.parse(j['next_on'] as String), createdBy: _id(j['created_by']))],
       );
-    } catch (_) {
-      state = state.copyWith(loading: false, offline: true);
+    } catch (e) {
+      state = state.copyWith(loading: false, offline: true, error: describeError(e, action: 'load your tallies'));
     }
   }
 
@@ -218,7 +222,7 @@ class TallyNotifier extends Notifier<TallyState> {
         }});
         saved = TallyExpense(id: id as String, groupId: e.groupId, description: e.description, amountCents: e.amountCents, paidBy: e.paidBy, shares: e.shares, spentOn: e.spentOn,
             splitType: e.splitType, transactionId: e.transactionId, note: e.note, weights: e.weights, createdBy: e.createdBy ?? state.myUserId, category: e.category, receiptPath: e.receiptPath);
-      } catch (_) { state = state.copyWith(offline: true); return false; }
+      } catch (x) { lastError = describeError(x, action: 'save that'); state = state.copyWith(offline: true); return false; }
     } else if (e.id.isEmpty) {
       saved = TallyExpense(id: _local(), groupId: e.groupId, description: e.description, amountCents: e.amountCents, paidBy: e.paidBy, shares: e.shares, spentOn: e.spentOn,
           splitType: e.splitType, transactionId: e.transactionId, note: e.note, weights: e.weights, category: e.category, receiptPath: e.receiptPath);
@@ -262,8 +266,8 @@ class TallyNotifier extends Notifier<TallyState> {
   }
 
   /// Records that [from] paid [to]. Tick never moves money: this only notes that it happened.
-  Future<void> settle(String groupId, String from, String to, int cents, {String method = 'zelle', String? transactionId}) async {
-    if (cents <= 0) return;
+  Future<bool> settle(String groupId, String from, String to, int cents, {String method = 'zelle', String? transactionId}) async {
+    if (cents <= 0) return false;
     var s = TallySettlement(id: _local(), groupId: groupId, from: from, to: to, amountCents: cents, on: ref.read(clockProvider)(), method: method, transactionId: transactionId);
     final r = _remote;
     if (r != null) {
@@ -274,9 +278,10 @@ class TallyNotifier extends Notifier<TallyState> {
           'created_by': state.myUserId,
         }).select().single();
         s = TallySettlement(id: j['id'] as String, groupId: groupId, from: from, to: to, amountCents: cents, on: s.on, method: method, transactionId: transactionId);
-      } catch (_) { state = state.copyWith(offline: true); return; }
+      } catch (x) { lastError = describeError(x, action: 'record that'); state = state.copyWith(offline: true); return false; }
     }
     state = state.copyWith(settlements: [...state.settlements, s]);
+    return true;
   }
 
   /// A pending "I paid" from a friend's share page: confirm it (it starts counting) or reject it.

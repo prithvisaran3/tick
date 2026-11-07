@@ -17,7 +17,9 @@ class SwipeAction {
 /// iOS-style row actions: drag left to reveal buttons, they spring open and shut, tap the row to close. Exposed to VoiceOver as custom
 /// actions (so no gesture is required), honours Reduce Motion (snaps instead of springing), and never removes the row.
 class SwipeActions extends StatefulWidget {
-  const SwipeActions({super.key, required this.child, required this.actions, this.onOpen});
+  const SwipeActions({super.key, required this.child, required this.actions, this.onOpen, this.onThreshold});
+  /// Fires once each time a drag passes the point where letting go opens the row (the haptic).
+  final VoidCallback? onThreshold;
   final Widget child;
   final List<SwipeAction> actions;
   final VoidCallback? onOpen;
@@ -30,6 +32,7 @@ class _SwipeActionsState extends State<SwipeActions> with SingleTickerProviderSt
   static const _w = 72.0;
   double get _open => _w * widget.actions.length;
   bool _wasOpen = false;
+  bool _past = false;
 
   @override
   void dispose() { _c.dispose(); super.dispose(); }
@@ -41,7 +44,8 @@ class _SwipeActionsState extends State<SwipeActions> with SingleTickerProviderSt
 
   void _end(DragEndDetails d) {
     final v = d.primaryVelocity ?? 0;
-    final open = v < -400 || (v.abs() <= 400 && _c.value > _open * 0.4);
+    final open = v < -400 || (v.abs() <= 400 && _c.value > _open * TickMotion.swipeThresholdRatio);
+    _past = false;
     if (open && !_wasOpen) widget.onOpen?.call();
     _wasOpen = open;
     _settle(open ? _open : 0, velocity: -v);
@@ -56,7 +60,12 @@ class _SwipeActionsState extends State<SwipeActions> with SingleTickerProviderSt
       customSemanticsActions: {for (final a in widget.actions) CustomSemanticsAction(label: a.label): a.onTap},
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onHorizontalDragUpdate: (d) => _c.value = (_c.value - d.delta.dx).clamp(0.0, _open * 1.15),
+        onHorizontalDragUpdate: (d) {
+          _c.value = (_c.value - d.delta.dx).clamp(0.0, _open * 1.15);
+          final past = _c.value > _open * TickMotion.swipeThresholdRatio;
+          if (past && !_past) widget.onThreshold?.call();
+          _past = past;
+        },
         onHorizontalDragEnd: _end,
         child: AnimatedBuilder(
           animation: _c,

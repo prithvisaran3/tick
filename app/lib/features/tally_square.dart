@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
+import '../design/motion.g.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/more.dart';
@@ -19,7 +20,7 @@ class SquareUpMoment extends StatefulWidget {
 }
 
 class _SquareUpMomentState extends State<SquareUpMoment> with SingleTickerProviderStateMixin {
-  late final AnimationController _a = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  late final AnimationController _a = AnimationController(vsync: this, duration: const Duration(milliseconds: TickMotion.squareUpMs));
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
