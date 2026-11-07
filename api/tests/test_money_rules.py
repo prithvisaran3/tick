@@ -12,7 +12,7 @@ from tests.fakerest import FakeRest
 
 FIX = json.loads((pathlib.Path(__file__).parent / "data" / "money_rules.json").read_text())
 U = "11111111-1111-1111-1111-111111111111"
-CATS = ["Groceries", "Restaurants", "Coffee", "Transfer", "Income", "Other", "Fees and interest", "Loan payment", "Shopping", "Software", "Rideshare", "Friends and family", "Rent"]
+CATS = ["Groceries", "Restaurants", "Coffee", "Transfer", "Income", "Other", "Fees and interest", "Loan payment", "Shopping", "Software", "Rideshare", "Friends and family", "Rent", "Rent"]
 
 def plaid_txn(r):
     return {"transaction_id": r["k"], "account_id": r["acct"], "amount": -r["cents"] / 100, "date": f"2026-10-{r['day']:02d}" if r["day"] > 15 else f"2026-11-{r['day']:02d}",
@@ -56,7 +56,7 @@ def test_chase_and_sofi_are_the_same_transfer_and_both_sides_are_excluded(world)
 
 def test_zelle_to_and_from_people_is_real_money_never_a_transfer(world):
     f, byk, names, ids = world
-    for k in ("zelle_out", "zelle_in", "zelle_rent", "venmo_cashout"):
+    for k in ("zelle_out", "zelle_in", "venmo_cashout"):
         assert byk[k]["flow"] is None and names[byk[k]["category_id"]] == "Friends and family", k
     for k in ("zelle_me_in", "zelle_me_out"):                      # money to MY OWN name is the internal move
         assert byk[k]["flow"] == "transfer"

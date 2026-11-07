@@ -13,6 +13,7 @@ from . import ai, store
 from .auth import current_user, require_cron
 from .db import rest
 from .merchants import clean_merchant
+from .transfers import is_p2p, p2p_category
 
 router = APIRouter()
 
@@ -188,6 +189,10 @@ def refresh_recurring(user_id: str) -> int:
         if cur and cur.get("is_manual"):
             row.pop("cadence"); row.pop("expected_cents")        # a manual entry's cadence/price stay as the user set them
         rest().insert("recurring", row, upsert_on="user_id,merchant")
+    found = {d.merchant for d in det}
+    for m, r in existing.items():        # money with friends stopped counting: a "bill" built from those rows must stop shrinking Safe to spend
+        if m not in found and is_p2p(m) and not r.get("is_manual") and r.get("status", "active") == "active" and p2p_category(m) != "Rent":
+            rest().update("recurring", {"id": r["id"], "user_id": user_id}, {"status": "ended"})
     return len(det)
 
 @router.post("/intel/refresh")

@@ -33,6 +33,8 @@ def _match_one(row: dict, key: str, cond: str) -> bool:
         return v is None if val == "null" else str(v).lower() == val
     if op == "in":
         return str(v) in val.strip("()").split(",")
+    if op == "like":
+        return v is not None and str(v).startswith(val.rstrip("*"))
     if v is None:
         return False
     x, y = _cmp(v, val)

@@ -130,6 +130,7 @@ class Remote {
     }
   }
 
+  Future<void> saveIncludeFriends(bool v) => db.from('settings').upsert({'user_id': db.auth.currentUser!.id, 'include_friends': v});
   Future<void> savePaydayRule(Map<String, dynamic> rule) => db.from('settings').update({'payday_rule': rule}).eq('user_id', db.auth.currentUser!.id);
 
   /// Learned rule: the next purchase at this merchant gets this category (rules win over AI).

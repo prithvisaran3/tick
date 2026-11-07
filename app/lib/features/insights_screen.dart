@@ -6,14 +6,17 @@ import '../data/activity.dart';
 import '../data/insights.dart';
 import '../data/ledger.dart';
 import '../data/nav.dart';
+import '../data/settings.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
+import '../domain/flows.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/safe_to_spend.dart';
+import '../services/api.dart';
 import 'ask_button.dart';
 import 'common.dart';
 
@@ -81,7 +84,7 @@ class _Body extends ConsumerWidget {
               Text('On pace for ${formatDollars(d.projectedCents!)}${d.prevFull.outCents > 0 ? '. Last month ended at ${formatDollars(d.prevFull.outCents)}.' : '.'}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
             ],
             const SizedBox(height: 4),
-            Text('In ${formatDollars(d.cur.inCents)} · Out ${formatDollars(d.cur.outCents)}. Transfers and card payments aren\'t counted.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            Text('In ${formatDollars(d.cur.inCents)} · Out ${formatDollars(d.cur.outCents)}. ${d.cur.friendsIncluded ? 'Transfers and card payments aren\'t counted.' : 'Transfers, card payments and money with friends aren\'t counted.'}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
           ]),
         ),
       ),
@@ -97,6 +100,15 @@ class _Body extends ConsumerWidget {
                 onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1}))),
           ],
         ])),
+      // 2b. Money with friends: one net line, out of the totals unless the toggle says otherwise
+      if (d.cur.friendsCount > 0 || d.prevFull.friendsCount > 0 || d.cur.friendsIncluded) FriendsSection(t: d.cur, onToggle: (v) async {
+        await ref.read(settingsProvider.notifier).setIncludeFriends(v);
+        await ref.read(ledgerProvider.notifier).refresh();
+        ref.invalidate(insightsProvider);
+      }, onOpen: () {
+        final id = ledger.categories.where((x) => x.name == 'Friends and family').firstOrNull?.id;
+        if (id != null) openActivity(ref, ActivityQuery(categories: {id}));
+      }),
       // 3. Top merchants
       if (d.merchants.isNotEmpty) ...[
         const SectionLabel('Top merchants'),
@@ -122,6 +134,53 @@ class _Body extends ConsumerWidget {
       if (ledger.recurring.isNotEmpty) _Subscriptions(recurring: ledger.recurring),
       // 5. Ahead: card bills and cash runway
       if (sts != null) _Ahead(sts: sts!, ledger: ledger),
+    ]);
+  }
+}
+
+/// Friends and family as ONE net line: mostly paybacks and Splitwise settling, so it says nothing about spending.
+class FriendsSection extends StatefulWidget {
+  const FriendsSection({super.key, required this.t, required this.onToggle, this.onOpen});
+  final Totals t;
+  final Future<void> Function(bool) onToggle;
+  final VoidCallback? onOpen;
+  @override
+  State<FriendsSection> createState() => _FriendsSectionState();
+}
+
+class _FriendsSectionState extends State<FriendsSection> {
+  String? _error;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final t = widget.t;
+    final net = t.friendsNetCents;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const SectionLabel('Money with friends'),
+      TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Pressable(
+          onTap: widget.onOpen, scale: 0.99, semanticLabel: 'Friends and family, ${formatCents(net.abs())} net ${net < 0 ? 'out' : 'in'}. Show in Activity',
+          child: Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Friends and family', style: context.ts(TickType.title, size: 15.5)),
+              Text('In ${formatDollars(t.friendsInCents)} · Out ${formatDollars(t.friendsOutCents)}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+            ])),
+            const SizedBox(width: 8),
+            Money(net),
+          ]),
+        ),
+        const SizedBox(height: 6),
+        const Hairline(),
+        Row(children: [
+          Expanded(child: Text('Include money with friends', style: context.ts(TickType.body))),
+          TickToggle(on: t.friendsIncluded, label: 'Include money with friends', onChanged: (v) async {
+            setState(() => _error = null);
+            try { await widget.onToggle(v); } catch (e) { if (mounted) setState(() => _error = describeError(e, action: 'change that')); }
+          }),
+        ]),
+        Text(t.friendsIncluded ? 'Counted in spending and income.' : 'Not in spending, income or budgets.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(_error!, style: context.ts(TickType.bodyS, size: 12.5, color: c.alert))),
+      ])),
     ]);
   }
 }

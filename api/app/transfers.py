@@ -96,6 +96,12 @@ _INSTS = {
 def is_p2p(text: str) -> bool:
     return bool(_P2P_WORDS.search(text or ""))
 
+_RENT = re.compile(r"\brent\b", re.I)
+
+def p2p_category(text: str) -> str:
+    """Zelle to a landlord is rent, real spending. Everything else person-to-person is money with friends (MONEY_RULES.md)."""
+    return "Rent" if _RENT.search(text or "") else "Friends and family"
+
 def inst_keys(text: str | None) -> set[str]:
     return {k for k, rx in _INSTS.items() if rx.search(text or "")}
 

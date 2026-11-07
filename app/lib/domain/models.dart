@@ -111,11 +111,16 @@ class Txn {
   const Txn({
     required this.id, required this.amountCents, required this.occurredAt, required this.merchant,
     this.categoryId, this.accountId, this.status = TxStatus.posted, this.confidence = 1.0, this.needsReview = false,
-    this.tags = const [], this.note, this.source = 'manual', this.cardLast4, this.receiptPath, this.flow,
+    this.tags = const [], this.note, this.source = 'manual', this.cardLast4, this.receiptPath, this.flow, this.reimbursedCents = 0,
   });
   /// 'transfer' = between my own accounts (never spending or income); 'bill' = a loan payment (cash out, a bill); null = ordinary.
   final String? flow;
   bool get isTransfer => flow == 'transfer';
+  /// A friend's payback accepted against a purchase: neither income nor spending.
+  bool get isReimbursement => flow == 'reimbursement';
+  /// Paybacks linked to this purchase. Spending counts the purchase net of them (my real share).
+  final int reimbursedCents;
+  int get myShareCents => -amountCents - reimbursedCents;
   final String id;
   final int amountCents;
   final DateTime occurredAt; // local wall-clock time
@@ -135,7 +140,7 @@ class Txn {
   Txn copyWith({int? amountCents, DateTime? occurredAt, String? merchant, String? categoryId, bool? needsReview, List<String>? tags, String? note, double? confidence, String? accountId}) => Txn(
       id: id, amountCents: amountCents ?? this.amountCents, occurredAt: occurredAt ?? this.occurredAt, merchant: merchant ?? this.merchant,
       categoryId: categoryId ?? this.categoryId, accountId: accountId ?? this.accountId, status: status, confidence: confidence ?? this.confidence,
-      needsReview: needsReview ?? this.needsReview, tags: tags ?? this.tags, note: note ?? this.note, source: source, cardLast4: cardLast4, receiptPath: receiptPath, flow: flow);
+      needsReview: needsReview ?? this.needsReview, tags: tags ?? this.tags, note: note ?? this.note, source: source, cardLast4: cardLast4, receiptPath: receiptPath, flow: flow, reimbursedCents: reimbursedCents);
   factory Txn.fromJson(Map<String, dynamic> j) {
     final srcs = (j['sources'] as List?) ?? const [];
     return Txn(
@@ -147,7 +152,7 @@ class Txn {
       confidence: (j['confidence'] as num?)?.toDouble() ?? 1.0, needsReview: (j['needs_review'] ?? false) as bool,
       tags: ((j['tags'] as List?) ?? const []).cast<String>(), note: j['note'] as String?,
       source: srcs.isEmpty ? 'manual' : ((srcs.first as Map)['source'] as String? ?? 'manual'),
-      cardLast4: j['card_last4'] as String?, receiptPath: j['receipt_path'] as String?, flow: j['flow'] as String?);
+      cardLast4: j['card_last4'] as String?, receiptPath: j['receipt_path'] as String?, flow: j['flow'] as String?, reimbursedCents: (j['reimbursed_cents'] as num?)?.toInt() ?? 0);
   }
 }
 

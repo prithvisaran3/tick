@@ -154,7 +154,8 @@ class RemoteActivitySource implements ActivitySource {
 
 /// Demo mode and the signed-out guest ledger: the same rules over the rows held on the phone.
 class LocalActivitySource implements ActivitySource {
-  LocalActivitySource(this.l);
+  LocalActivitySource(this.l, {this.includeFriends = false});
+  final bool includeFriends;
   final LedgerState l;
   Map<String, Category> get _cats => {for (final c in l.categories) c.id: c};
   Map<String, Account> get _accts => {for (final a in l.accounts) a.id: a};
@@ -174,7 +175,7 @@ class LocalActivitySource implements ActivitySource {
     final days = {for (final t in rows) etDay(t.occurredAt)};
     final totals = <DateTime, int>{};
     for (final d in days) {
-      final t = computeTotals(all.where((t) => etDay(t.occurredAt) == d), cats: _cats, accounts: _accts);
+      final t = computeTotals(all.where((t) => etDay(t.occurredAt) == d), cats: _cats, accounts: _accts, includeFriends: includeFriends);
       totals[d] = t.netCents;
     }
     return PageData(rows, totals);
@@ -183,7 +184,7 @@ class LocalActivitySource implements ActivitySource {
   @override
   Future<Totals> totals(ActivityQuery q, {DateTime? from, DateTime? to}) async {
     final rows = l.txns.where((t) => q.matches(t, l, from: from, until: to ?? (from == null ? q.to : null)));
-    return computeTotals(rows, cats: _cats, accounts: _accts);
+    return computeTotals(rows, cats: _cats, accounts: _accts, includeFriends: includeFriends);
   }
 
   @override
@@ -192,7 +193,7 @@ class LocalActivitySource implements ActivitySource {
     for (final t in l.txns) {
       final at = t.occurredAt.toUtc();
       if (at.isBefore(from) || !at.isBefore(to)) continue;
-      final o = outOf(t, cats: _cats, accounts: _accts);
+      final o = outOf(t, cats: _cats, accounts: _accts, includeFriends: includeFriends);
       if (o == 0) continue;
       final k = cleanMerchant(t.merchant);
       final cur = by[k] ?? (0, 0);
@@ -214,7 +215,7 @@ final activitySourceProvider = Provider<ActivitySource>((ref) {
   final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
   final remote = ref.watch(remoteProvider);
   if (!demo && remote != null) return RemoteActivitySource(remote.db);
-  return LocalActivitySource(ref.watch(ledgerProvider));
+  return LocalActivitySource(ref.watch(ledgerProvider), includeFriends: ref.watch(settingsProvider.select((s) => s.includeFriends)));
 });
 
 class ActivityState {

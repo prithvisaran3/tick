@@ -29,6 +29,7 @@ from .db import rest
 from .audit import audit
 from .merchants import categorize, clean_merchant, looks_business
 from . import ai
+from . import paybacks
 from . import transfers as transfers_mod
 from .reconcile import Candidate, apply_plaid_removed, plan, plan_and_apply
 
@@ -287,7 +288,7 @@ def classify(t: dict, acct_type: str | None, cents: int) -> tuple[str | None, st
     if cents < 0 and (primary == "BANK_FEES" or detailed.startswith("BANK_FEES") or "INTEREST" in detailed or any(k in name for k in _FEE) or acct_type == "loan"):
         return "Fees and interest", None, []
     if transfers_mod.is_p2p(name) and not credit_like:
-        return "Friends and family", None, []    # Zelle / Venmo / Cash App: money to or from PEOPLE is real money (never a transfer)
+        return transfers_mod.p2p_category(name), None, []    # Zelle / Venmo / Cash App: money to or from PEOPLE (never a transfer)
     if primary in ("TRANSFER_IN", "TRANSFER_OUT"):
         return "Transfer", None, []              # pairing decides later whether it went to one of my own accounts
     if cents > 0:
@@ -409,7 +410,7 @@ def apply_money_rules(user_id: str, raw: list[dict], *, dry_run: bool = False) -
         flow_after = plan.get(r["id"], {}).get("flow", r.get("flow"))
         if (friends and transfers.is_p2p(text) and flow_after is None and id_to_name.get(r.get("category_id") or "") == "Transfer"
                 and "category" not in (r.get("user_edited") or [])):
-            plan[r["id"]] = {**plan.get(r["id"], {}), "category_id": friends}
+            plan[r["id"]] = {**plan.get(r["id"], {}), "category_id": name_to_id.get(transfers.p2p_category(text)) or friends}
     if dry_run:
         return plan
     for tid, patch in plan.items():
@@ -645,6 +646,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
         _ai_categorise(user_id, uncategorised, name_to_id)
         try:
             pair_transfers(user_id)
+            paybacks.auto_link(user_id)
         except Exception:
             pass                                          # pairing is re-run on the next sync; never block the cursor
         rest().update("connections", {"id": conn["id"]}, {"cursor": cursor})          # only after EVERY page of the set persisted

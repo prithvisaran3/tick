@@ -5,13 +5,21 @@ import 'dates.dart';
 /// supabase/migrations/20261106000002_activity_cards.sql); this Dart mirror is used only for demo mode and the signed-out guest
 /// ledger, and test/flows_parity_test.dart checks it against the same fixture and numbers as supabase/tests/flows.sql.
 ///
-///   excluded = flow 'transfer' (own accounts, card and loan payments) or 'settlement' (Tally): never spending, never income.
-///   out      = money leaving, positive (purchases, card purchases, fees, loan payments).
+///   excluded = flow 'transfer' (own accounts, card and loan payments), 'settlement' (Tally) or 'reimbursement' (a payback): never spending, never income.
+///              Friends and family rows too, unless "Include money with friends" is on; they show as one net line instead.
+///   out      = money leaving, positive (purchases net of their paybacks, card purchases, fees, loan payments).
 ///   refund   = money coming back onto a card or loan that isn't a payment: it lowers out, it isn't income.
 ///   in       = money arriving in cash accounts, or anything categorised Income.
 class Totals {
   const Totals({this.inCents = 0, this.outCents = 0, this.businessCents = 0, this.billsCents = 0, this.count = 0,
-      this.byCategory = const {}, this.byAccount = const {}, this.dailyOut = const {}});
+      this.byCategory = const {}, this.byAccount = const {}, this.dailyOut = const {},
+      this.friendsInCents = 0, this.friendsOutCents = 0, this.friendsCount = 0, this.friendsIncluded = false});
+  /// Money with friends in this period, whether or not it counts in the totals above.
+  final int friendsInCents;
+  final int friendsOutCents;
+  final int friendsCount;
+  final bool friendsIncluded;
+  int get friendsNetCents => friendsInCents - friendsOutCents;
   final int inCents;
   final int outCents;
   final int businessCents;
@@ -28,6 +36,8 @@ class Totals {
       inCents: (j['in'] as num?)?.toInt() ?? 0, outCents: (j['out'] as num?)?.toInt() ?? 0, businessCents: (j['business'] as num?)?.toInt() ?? 0,
       billsCents: (j['bills'] as num?)?.toInt() ?? 0, count: (j['count'] as num?)?.toInt() ?? 0,
       byCategory: m(j['by_category']), byAccount: m(j['by_account']),
+      friendsInCents: (j['friends_in'] as num?)?.toInt() ?? 0, friendsOutCents: (j['friends_out'] as num?)?.toInt() ?? 0,
+      friendsCount: (j['friends_count'] as num?)?.toInt() ?? 0, friendsIncluded: j['friends_included'] == true,
       dailyOut: {for (final e in m(j['daily_out']).entries) DateTime.parse(e.key): e.value},
     );
   }
@@ -36,31 +46,36 @@ class Totals {
 String? _kind(String? categoryId, Map<String, Category>? cats) =>
     cats?[categoryId]?.kind ?? (categoryId == 'cat-transfer' ? 'transfer' : categoryId == 'cat-income' ? 'income' : null);
 
-/// Only the FLOW excludes money. A Transfer-kind category is a label: Zelle to a friend is real money out (docs/MONEY_RULES.md).
-bool isExcluded(Txn t, {Map<String, Category>? cats}) => t.flow == 'transfer' || t.flow == 'settlement';
+/// A Friends and family row with no flow: money with friends, shown as one net line (docs/MONEY_RULES.md).
+bool isFriends(Txn t, {Map<String, Category>? cats}) => t.flow == null && (cats?[t.categoryId]?.name == 'Friends and family' || t.categoryId == 'cat-friends');
+
+/// A Transfer-kind category is a label and excludes nothing. The flow does, and so does being money with friends while the toggle is off.
+bool isExcluded(Txn t, {Map<String, Category>? cats, bool includeFriends = false}) =>
+    t.flow == 'transfer' || t.flow == 'settlement' || t.flow == 'reimbursement' || (!includeFriends && isFriends(t, cats: cats));
 
 /// Positive money out for one row (negative for a card refund), 0 if excluded or money in.
-int outOf(Txn t, {Map<String, Category>? cats, Map<String, Account>? accounts}) {
-  if (isExcluded(t, cats: cats)) return 0;
-  if (t.amountCents < 0) return -t.amountCents;
+int outOf(Txn t, {Map<String, Category>? cats, Map<String, Account>? accounts, bool includeFriends = false}) {
+  if (isExcluded(t, cats: cats, includeFriends: includeFriends)) return 0;
+  if (t.amountCents < 0) return t.myShareCents;
   final type = accounts?[t.accountId]?.type ?? 'checking';
   if (t.amountCents > 0 && _kind(t.categoryId, cats) != 'income' && (type == 'credit' || type == 'loan')) return -t.amountCents;
   return 0;
 }
 
-int inOf(Txn t, {Map<String, Category>? cats, Map<String, Account>? accounts}) {
-  if (isExcluded(t, cats: cats) || t.amountCents <= 0) return 0;
+int inOf(Txn t, {Map<String, Category>? cats, Map<String, Account>? accounts, bool includeFriends = false}) {
+  if (isExcluded(t, cats: cats, includeFriends: includeFriends) || t.amountCents <= 0) return 0;
   final type = accounts?[t.accountId]?.type ?? 'checking';
   return (_kind(t.categoryId, cats) == 'income' || (type != 'credit' && type != 'loan')) ? t.amountCents : 0;
 }
 
-Totals computeTotals(Iterable<Txn> txns, {Map<String, Category>? cats, Map<String, Account>? accounts}) {
-  var inC = 0, outC = 0, biz = 0, bills = 0, n = 0;
+Totals computeTotals(Iterable<Txn> txns, {Map<String, Category>? cats, Map<String, Account>? accounts, bool includeFriends = false}) {
+  var inC = 0, outC = 0, biz = 0, bills = 0, n = 0, fIn = 0, fOut = 0, fN = 0;
   final byCat = <String, int>{}, byAcct = <String, int>{}, daily = <DateTime, int>{};
   for (final t in txns) {
     n++;
-    final o = outOf(t, cats: cats, accounts: accounts);
-    inC += inOf(t, cats: cats, accounts: accounts);
+    if (isFriends(t, cats: cats)) { fN++; if (t.amountCents > 0) { fIn += t.amountCents; } else { fOut -= t.amountCents; } }
+    final o = outOf(t, cats: cats, accounts: accounts, includeFriends: includeFriends);
+    inC += inOf(t, cats: cats, accounts: accounts, includeFriends: includeFriends);
     if (o == 0) continue;
     outC += o;
     if (t.isBusiness) biz += o;
@@ -73,7 +88,8 @@ Totals computeTotals(Iterable<Txn> txns, {Map<String, Category>? cats, Map<Strin
   byCat.removeWhere((_, v) => v == 0);
   byAcct.removeWhere((_, v) => v == 0);
   daily.removeWhere((_, v) => v == 0);
-  return Totals(inCents: inC, outCents: outC, businessCents: biz, billsCents: bills, count: n, byCategory: byCat, byAccount: byAcct, dailyOut: daily);
+  return Totals(inCents: inC, outCents: outC, businessCents: biz, billsCents: bills, count: n, byCategory: byCat, byAccount: byAcct, dailyOut: daily,
+      friendsInCents: fIn, friendsOutCents: fOut, friendsCount: fN, friendsIncluded: includeFriends);
 }
 
 class MonthFlows {

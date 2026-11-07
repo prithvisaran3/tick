@@ -64,8 +64,8 @@ class TxRow extends StatelessWidget {
     final acct = ledger.account(t.accountId);
     final name = cleanMerchant(t.merchant);
     final pending = t.status == TxStatus.pending;
-    final sub = subtitle ?? [if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source), if (pending) 'Pending'].join(' · ');
-    final muted = t.isTransfer;
+    final sub = subtitle ?? [if (t.reimbursedCents > 0) 'Your share ${formatCents(t.myShareCents)}', if (t.isReimbursement) 'Payback' else if (t.isBusiness) 'Business' else if (cat != null) cat.name, if (acct != null) acct.shortLabel else sourceLabel(t.source), if (pending) 'Pending'].join(' · ');
+    final muted = t.isTransfer || t.isReimbursement || t.flow == 'settlement';
     final tint = t.isIncome ? 'inc' : (cat?.colorKey ?? 'shop');
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),

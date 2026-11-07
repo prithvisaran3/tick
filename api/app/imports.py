@@ -12,13 +12,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from . import applecard as AC
+from . import splitwise as SW
 from . import statements as ST
 from . import store
 from .audit import audit
 from .auth import current_user, user_limiter
 from .db import rest
 from .merchants import looks_business
-from .transfers import is_p2p
+from .transfers import is_p2p, p2p_category
 
 router = APIRouter()
 SAMPLE = 6
@@ -58,7 +59,7 @@ def _row_fields(row: AC.Row, acct: dict, name_to_id: dict[str, str], rules: dict
     f = AC.row_fields(row, acct["id"], name_to_id, rules)
     text = row.merchant or row.description
     if is_p2p(text) and f.get("flow") is None and name_to_id.get("Friends and family") and (row.category in (None, "Other")):
-        f["category_id"] = name_to_id["Friends and family"]
+        f["category_id"] = name_to_id.get(p2p_category(text)) or name_to_id["Friends and family"]
     if acct.get("type") in ("credit", "loan") and row.amount_cents > 0 and row.kind == "payment":
         f["flow"] = "transfer"                                  # a payment received on a card or loan is never income
     if row.amount_cents < 0 and looks_business(text) and acct.get("type") != "credit" or (row.amount_cents < 0 and looks_business(text)):
@@ -66,13 +67,38 @@ def _row_fields(row: AC.Row, acct: dict, name_to_id: dict[str, str], rules: dict
     f["sources"] = [{**f["sources"][0], "source": "statement"}]
     return f
 
+def _splitwise(user_id: str, raw: bytes, mode: str, filename: str, me: str | None, group_name: str | None) -> dict:
+    """A Splitwise export is a Tally group, not bank rows. Preview says what would be added; commit needs to know which member is me."""
+    try:
+        ex = SW.parse(raw)
+    except ST.StatementError as e:
+        raise HTTPException(422, str(e))
+    refs = {r["external_ref"].rsplit(":", 1)[0] for t in ("tally_expenses", "tally_settlements")
+            for r in rest().select(t, user_id=f"eq.{user_id}", external_ref="like.splitwise:*", select="external_ref")}
+    fresh = [i for i in ex.items if i.ref not in refs]
+    prof = rest().select("profiles", user_id=f"eq.{user_id}", select="display_name")
+    name = (group_name or re.sub(r"[_-]+", " ", filename.rsplit(".", 1)[0]).strip() or "Splitwise")[:60]
+    out = {"source": "splitwise", "label": "Splitwise group", "group_name": name, "members": ex.members, "me_guess": SW.guess_me(ex.members, prof[0].get("display_name") if prof else None),
+           "balances": ex.balances, "new": len(fresh), "already_imported": len(ex.items) - len(fresh), "duplicates": 0, "unreadable": ex.unreadable, "accounts": [], "needs_account": False,
+           "empty": not ex.items, "sample": [{"date": i.when.isoformat(), "merchant": i.description, "cents": -i.cost_cents} for i in sorted(fresh, key=lambda i: i.when, reverse=True)[:SAMPLE]]}
+    if mode == "preview" or not fresh:
+        return {**out, "imported": 0} if mode == "commit" else out
+    if me not in ex.members:
+        raise HTTPException(422, "Pick which member is you.")
+    batch = rest().insert("import_batches", {"user_id": user_id, "source": "splitwise", "filename": filename[:120], "rows_added": len(fresh), "rows_skipped": len(ex.items) - len(fresh)})[0]
+    res = rest().rpc("tally_import_splitwise", {"p_uid": user_id, "p_batch": batch["id"], "p": SW.payload(ex, me, name, refs)})
+    audit(user_id, "import_batch", {"count": len(fresh), "scope": "splitwise"})
+    return {**out, "batch_id": batch["id"], "imported": len(fresh), "group_id": res.get("group_id")}
+
 @router.post("/import/statement")
 def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), account_id: str | None = Form(None), mapping: str | None = Form(None),
-                     user_id: str = Depends(current_user)):
+                     me_member: str | None = Form(None, max_length=120), group_name: str | None = Form(None, max_length=60), user_id: str = Depends(current_user)):
     user_limiter.check(f"import:{user_id}", 8, 60)
     if mode not in ("preview", "commit"):
         raise HTTPException(422, "mode must be preview or commit")
     raw = file.file.read(ST.MAX_BYTES + 1)
+    if len(raw) <= ST.MAX_BYTES and SW.looks_like(raw):
+        return _splitwise(user_id, raw, mode, file.filename or "", me_member, group_name)
     try:
         m = json.loads(mapping) if mapping else None
         if m is not None and not isinstance(m, dict):
@@ -131,6 +157,10 @@ def undo(batch_id: str, user_id: str = Depends(current_user)):
         return {"undone": True, "removed": 0}
     gone = rest().select("transactions", user_id=f"eq.{user_id}", import_batch_id=f"eq.{batch_id}", select="id")
     rest().delete("transactions", {"user_id": user_id, "import_batch_id": batch_id})
+    if rows[0].get("source") == "splitwise":
+        for t in ("tally_expenses", "tally_settlements"):
+            gone += rest().select(t, user_id=f"eq.{user_id}", import_batch_id=f"eq.{batch_id}", select="id")
+            rest().delete(t, {"user_id": user_id, "import_batch_id": batch_id})
     rest().update("import_batches", {"id": batch_id, "user_id": user_id}, {"undone_at": datetime.now(timezone.utc).isoformat()})
     audit(user_id, "import_undone", {"count": len(gone)})
     return {"undone": True, "removed": len(gone)}

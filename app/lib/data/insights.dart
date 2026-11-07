@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/flows.dart';
 import 'activity.dart';
 import 'ledger.dart';
+import 'settings.dart';
 import '../domain/dates.dart';
 
 class InsightsData {
@@ -41,5 +42,9 @@ final insightsProvider = FutureProvider<InsightsData>((ref) async {
     src.totals(none, from: etToUtc(prev), to: etToUtc(m)),
     src.topMerchants(bounds.$1, bounds.$2, limit: 6),
   ]);
+  final cur = r[0] as Totals;
+  if (cur.friendsIncluded != ref.read(settingsProvider).includeFriends) {       // another device changed it: the database wins
+    ref.read(settingsProvider.notifier).update((s) => s.copyWith(includeFriends: cur.friendsIncluded));
+  }
   return InsightsData(now: now, cur: r[0] as Totals, prevSame: r[1] as Totals, prevFull: r[2] as Totals, merchants: r[3] as List<MerchantTotal>);
 });

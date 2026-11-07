@@ -54,7 +54,7 @@ LedgerState? decodeLedger(Map<String, dynamic> j) {
 
 Map<String, dynamic> encodeTxn(Txn t) => {
       'id': t.id, 'a': t.amountCents, 'at': t.occurredAt.toUtc().toIso8601String(), 'm': t.merchant, 'c': t.categoryId, 'acc': t.accountId,
-      'p': t.status == TxStatus.pending, 'cf': t.confidence, 'r': t.needsReview, 'tg': t.tags, 'n': t.note, 's': t.source, 'l4': t.cardLast4, 'f': t.flow,
+      'p': t.status == TxStatus.pending, 'cf': t.confidence, 'r': t.needsReview, 'tg': t.tags, 'n': t.note, 's': t.source, 'l4': t.cardLast4, 'f': t.flow, 'rb': t.reimbursedCents,
     };
 
 Txn decodeTxn(Map<String, dynamic> t) => Txn(

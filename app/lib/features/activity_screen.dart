@@ -18,6 +18,7 @@ import '../domain/money.dart';
 import '../services/haptics.dart';
 import 'ask_button.dart';
 import 'common.dart';
+import 'payback_card.dart';
 
 /// Activity: ONE continuous list across every month (keyset pages of 40, prefetched ahead). A pinned month header carries that month's
 /// in, out and net under the active filters and hands over to the next month as you scroll (light tick). Day headers carry the day's net.
@@ -137,6 +138,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         if (q.anyFilter || q.upTo != null)
           Padding(padding: const EdgeInsets.only(bottom: 4), child: _ActiveFilters(q: q, ledger: l, onChange: _set)),
         if (a.offline) OfflineBanner(onRetry: notifier.refresh),
+        if (!q.anyFilter) const PaybackBanner(),
         if (a.loading && a.rows.isEmpty) const ListSkeleton(rows: 8)
         else if (a.error && a.rows.isEmpty) ErrorState(onRetry: notifier.refresh)
         else if (a.rows.isEmpty)

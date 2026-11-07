@@ -67,7 +67,7 @@ class Tools:
         spent = sum(out(t) for t in rows)
         income = sum(inc(t) for t in rows)
         counted = [t for t in rows if out(t) != 0 or inc(t) != 0]
-        return {"count": len(counted), "excluded_count": len(rows) - len(counted), "spent_cents": spent, "income_cents": income, "total_cents": income - spent,
+        return {"count": len(counted), "excluded_count": len(rows) - len(counted), "spent_cents": spent, "income_cents": income, "total_cents": income - spent, "friends_net_cents": sum(t.get("friends_cents", 0) for t in rows),
                 "items": [{"id": t["id"], "merchant": t["merchant"], "cents": t["amount_cents"], "date": t["date"].isoformat(), **({"excluded": True} if t in rows and out(t) == 0 and inc(t) == 0 else {})} for t in rows[:max(1, min(limit, 20))]]}
 
     def spend_by_category(self, start: str = "", end: str = "") -> dict:
@@ -213,7 +213,7 @@ def load_ledger(user_id: str) -> Ledger:
     cats = {c["id"]: c["name"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
     # The SQL money rules classify every row once (tick_classified): excluded transfers, refunds, Zelle to people, card purchases.
     rows = rest().rpc("tick_classified", {"p_uid": user_id, "p_from": f"{since}T00:00:00+00:00", "p_to": None})
-    txns = [{"id": x["id"], "merchant": x["merchant"] or "", "amount_cents": x["amount_cents"], "out_cents": x["out_c"], "in_cents": x["in_c"],
+    txns = [{"id": x["id"], "merchant": x["merchant"] or "", "amount_cents": x["amount_cents"], "out_cents": x["out_c"], "in_cents": x["in_c"], "friends_cents": x.get("friends_c") or 0,
              "date": datetime.fromisoformat(x["occurred_at"].replace("Z", "+00:00")).astimezone(ET).date(),
              "category": x["cat_name"], "tags": x["tags"] or [], "account": x["account_id"]} for x in rows]
     rec = [{"merchant": x["merchant"], "cadence": x["cadence"], "expected_cents": x["expected_cents"], "next_date": date.fromisoformat(x["next_date"])} for x in rest().select("recurring", user_id=f"eq.{user_id}", status="eq.active")]
