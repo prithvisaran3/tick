@@ -41,8 +41,16 @@ class RollingNumber extends StatefulWidget {
 }
 
 class _RollingNumberState extends State<RollingNumber> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController.unbounded(vsync: this, value: widget.value.toDouble());
+  // Created in initState, not lazily: a lazy controller first touched in dispose() (Reduce Motion never reads it) looks up TickerMode
+  // on a deactivated element and throws.
+  late final AnimationController _c;
   late int _from = widget.value;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController.unbounded(vsync: this, value: widget.value.toDouble());
+  }
 
   @override
   void didUpdateWidget(RollingNumber old) {

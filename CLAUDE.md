@@ -2,7 +2,7 @@
 Personal finance iPhone app for Prithvi (sole user). Full spec: `docs/SPEC.md` (authoritative; Section 7 = design system).
 
 ## How to resume
-Read this file, then `docs/NEXT.md` (manual steps + phase checklist), `docs/DECISIONS.md`. Continue at the first unchecked phase. Unattended: never ask questions; decide, log in DECISIONS.md, continue. Update NEXT.md at the end of every phase; commit with `tools/commit.sh "msg"` (secret-scans, commits, pushes the current branch `claude/gifted-cannon-lkg2x3`).
+Read this file, then `docs/NEXT.md` (manual steps + phase checklist), `docs/DECISIONS.md`. Continue at the first unchecked phase. Unattended: never ask questions; decide, log in DECISIONS.md, continue. Update NEXT.md at the end of every phase; commit with `tools/commit.sh "msg"` (secret-scans, commits, pushes the current branch). Work on a feature branch off `main` and merge by pull request; `main` is the only long-lived branch.
 
 ## Stack
 - `app/` Flutter (Dart 3, Riverpod 2, go_router, freezed, supabase_flutter). Custom widgets only — no visible Material look.

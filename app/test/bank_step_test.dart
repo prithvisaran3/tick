@@ -44,7 +44,7 @@ class _Server {
         if (r.url.path == '/plaid/link-token') {
           if (tokenStatus == 403 || tokenStatus == 409) return json(tokenStatus, {'detail': linkLimitedMessage});
           if (tokenStatus != 200) return json(tokenStatus, {'detail': 'Bank link unavailable (INTERNAL_SERVER_ERROR)'});
-          return json(200, {'link_token': 'link-production-abc123456', 'hosted_link_url': 'https://hosted.plaid.test/x', 'links_left': 7});
+          return json(200, {'link_token': 'link-production-fake-123456', 'hosted_link_url': 'https://hosted.plaid.test/x', 'links_left': 7});
         }
         if (r.url.path == '/plaid/complete') return completeStatus == 200 ? json(200, {'connections': ['c1'], 'syncing': true}) : json(completeStatus, {'detail': 'x'});
         return json(404, {'detail': 'nope'});
@@ -146,7 +146,7 @@ void main() {
     final c0 = _Server(completeStatus: 200);
     final client = MockClient((r) async {
       if (r.url.path == '/plaid/complete') throw http.ClientException('down');
-      return http.Response(jsonEncode(r.url.path == '/plaid/links' ? {'used': 0, 'cap': 10, 'left': 10, 'can_link': true, 'total_left': 10} : {'link_token': 'link-production-abc123456', 'hosted_link_url': 'https://h/x'}), 200);
+      return http.Response(jsonEncode(r.url.path == '/plaid/links' ? {'used': 0, 'cap': 10, 'left': 10, 'can_link': true, 'total_left': 10} : {'link_token': 'link-production-fake-123456', 'hosted_link_url': 'https://h/x'}), 200);
     });
     final out = await runBankLink(Api(client: client), (u) async => 'tick://plaid-complete');
     expect(out.result, LinkResult.pending);

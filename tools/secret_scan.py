@@ -36,7 +36,7 @@ PATTERNS = {
     "assigned_secret": r"(?i)(secret|password|api_?key|token)[\"']?\s*[:=]\s*[\"'][A-Za-z0-9_\-/+]{24,}[\"']",
 }
 # Known-safe test fixtures (fake values that only look like secrets).
-ALLOW = re.compile(r"sk-or-v1-abc|tk_x\b|tk_test|FAKE|fake-|example|placeholder|xxxxxxxx", re.I)
+ALLOW = re.compile(r"sk-or-v1-abc|tk_x\b|tk_test|FAKE|fake-|example|placeholder|xxxxxxxx|link-production-abc123456", re.I)  # last: an old test fixture in history
 
 def staged_added_lines():
     out = subprocess.run(["git", "diff", "--cached", "-U0", "--no-color"],
