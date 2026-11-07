@@ -128,8 +128,7 @@ def delete_everything(body: DeleteBody, user_id: str = Depends(current_user)):
         pass
     auth.forget_tokens(user_id)
     audit(user_id, "data_deleted", {"count": removed})
-    return {"deleted": True, "banks_removed": removed, "banks_failed": failed, "receipts_deleted": receipts,
-            "note": "Removing a bank link never gives the slot back."}
+    return {"deleted": True, "banks_removed": removed, "banks_failed": failed, "receipts_deleted": receipts}
 
 def _delete_receipts(user_id: str) -> int:
     s = settings()

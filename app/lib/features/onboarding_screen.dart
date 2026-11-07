@@ -18,7 +18,7 @@ import '../services/auth.dart';
 import '../services/haptics.dart';
 import '../domain/dates.dart';
 
-/// Three steps: welcome + Google, paycheck, the big stuff (rent, goal) or demo data.
+/// Three steps: welcome + Google, paycheck, the big stuff (rent, goal).
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key, this.initialStep = 0});
   final int initialStep;
@@ -74,26 +74,22 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => set(a));
   }
 
-  Future<void> _finish({bool demo = false}) async {
+  Future<void> _finish() async {
     final n = ref.read(settingsProvider.notifier);
     final now = ref.read(clockProvider)();
-    if (demo) {
-      n.update((s) => s.copyWith(demoMode: true, onboardingDone: true));
-    } else {
-      final amt = parseCents(_amount) ?? 0;
-      final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
-      n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
-      final led = ref.read(ledgerProvider.notifier);
-      for (final b in _bills) {
-        await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
-      }
-      final save = parseCents(_savings);
-      if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
-      final rent = parseCents(_rent);
-      if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
+    final amt = parseCents(_amount) ?? 0;
+    final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
+    n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
+    final led = ref.read(ledgerProvider.notifier);
+    for (final b in _bills) {
+      await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
     }
+    final save = parseCents(_savings);
+    if (save != null && save > 0) await led.saveGoal(Goal(id: 'local-g-savings', name: 'Savings', targetCents: save * 24, savedCents: 0, perPaydayCents: save));
+    final rent = parseCents(_rent);
+    if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
     TickHaptics.instance.pop();
-    if (mounted) context.go(demo ? '/' : routeAfterSetup(ref));
+    if (mounted) context.go(routeAfterSetup(ref));
   }
 
   @override
@@ -187,7 +183,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         if (tight) const SizedBox(height: 24) else const Spacer(),
         ActionButton('Add', onPressed: () => _finish()),
         const SizedBox(height: 8),
-        ActionButton('Start with demo data', style: PillStyle.ghost, height: 52, onPressed: () => _finish(demo: true)),
         Center(child: Pressable(onTap: () => _finish(), child: Padding(padding: const EdgeInsets.all(12), child: Text('Skip for now', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
       ]);
     }

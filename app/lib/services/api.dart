@@ -25,8 +25,8 @@ String messageForStatus(int status, Object? detail) {
   if (status == 409) return 'That conflicts with something already saved. Refresh and try again.';
   if (status == 422 || status == 400) return 'Something in that isn\'t valid. Check it and try again.';
   if (status == 429) return 'Too many tries. Wait a minute and try again.';
-  if (status >= 500) return 'Tick had a problem on its side (code $status). Try again in a minute.';
-  return 'Tick couldn\'t accept that (code $status). Try again.';
+  if (status >= 500) return 'Tick is having trouble right now. Try again in a minute.';
+  return 'Tick couldn\'t accept that. Check it and try again.';
 }
 
 /// A short, specific reason for any thrown error, for the "what happened" line under a failed action.
@@ -34,7 +34,7 @@ String describeError(Object e, {String action = 'do that'}) {
   if (e is ApiException) return e.message;
   if (e is TimeoutException) return 'Tick is taking too long. Try again in a moment.';
   if (e is SocketException || e is http.ClientException) return 'Can\'t reach Tick right now. Check your connection.';
-  return 'Couldn\'t $action (${e.runtimeType}). Try again, nothing was lost.';
+  return 'Couldn\'t $action. Try again.';
 }
 
 /// Thin client for the Tick FastAPI service. Sends the Supabase JWT (refreshed when close to expiry), bounded timeouts,
@@ -110,6 +110,8 @@ class Api {
       throw ApiException(0, 'Can\'t reach Tick right now.', offline: true);
     } on TimeoutException {
       throw ApiException(0, 'Tick is taking too long. Try again in a moment.', offline: true);
+    } on http.ClientException {
+      throw ApiException(0, 'Can\'t reach Tick right now.', offline: true);
     }
   }
 

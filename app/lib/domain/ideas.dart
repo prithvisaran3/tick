@@ -4,7 +4,7 @@ import 'payday.dart';
 import 'safe_to_spend.dart';
 import 'dates.dart';
 
-/// Shipped ideas from docs/IDEAS.md. Pure functions; unit-tested in test/domain/ideas_test.dart.
+/// Shipped ideas from docs/IDEAS_ARCHIVE.md. Pure functions; unit-tested in test/domain/ideas_test.dart.
 /// Tick only ever SUGGESTS: none of these move money.
 
 // ---------- 1. Card-due guard ----------

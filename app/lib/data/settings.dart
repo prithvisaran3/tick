@@ -1,11 +1,16 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../domain/models.dart';
 import '../services/haptics.dart';
+import '../services/session.dart';
 import 'remote.dart';
 
-/// Labs: shipped ideas from docs/IDEAS.md, each switchable in Settings. (id, title, one-line description)
+/// Demo data exists for tests and local development only. A compile-time constant: release builds can't turn it on, whatever is saved on the phone.
+const demoAllowed = !kReleaseMode;
+
+/// Labs: shipped ideas from docs/IDEAS_ARCHIVE.md, each switchable in Settings. (id, title, one-line description)
 const featureFlags = <(String, String, String)>[
   ('card_guard', 'Card-due guard', 'Warns when checking can\'t cover the card bills due before payday.'),
   ('truly_free', 'Truly free', 'Shows what is left after every card balance, not only what is due.'),
@@ -18,7 +23,7 @@ final sharedPrefsProvider = Provider<SharedPreferences?>((ref) => null);
 class AppSettings {
   const AppSettings({
     this.haptics = HapticMode.full, this.sound = true, this.theme = 'system', this.faceIdLock = false, this.privacyBlur = true,
-    this.demoMode = false, this.onboardingDone = false, this.rule, this.morningTime = '08:00', this.weeklyTime = '19:00',
+    this._demoMode = false, this.onboardingDone = false, this.rule, this.morningTime = '08:00', this.weeklyTime = '19:00',
     this.lastMorningReceipt, this.name, this.flagsOff = const {}, this.hideAmounts = false, this.lockAfterSeconds = 60,
   });
   /// Feature flags that are switched OFF (everything in [featureFlags] is on by default). Settings > Labs.
@@ -33,7 +38,8 @@ class AppSettings {
   final String theme; // system | dark | light
   final bool faceIdLock;
   final bool privacyBlur;
-  final bool demoMode;
+  final bool _demoMode;
+  bool get demoMode => demoAllowed && _demoMode;
   final bool onboardingDone;
   final PaydayRule? rule;
   final String morningTime;
@@ -57,7 +63,7 @@ class AppSettings {
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
         haptics: HapticMode.values.firstWhere((m) => m.name == j['haptics'], orElse: () => HapticMode.full),
         sound: (j['sound'] ?? true) as bool, theme: (j['theme'] ?? 'system') as String, faceIdLock: (j['faceIdLock'] ?? false) as bool,
-        privacyBlur: (j['privacyBlur'] ?? true) as bool, demoMode: (j['demoMode'] ?? false) as bool, onboardingDone: (j['onboardingDone'] ?? false) as bool,
+        privacyBlur: (j['privacyBlur'] ?? true) as bool, demoMode: (j['demoMode'] ?? false) as bool, onboardingDone: (j['onboardingDone'] ?? false) as bool && !(j['demoMode'] == true && !demoAllowed),   // someone who only ever saw demo data starts over
         morningTime: (j['morningTime'] ?? '08:00') as String, weeklyTime: (j['weeklyTime'] ?? '19:00') as String,
         lastMorningReceipt: j['lastMorningReceipt'] as String?, name: j['name'] as String?,
         flagsOff: {...((j['flagsOff'] as List?) ?? const []).whereType<String>()}, hideAmounts: (j['hideAmounts'] ?? false) as bool,
@@ -80,6 +86,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
         p?.remove('tick.settings');                                  // corrupt settings must never stop the app from launching
       }
     }
+    // Demo data never shows for a signed-in person.
+    if (s.demoMode && ref.read(userIdProvider) != null) s = s.copyWith(demoMode: false);
+    ref.listen(userIdProvider, (_, uid) { if (uid != null && state.demoMode) update((x) => x.copyWith(demoMode: false)); });
     TickHaptics.instance.setMode(s.haptics);
     TickHaptics.instance.setSound(s.sound);
     return s;

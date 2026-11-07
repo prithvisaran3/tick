@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tick/data/demo_seed.dart';
 import 'package:tick/data/ledger.dart';
 import 'package:tick/data/ledger_codec.dart';
+import 'package:tick/data/link_info.dart';
 import 'package:tick/data/settings.dart';
 import 'package:tick/domain/csv.dart';
 import 'package:tick/domain/models.dart';
@@ -140,7 +141,7 @@ void main() {
       final bad = Api(client: MockClient((r) async => http.Response('{"detail":[{"loc":["body"],"msg":"field required"}]}', 422)));
       await expectLater(bad.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('isn\'t valid'))));
       final boom = Api(client: MockClient((r) async => http.Response('<html>oops secret stack</html>', 500)));
-      await expectLater(boom.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', allOf(contains('code 500'), isNot(contains('secret'))))));
+      await expectLater(boom.post('/x'), throwsA(isA<ApiException>().having((e) => e.message, 'message', allOf(contains('having trouble'), isNot(contains('secret'))))));
     });
 
     test('non-idempotent Plaid POSTs are sent exactly once on 5xx, timeout and dropped connections', () async {
@@ -201,7 +202,7 @@ void main() {
         expect(m.toLowerCase(), isNot(contains('exception')));
       }
       expect(const AuthFailure(AuthFailureKind.offline).message, contains('offline'));
-      expect(const AuthFailure(AuthFailureKind.failed).message, contains('nothing was lost'));
+      expect(const AuthFailure(AuthFailureKind.failed).message, contains('Sign-in didn\'t finish'));
     });
 
     test('without Supabase config sign-in reports notConfigured instead of hanging', () async {
@@ -255,18 +256,18 @@ void apiMessageTests() {
       expect(messageForStatus(409, null), contains('conflicts'));
       expect(messageForStatus(422, [{'msg': 'x'}]), contains('isn\'t valid'));
       expect(messageForStatus(429, null), contains('Too many'));
-      expect(messageForStatus(500, '<html>secret</html>'), allOf(contains('code 500'), isNot(contains('secret'))));
+      expect(messageForStatus(500, '<html>secret</html>'), allOf(contains('having trouble'), isNot(contains('secret'))));
       expect(messageForStatus(502, 'Bank link unavailable (ITEM_LOGIN_REQUIRED)'), contains('ITEM_LOGIN_REQUIRED'));
       for (final s in [400, 401, 403, 404, 409, 422, 429, 500, 502, 503]) {
         expect(messageForStatus(s, null), isNot(contains('That didn\'t go through')), reason: 'status $s');
       }
     });
     test('linkErrorMessage separates 403 from 409 and names other causes', () {
-      expect(linkErrorMessage(ApiException(403, 'x')), ownerOnlyMessage);
-      expect(linkErrorMessage(ApiException(409, 'x')), capMessage);
+      expect(linkErrorMessage(ApiException(403, 'x')), linkLimitedMessage);
+      expect(linkErrorMessage(ApiException(409, 'x')), linkLimitedMessage);
       expect(linkErrorMessage(ApiException(0, 'Can\'t reach Tick right now.', offline: true)), contains('reach'));
       expect(linkErrorMessage(ApiException(502, 'Bank link unavailable (X)')), contains('Bank link unavailable'));
-      expect(linkErrorMessage(StateError('x')), contains('StateError'));
+      expect(linkErrorMessage(StateError('x')), 'Couldn\'t link that bank. Try again.');
     });
   });
 }

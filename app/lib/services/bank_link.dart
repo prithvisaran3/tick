@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../data/link_info.dart';
 import 'api.dart';
 import 'errors.dart';
 import 'web_auth.dart';
@@ -7,7 +8,7 @@ import 'web_auth.dart';
 /// Opens Plaid's hosted page and returns its callback URL. A provider so tests never open a browser.
 final webAuthProvider = Provider<Future<String> Function(String url)>((ref) => (u) => webAuthenticate(u));
 
-enum LinkResult { linked, pending, cancelled, failed }
+enum LinkResult { linked, pending, cancelled, limited, failed }
 
 class LinkOutcome {
   const LinkOutcome(this.result, {this.message, this.connections = 0});
@@ -17,21 +18,18 @@ class LinkOutcome {
   bool get ok => result == LinkResult.linked;
 }
 
-const ownerOnlyMessage = 'Linking banks is limited to this Tick\'s owner. You can add purchases from Wallet or import a statement.';
-const capMessage = 'All 10 bank links are used, so Tick can\'t add another bank.';
 const stillConnecting = 'Your bank may still be connecting. Pull to refresh in a minute before you link again.';
 
-/// A person-readable reason for a failed link step. 403 and 409 each have their own sentence; everything else says what actually failed.
+/// A person-readable reason for a failed link step. The owner lock (403) and the cap (409) are not failures: both read as the one calm line.
 String linkErrorMessage(Object e, {bool bankDone = false, bool newLink = true}) {
   if (e is ApiException) {
-    if (e.status == 403) return newLink ? ownerOnlyMessage : e.message;
-    if (e.status == 409) return capMessage;
-    if (e.status == 429 || e.status == 401 || e.status == 404) return e.message;
+    if (newLink && !bankDone && (e.status == 403 || e.status == 409)) return linkLimitedMessage;
+    if (e.status == 429 || e.status == 401 || e.status == 403 || e.status == 404) return e.message;
     if (e.offline) return bankDone && newLink ? stillConnecting : e.message;
     if (bankDone && newLink) return stillConnecting;                       // the bank side finished; the webhook usually completes it
     return e.message;                                                      // 502 carries "Bank link unavailable (CODE)"
   }
-  if (e is PlatformException) return 'The bank window closed with a problem (${e.code}). Try again.';
+  if (e is PlatformException) return 'The bank window closed before linking finished. Try again.';
   if (bankDone && newLink) return stillConnecting;
   return describeError(e, action: 'link that bank');
 }
@@ -60,8 +58,11 @@ Future<LinkOutcome> runBankLink(Api api, Future<String> Function(String) authent
     AppErrors.record(e, st, where: 'bank-link');
     return LinkOutcome(LinkResult.failed, message: linkErrorMessage(e, bankDone: bankDone, newLink: connectionId == null));
   } catch (e, st) {
+    if (connectionId == null && !bankDone && e is ApiException && (e.status == 403 || e.status == 409)) {
+      return const LinkOutcome(LinkResult.limited, message: linkLimitedMessage);       // the owner lock or the cap: expected, not a failure
+    }
     AppErrors.record(e, st, where: 'bank-link');
-    final pending = bankDone && connectionId == null && !(e is ApiException && (e.status == 403 || e.status == 409));
+    final pending = bankDone && connectionId == null;
     return LinkOutcome(pending ? LinkResult.pending : LinkResult.failed, message: linkErrorMessage(e, bankDone: bankDone, newLink: connectionId == null));
   }
 }

@@ -8,10 +8,12 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:tick/data/bank_step.dart';
 import 'package:tick/data/ledger.dart';
+import 'package:tick/data/link_info.dart';
 import 'package:tick/data/nav.dart';
 import 'package:tick/design/theme.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/features/bank_step_screen.dart';
+import 'package:tick/features/banks_screen.dart';
 import 'package:tick/services/api.dart';
 import 'package:tick/services/bank_link.dart';
 import 'package:tick/services/session.dart';
@@ -27,7 +29,8 @@ class _FakeLedger extends LedgerNotifier {
 }
 
 class _Server {
-  _Server({this.canLink = true, this.totalLeft = 7, this.tokenStatus = 200, this.completeStatus = 200});
+  _Server({this.canLink = true, this.totalLeft = 7, this.tokenStatus = 200, this.completeStatus = 200, this.linksFail = false});
+  final bool linksFail;
   final bool canLink;
   final int totalLeft;
   final int tokenStatus, completeStatus;
@@ -36,10 +39,10 @@ class _Server {
         calls.add('${r.method} ${r.url.path}');
         Map<String, dynamic> ok(Map<String, dynamic> j) => j;
         http.Response json(int code, Object j) => http.Response(jsonEncode(j), code, headers: {'content-type': 'application/json'});
+        if (r.url.path == '/plaid/links' && linksFail) return json(500, {'detail': 'x'});
         if (r.url.path == '/plaid/links') return json(200, ok({'used': canLink ? 3 : 0, 'cap': 10, 'left': canLink ? 7 : 10, 'can_link': canLink, 'total_left': totalLeft}));
         if (r.url.path == '/plaid/link-token') {
-          if (tokenStatus == 403) return json(403, {'detail': 'Linking banks is limited to this Tick\'s owner. You can add purchases from Wallet or import a statement instead.'});
-          if (tokenStatus == 409) return json(409, {'detail': 'All 10 bank links are used, so Tick can\'t add another bank.'});
+          if (tokenStatus == 403 || tokenStatus == 409) return json(tokenStatus, {'detail': linkLimitedMessage});
           if (tokenStatus != 200) return json(tokenStatus, {'detail': 'Bank link unavailable (INTERNAL_SERVER_ERROR)'});
           return json(200, {'link_token': 'link-production-abc123456', 'hosted_link_url': 'https://hosted.plaid.test/x', 'links_left': 7});
         }
@@ -48,7 +51,7 @@ class _Server {
       });
 }
 
-Future<(ProviderContainer, GoRouter)> _pump(WidgetTester tester, _Server server, {List<Connection> connections = const [], Future<String> Function(String)? auth, bool signedIn = true, double w = 393, double h = 852}) async {
+Future<(ProviderContainer, GoRouter)> _pump(WidgetTester tester, _Server server, {List<Connection> connections = const [], Future<String> Function(String)? auth, bool signedIn = true, double w = 393, double h = 852, String start = '/onboarding/bank'}) async {
   await loadFonts();
   final c = await demoContainer(demo: false, overrides: [
     apiProvider.overrideWithValue(Api(client: server.client)),
@@ -57,7 +60,8 @@ Future<(ProviderContainer, GoRouter)> _pump(WidgetTester tester, _Server server,
     ledgerProvider.overrideWith(() => _FakeLedger(LedgerState(connections: connections))),
   ]);
   addTearDown(c.dispose);
-  final router = GoRouter(initialLocation: '/onboarding/bank', routes: [
+  final router = GoRouter(initialLocation: start, routes: [
+    GoRoute(path: '/banks', builder: (_, _) => const BanksScreen()),
     GoRoute(path: '/', builder: (_, _) => const Text('TODAY')),
     GoRoute(path: '/onboarding/bank', builder: (_, _) => const BankStepScreen(syncWait: Duration(milliseconds: 300))),
     GoRoute(path: '/import', builder: (_, _) => const Text('IMPORT')),
@@ -128,13 +132,14 @@ void main() {
     expect(router.state.uri.path, '/');
   });
 
-  testWidgets('a server 403 on a stale screen shows the owner-only reason, not a bare failure', (tester) async {
-    final s = _Server(tokenStatus: 403);
+  testWidgets('non-owner whose status hasn\'t loaded: the server 403 reads as the one calm line, not a failure', (tester) async {
+    final s = _Server(tokenStatus: 403, linksFail: true);
     await _pump(tester, s);
     await tester.tap(find.text('Link a bank'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.textContaining('limited to this Tick'), findsWidgets);
-    expect(find.textContaining('didn\'t go through'), findsNothing);
+    expect(find.text(linkLimitedMessage), findsOneWidget);
+    expect(find.textContaining('go through'), findsNothing);
+    await _drain(tester);                                               // the status GET's retry backoff
   });
 
   testWidgets('offline during the exchange after the bank finished says it may still be connecting', (tester) async {
@@ -149,22 +154,42 @@ void main() {
     expect(c0.calls, isEmpty);
   });
 
-  testWidgets('non-owner: no Link button, clear copy, Continue and import', (tester) async {
+  testWidgets('non-owner: Link stays visible, a tap shows one calm line, Plaid is never called, skip still works', (tester) async {
     final s = _Server(canLink: false);
     final (_, router) = await _pump(tester, s);
-    expect(find.text('Link a bank'), findsNothing);
-    expect(find.textContaining('Banks are linked by this Tick\'s owner', findRichText: true), findsOneWidget);
-    expect(find.text('Continue'), findsOneWidget);
-    expect(find.text('Import a statement'), findsOneWidget);
-    await tester.tap(find.text('Import a statement'));
+    await tester.tap(find.text('Link a bank'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(linkLimitedMessage), findsOneWidget);
+    expect(s.calls.where((x) => x.contains('link-token')), isEmpty);
+    final line = tester.widget<Text>(find.text(linkLimitedMessage));
+    final ctx = tester.element(find.text(linkLimitedMessage));
+    expect(line.style?.color, isNot(ctx.c.alert), reason: 'not an error');
+    await tester.tap(find.text('Skip for now'));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(router.state.uri.path, '/import');
+    expect(router.state.uri.path, '/');
   });
 
-  testWidgets('every Plaid slot used: owner sees the same no-link copy instead of a button that can only fail', (tester) async {
-    await _pump(tester, _Server(totalLeft: 0));
-    expect(find.text('Link a bank'), findsNothing);
-    expect(find.text('Continue'), findsOneWidget);
+  testWidgets('every slot used: the owner gets the same line, no count', (tester) async {
+    final s = _Server(totalLeft: 0);
+    await _pump(tester, s);
+    await tester.tap(find.text('Link a bank'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(linkLimitedMessage), findsOneWidget);
+    expect(s.calls.where((x) => x.contains('link-token')), isEmpty);
+  });
+
+  testWidgets('Banks for a non-owner with no banks: finished empty state, no counter, tap shows the calm line', (tester) async {
+    final s = _Server(canLink: false);
+    await _pump(tester, s, start: '/banks');
+    expect(find.text('Track your accounts'), findsOneWidget);
+    expect(find.text('Import a statement'), findsOneWidget);
+    expect(find.textContaining('links left'), findsNothing);
+    expect(find.textContaining('slot'), findsNothing);
+    await tester.tap(find.text('Link a bank'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(linkLimitedMessage), findsOneWidget);
+    expect(find.textContaining('go through'), findsNothing);
+    expect(s.calls.where((x) => x.contains('link-token')), isEmpty);
   });
 
   testWidgets('already linked: the step skips itself', (tester) async {

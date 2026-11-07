@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
-import '../data/settings.dart';
 import '../data/statement_import.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -60,7 +59,6 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   }
 
   Future<void> _analyse({Map<String, dynamic>? mapping}) async {
-    if (ref.read(settingsProvider).demoMode) { setState(() { _step = _Step.failed; _error = 'Turn off demo mode to import a real statement.'; }); return; }
     setState(() => _step = _Step.reading);
     try {
       final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: false, accountId: _accountId, mapping: mapping);

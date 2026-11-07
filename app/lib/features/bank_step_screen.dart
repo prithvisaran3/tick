@@ -49,6 +49,11 @@ class _BankStepScreenState extends ConsumerState<BankStepScreen> {
 
   Future<void> _link() async {
     if (_phase != _Phase.idle) return;
+    if (ref.read(linkInfoProvider).value?.blocked ?? false) {
+      TickHaptics.instance.selection();
+      setState(() { _note = linkLimitedMessage; _error = null; });
+      return;
+    }
     setState(() { _phase = _Phase.linking; _error = null; _note = null; });
     final store = ref.read(bankStepStoreProvider);
     final out = await runBankLink(ref.read(apiProvider), ref.read(webAuthProvider), onStarted: store.setPendingLink, onFinished: store.clearPendingLink);
@@ -56,6 +61,8 @@ class _BankStepScreenState extends ConsumerState<BankStepScreen> {
     switch (out.result) {
       case LinkResult.cancelled:
         setState(() => _phase = _Phase.idle);
+      case LinkResult.limited:
+        setState(() { _phase = _Phase.idle; _note = out.message; });
       case LinkResult.failed:
         setState(() { _phase = _Phase.idle; _error = out.message; });
       case LinkResult.linked:
@@ -77,14 +84,12 @@ class _BankStepScreenState extends ConsumerState<BankStepScreen> {
   Widget build(BuildContext context) {
     final c = context.c;
     final tight = MediaQuery.textScalerOf(context).scale(1.0) > 1.25;
-    final info = ref.watch(linkInfoProvider).value;
+    ref.watch(linkInfoProvider);                     // start asking early, so a tap can answer at once
     final ledger = ref.watch(ledgerProvider);
     // A returning person who already has banks never needs this step.
     if (_phase == _Phase.idle && !ledger.loading && ledger.connections.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _leave());
     }
-    final canLink = info?.canLink ?? true;
-    final full = info != null && info.canLink && info.slotsLeft <= 0;
 
     Widget body;
     if (_phase == _Phase.syncing) {
@@ -104,26 +109,16 @@ class _BankStepScreenState extends ConsumerState<BankStepScreen> {
         const SizedBox(height: 32),
         Text('Track a bank account', style: context.ts(TickType.displayL)),
         const SizedBox(height: 12),
-        Text(
-          canLink && !full
-              ? 'Link a bank and purchases and balances show up on their own. Read-only: Tick can\'t move money.'
-              : 'Banks are linked by this Tick\'s owner. You can add purchases from Wallet or import a statement.',
-          style: context.ts(TickType.bodyL, color: c.textSecondary),
-        ),
+        Text('Link a bank and purchases and balances show up on their own. Read-only: Tick can\'t move money.', style: context.ts(TickType.bodyL, color: c.textSecondary)),
         if (tight) const SizedBox(height: 24) else const Spacer(),
         if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Semantics(liveRegion: true, child: Text(_error!, style: context.ts(TickType.body, color: c.alert)))),
-        if (canLink && !full) ...[
-          PillButton(_error != null ? 'Try again' : 'Link a bank', style: PillStyle.inverse, busy: _phase == _Phase.linking, onTap: _phase == _Phase.linking ? null : _link),
-          const SizedBox(height: 8),
-          PillButton('Import a statement instead', style: PillStyle.quiet, height: 52, onTap: _phase == _Phase.linking ? null : () => _leave(then: '/import')),
-          const SizedBox(height: 4),
-          Center(child: Pressable(onTap: _phase == _Phase.linking ? null : () => _leave(), minSize: 44, semanticLabel: 'Skip for now',
-              child: Padding(padding: const EdgeInsets.all(12), child: Text('Skip for now', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
-        ] else ...[
-          PillButton('Continue', style: PillStyle.inverse, onTap: () => _leave()),
-          const SizedBox(height: 8),
-          PillButton('Import a statement', style: PillStyle.quiet, height: 52, onTap: () => _leave(then: '/import')),
-        ],
+        if (_note != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Semantics(liveRegion: true, child: Text(_note!, style: context.ts(TickType.body, color: c.textSecondary)))),
+        PillButton(_error != null ? 'Try again' : 'Link a bank', style: PillStyle.inverse, busy: _phase == _Phase.linking, onTap: _phase == _Phase.linking ? null : _link),
+        const SizedBox(height: 8),
+        PillButton('Import a statement', style: PillStyle.quiet, height: 52, onTap: _phase == _Phase.linking ? null : () => _leave(then: '/import')),
+        const SizedBox(height: 4),
+        Center(child: Pressable(onTap: _phase == _Phase.linking ? null : () => _leave(), minSize: 44, semanticLabel: 'Skip for now',
+            child: Padding(padding: const EdgeInsets.all(12), child: Text('Skip for now', style: context.ts(TickType.body, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))))),
         const SizedBox(height: 28),
       ]);
     }

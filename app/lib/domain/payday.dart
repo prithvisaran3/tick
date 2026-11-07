@@ -21,7 +21,7 @@ DateTime nextPayday(PaydayRule r, DateTime from) {
       var d = a;
       if (d.isBefore(f)) {
         final diff = daysBetween(d, f);
-        d = d.add(Duration(days: ((diff + step - 1) ~/ step) * step));
+        d = addDays(d, ((diff + step - 1) ~/ step) * step);
       }
       return d;
     case PayFrequency.monthly:

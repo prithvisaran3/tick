@@ -17,7 +17,6 @@ import '../design/widgets/pickers.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/csv.dart';
 import '../services/ai_status.dart';
-import '../data/link_info.dart';
 import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
@@ -35,7 +34,6 @@ class SettingsScreen extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final n = ref.read(settingsProvider.notifier);
     final l = ref.watch(ledgerProvider);
-    final linkInfo = ref.watch(linkInfoProvider).value;
     final c = context.c;
     Widget chevron() => TickIcon('chevron-right', size: 20, color: c.textSecondary);
     Widget row(String icon, String title, Widget right, {VoidCallback? onTap, String? sub}) => Pressable(
@@ -78,7 +76,7 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i])))),
           const SectionLabel('Banks and cards'),
           group([
-            row('bank', 'Bank connections', val(linkInfo == null || linkInfo.canLink ? '${linkInfo?.used ?? l.linksUsed} of 10 used' : (l.connections.isEmpty ? 'None' : '${l.connections.length} linked')), onTap: () => context.push('/banks')),
+            row('bank', 'Bank connections', val(l.connections.isEmpty ? 'None' : '${l.connections.length} linked'), onTap: () => context.push('/banks')),
             row('receipt', 'Capture token and Shortcuts', chevron(), onTap: () => _tokenSheet(context, ref)),
             row('import', 'Import statements', chevron(), onTap: () => context.push('/import')),
           ]),
@@ -137,7 +135,6 @@ class SettingsScreen extends ConsumerWidget {
         return TickPage(title: 'About and safety', onBack: () => context.pop(), children: [
           group([
             row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
-            row('play', 'Demo mode', TickToggle(label: 'Demo mode', on: s.demoMode, onChanged: (v) => n.update((x) => x.copyWith(demoMode: v)))),
             if (Env.hasSupabase && signedIn)
               row('arrow-out', 'Sign out', const SizedBox(), onTap: () async {
                 await ref.read(authServiceProvider).signOut();

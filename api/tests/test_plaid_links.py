@@ -157,7 +157,7 @@ def test_non_owner_link_token_is_403_with_a_clear_reason(db, monkeypatch):
     monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
     monkeypatch.setattr(P, "_provider", _TokenProv())
     r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={}))
-    assert r.status_code == 403 and "owner" in r.json()["detail"] and "Wallet" in r.json()["detail"]
+    assert r.status_code == 403 and r.json()["detail"] == P.LINK_LIMITED
     assert db.rows("plaid_link_sessions")[-1]["user_id"] == U              # no session was opened for the stranger
 
 def test_owner_gets_409_when_the_shared_cap_is_used_even_if_their_own_count_is_low(db, monkeypatch):
@@ -166,7 +166,7 @@ def test_owner_gets_409_when_the_shared_cap_is_used_even_if_their_own_count_is_l
     for i in range(10):
         db.insert("plaid_items", {"item_id": f"i{i}", "user_id": OTHER if i else U})
     r = _as(U, lambda c: c.post("/plaid/link-token", json={}))
-    assert r.status_code == 409 and "10 bank links" in r.json()["detail"]
+    assert r.status_code == 409 and r.json()["detail"] == P.LINK_LIMITED
 
 def test_owner_can_start_a_link_when_slots_are_left(db, monkeypatch):
     monkeypatch.setenv("TICK_OWNER_USER_IDS", U)
@@ -214,3 +214,16 @@ def test_a_card_payment_credit_can_never_land_a_paycheck():
     assert P._is_income_deposit(C, {"x": {"id": "chk", "type": "checking"}}) is True
     C.flow = "transfer"
     assert P._is_income_deposit(C, {}) is False
+
+def test_new_google_account_tapping_link_gets_403_before_any_plaid_call_or_session(db, monkeypatch):
+    """The friend's case: signed in with her own Google account, no banks, no profile dependency, taps Link."""
+    monkeypatch.delenv("TICK_OWNER_USER_IDS", raising=False)                # owner derived from the first item, as a fallback
+    db.insert("plaid_items", {"item_id": "item-owner", "user_id": U, "created_at": "2026-11-05T01:35:00+00:00"})
+    class Boom:
+        def create_link_token(self, *a, **k): raise AssertionError("Plaid must not be called")
+    monkeypatch.setattr(P, "_provider", Boom())
+    before = len(db.rows("plaid_link_sessions"))
+    r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={}))
+    assert r.status_code == 403 and r.json()["detail"] == "Bank linking is limited to 10 accounts right now."
+    assert len(db.rows("plaid_link_sessions")) == before
+    assert _as(OTHER, lambda c: c.get("/plaid/links")).json()["can_link"] is False

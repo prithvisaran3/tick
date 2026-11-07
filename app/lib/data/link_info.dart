@@ -4,8 +4,12 @@ import '../services/session.dart';
 import 'ledger.dart';
 import 'settings.dart';
 
+/// The one line anyone sees when linking isn't available. Calm on purpose: no counts, no plan names, no error styling.
+const linkLimitedMessage = 'Bank linking is limited to 10 accounts right now.';
+
 /// What GET /plaid/links says about linking NEW banks for this person.
-/// Plaid's Trial cap is shared by everyone, so [totalLeft] is the number that matters; [canLink] is false for anyone who is not the owner.
+/// The link cap is shared by everyone, so [totalLeft] is the number that matters; [canLink] is false for anyone who is not the owner.
+/// None of these numbers are ever shown: they only decide [blocked].
 class LinkInfo {
   const LinkInfo({required this.used, required this.cap, required this.left, required this.canLink, required this.totalLeft, this.known = true});
   final int used, cap, left, totalLeft;
@@ -14,6 +18,9 @@ class LinkInfo {
 
   /// Slots a new link could really use: the smaller of my own and the shared count.
   int get slotsLeft => left < totalLeft ? left : totalLeft;
+
+  /// A new link can't start: tapping Link a bank shows [linkLimitedMessage] instead of opening Plaid.
+  bool get blocked => known && (!canLink || slotsLeft <= 0);
 
   factory LinkInfo.fromJson(Map<String, dynamic> j) {
     int n(String k, int d) => (j[k] as num?)?.toInt() ?? d;

@@ -84,7 +84,7 @@ class AskNotifier extends Notifier<List<AskMessage>> {
 
   Future<void> _stream(String q, List<Map<String, String>> history, AskMessage reply) async {
     final token = Env.hasSupabase ? Supabase.instance.client.auth.currentSession?.accessToken : null;
-    if (token == null) throw StateError('signed out');
+    if (token == null) throw ApiException(401, messageForStatus(401, null));
     final client = http.Client();
     _client = client;
     try {

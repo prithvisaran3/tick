@@ -246,6 +246,8 @@ def owners() -> set[str]:
     rows = rest().select("plaid_items", select="user_id,created_at", order="created_at.asc", limit="1")
     return {rows[0]["user_id"]} if rows else set()
 
+LINK_LIMITED = "Bank linking is limited to 10 accounts right now."      # one calm line for the owner lock and the cap: no counts, nothing about plans
+
 def can_link(user_id: str) -> bool:
     """May this user create NEW bank links? (Update mode for their own existing connections is always allowed.)"""
     allowed = owners()
@@ -253,7 +255,7 @@ def can_link(user_id: str) -> bool:
 
 def require_link_owner(user_id: str) -> None:
     if not can_link(user_id):
-        raise HTTPException(403, "Linking banks is limited to this Tick's owner. You can add purchases from Wallet or import a statement instead.")
+        raise HTTPException(403, LINK_LIMITED)
 
 OPEN_SESSION_MIN = 30
 
@@ -692,7 +694,7 @@ def link_token(body: LinkTokenBody, user_id: str = Depends(current_user)):
     else:
         require_link_owner(user_id)
         if links_used(user_id) >= ITEM_CAP or total_links_used() >= ITEM_CAP:
-            raise HTTPException(409, "All 10 bank links are used, so Tick can't add another bank.")
+            raise HTTPException(409, LINK_LIMITED)
         # One open new-bank session at a time: re-opening the sheet reuses it, so parallel sessions can't each burn a slot.
         since = (datetime.now(timezone.utc) - timedelta(minutes=OPEN_SESSION_MIN)).isoformat()
         open_ = rest().select("plaid_link_sessions", user_id=f"eq.{user_id}", connection_id="is.null", finished_at="is.null",
