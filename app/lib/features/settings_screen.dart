@@ -137,6 +137,8 @@ class SettingsScreen extends ConsumerWidget {
         ]);
       case SettingsPage.about:
         return TickPage(title: 'About and safety', onBack: () => context.pop(), children: [
+          PillButton('Replay the intro', style: PillStyle.quiet, height: 48, onTap: () => context.push('/intro')),
+          const SizedBox(height: 8),
           group([
             row('ask', 'AI', val(ref.watch(aiStatusProvider).maybeWhen(data: (a) => a.line, orElse: () => '…')), onTap: () => _aiSheet(context, ref)),
             if (Env.hasSupabase && signedIn)

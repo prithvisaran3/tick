@@ -33,6 +33,7 @@ import 'features/caught_screen.dart';
 import 'features/gallery_screen.dart';
 import 'features/incoming_screen.dart';
 import 'features/bank_step_screen.dart';
+import 'features/intro_cinematic.dart';
 import 'features/onboarding_screen.dart';
 import 'features/quick_add.dart';
 import 'features/receipt_screen.dart';
@@ -81,7 +82,8 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       },
       routes: [
         GoRoute(path: '/', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: const Shell())),
-        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen())),
+        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen(intro: true))),
+        GoRoute(path: '/intro', pageBuilder: (c, s) => _page(s, const IntroReplayScreen())),
         GoRoute(path: '/onboarding/bank', pageBuilder: (c, s) => _page(s, const BankStepScreen())),
         GoRoute(path: '/caught', pageBuilder: (c, s) => _page(s, const CaughtScreen())),
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),

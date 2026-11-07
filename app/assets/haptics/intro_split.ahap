@@ -1,0 +1,73 @@
+{
+ "Version": 1.0,
+ "Metadata": {
+  "Project": "Tick",
+  "Description": "Intro scenes / intro_split"
+ },
+ "Pattern": [
+  {
+   "Event": {
+    "Time": 0.0,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.5
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.4
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.12,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.35
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.7
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.24,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.35
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.7
+     }
+    ]
+   }
+  },
+  {
+   "Event": {
+    "Time": 0.36,
+    "EventType": "HapticTransient",
+    "EventParameters": [
+     {
+      "ParameterID": "HapticIntensity",
+      "ParameterValue": 0.35
+     },
+     {
+      "ParameterID": "HapticSharpness",
+      "ParameterValue": 0.7
+     }
+    ]
+   }
+  }
+ ]
+}

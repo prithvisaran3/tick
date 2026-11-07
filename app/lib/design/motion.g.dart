@@ -31,6 +31,10 @@ abstract final class TickMotion {
   static const int staggerMaxItems = 8;
   static const double staggerFromOffsetY = 14.0;
   static const int settledHoldMs = 1400;
+  static const int splashTotalMs = 1200;
+  static const int splashDrawMs = 620;
+  static const int splashFadeMs = 220;
+  static const int sceneMs = 5400;
   static const int undoWindowMs = 5000;
   static const double swipeThresholdRatio = 0.4;
 }

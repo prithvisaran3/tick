@@ -51,3 +51,10 @@ Why Gmail isn't connected: it needs a change in Google Cloud Console that only y
 4. Audience: leave Publishing status on Testing, Add users, add your Gmail address.
 5. Clients > your web client > Authorized redirect URIs > add `https://tick-api-production.up.railway.app/splitwise/gmail/callback`.
 6. Forward one "added an expense" and one "settled up" email's text to me, so the parser is checked against the real thing. Testing-mode refresh tokens expire after 7 days, so a reconnect prompt is needed.
+
+## Phase 5: splash and first-run cinematic
+Done. The native launch screen is Ink with the wordmark, exported from the same `LaunchMark` widget the first Flutter frame shows (`intro_test.dart` regenerates it), so the hand-off has no flash. `TickSplash`
+runs on every launch, 1.2 s at most, tap to skip: the tick draws on a spring, then a Volt pulse and one haptic. `IntroCinematic` is five live scenes of 5.4 s (27 s) plus Make it yours with the payday preview and bank
+choice. Tap or swipe moves on, Skip is always there, it plays once, and Settings > About replays it. New `intro_*` and `splash` AHAP patterns come from `design/haptics.json`. Reduce Motion shows finished frames with the same words.
+
+Decisions: no sound (optional in the brief, and silent is the safe default). No fragment shaders: CustomPainter was enough. 60 fps can only be checked on the phone.

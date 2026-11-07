@@ -28,6 +28,13 @@
   "landed": "haptics/landed.ahap",
   "tear_tick": "haptics/tear_tick.ahap",
   "tear_rip": "haptics/tear_rip.ahap",
-  "heartbeat": "haptics/heartbeat.ahap"
+  "heartbeat": "haptics/heartbeat.ahap",
+  "intro_stream": "haptics/intro_stream.ahap",
+  "intro_count": "haptics/intro_count.ahap",
+  "intro_flip": "haptics/intro_flip.ahap",
+  "intro_split": "haptics/intro_split.ahap",
+  "intro_type": "haptics/intro_type.ahap",
+  "intro_done": "haptics/intro_done.ahap",
+  "splash": "haptics/splash.ahap"
  }
 }

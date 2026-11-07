@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../data/bank_step.dart';
 import '../data/remote.dart';
+import 'intro_cinematic.dart';
 import 'payday_editor.dart';
 import 'tally_people.dart';
 import '../data/ledger.dart';
@@ -21,7 +22,8 @@ import '../services/haptics.dart';
 
 /// Three steps: welcome + Google, paycheck, the big stuff (rent, goal).
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key, this.initialStep = 0});
+  const OnboardingScreen({super.key, this.intro = false, this.initialStep = 0});
+  final bool intro;   // the router asks for the cinematic; tests and direct steps don't
   final int initialStep;
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -34,6 +36,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   bool _busy = false;
   // paycheck
   PaydayRule? _payRule;
+  String _after = 'skip';    // what scene six said to do next: link, import or skip
   String _amount = '';
   // basics
   String _rent = '';
@@ -84,11 +87,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final rent = parseCents(_rent);
     if (rent != null && rent > 0) await led.addRecurring(Recurring(id: 'local-rent', merchant: 'Rent', cadence: Cadence.monthly, expectedCents: rent, nextDate: nextDayOfMonth(1, now), categoryId: 'cat-rent', priceHistory: [rent]));
     TickHaptics.instance.pop();
-    if (mounted) context.go(routeAfterSetup(ref));
+    if (mounted) context.go(_after == 'import' ? '/import' : routeAfterSetup(ref));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.intro && !ref.watch(settingsProvider.select((s) => s.introSeen))) {
+      return IntroCinematic(onDone: (rule, after) {
+        ref.read(settingsProvider.notifier).update((s) => s.copyWith(introSeen: true));
+        setState(() { _payRule = rule ?? _payRule; _after = after; });
+      });
+    }
     final c = context.c;
     final tight = MediaQuery.textScalerOf(context).scale(1.0) > 1.25;      // large Dynamic Type: let the page scroll instead of overflowing
     final now = ref.watch(clockProvider)();
@@ -121,7 +130,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 16),
         Text('When do you get paid?', style: context.ts(TickType.displayL)),
         const SizedBox(height: 16),
-        PaydayEditor(today: now, onChanged: (r) => _payRule = r),
+        PaydayEditor(today: now, initial: _payRule, onChanged: (r) => _payRule = r),
         const SizedBox(height: 16),
         Center(child: Column(children: [
           Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),

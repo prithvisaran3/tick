@@ -24,7 +24,9 @@
     "number_roll": {"spring": "standard"},
     "settled": {"spring": "pop", "holdMs": 1400},
     "undo": {"windowMs": 5000},
-    "swipe_reveal": {"spring": "sheet", "thresholdRatio": 0.4}
+    "swipe_reveal": {"spring": "sheet", "thresholdRatio": 0.4},
+    "splash": {"spring": "pop", "totalMs": 1200, "drawMs": 620, "fadeMs": 220},
+    "cinematic": {"sceneMs": 5400}
   },
   "performance": ["const widgets", "RepaintBoundary around animated pieces", "precache fonts and images", "skeletons, never spinners"]
 }

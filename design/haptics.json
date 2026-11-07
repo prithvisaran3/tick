@@ -2,69 +2,440 @@
   "$comment": "Source of truth for Tick's haptic language. tools/compile_ahap.py -> app/assets/haptics/*.ahap + manifest.json. One pattern, one meaning. times in ms, intensity/sharpness 0..1.",
   "patterns": {
     "pop": {
-      "number": 1, "name": "The Pop", "meaning": "Haptic logo: app launch / first open of the day.",
+      "number": 1,
+      "name": "The Pop",
+      "meaning": "Haptic logo: app launch / first open of the day.",
       "events": [
-        {"t": 0,   "type": "transient", "i": 0.6, "s": 0.9},
-        {"t": 120, "type": "transient", "i": 0.9, "s": 0.2}
+        {
+          "t": 0,
+          "type": "transient",
+          "i": 0.6,
+          "s": 0.9
+        },
+        {
+          "t": 120,
+          "type": "transient",
+          "i": 0.9,
+          "s": 0.2
+        }
       ]
     },
     "price_weight": {
-      "number": 2, "name": "Price weight", "meaning": "A sticker amount landing; heavier for bigger money.",
+      "number": 2,
+      "name": "Price weight",
+      "meaning": "A sticker amount landing; heavier for bigger money.",
       "tiers": {
-        "low":  {"rule": "under $20",  "events": [{"t": 0, "type": "transient", "i": 0.4, "s": 0.7}]},
-        "mid":  {"rule": "under $100", "events": [{"t": 0, "type": "transient", "i": 0.7, "s": 0.45}]},
-        "high": {"rule": "$100 and up", "events": [{"t": 0, "type": "transient", "i": 1.0, "s": 0.2}]}
+        "low": {
+          "rule": "under $20",
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.4,
+              "s": 0.7
+            }
+          ]
+        },
+        "mid": {
+          "rule": "under $100",
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.7,
+              "s": 0.45
+            }
+          ]
+        },
+        "high": {
+          "rule": "$100 and up",
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 1.0,
+              "s": 0.2
+            }
+          ]
+        }
       }
     },
     "count_up": {
-      "number": 3, "name": "Count-up", "meaning": "The hero number counting up: ticks speed up and sharpen, ending in one solid hit.",
-      "generator": {"kind": "accelerating_ticks", "interval_start_ms": 90, "interval_end_ms": 30, "count": 14,
-                    "i_start": 0.25, "i_end": 0.55, "s_start": 0.35, "s_end": 0.9,
-                    "final": {"i": 0.95, "s": 0.35, "gap_ms": 60}}
+      "number": 3,
+      "name": "Count-up",
+      "meaning": "The hero number counting up: ticks speed up and sharpen, ending in one solid hit.",
+      "generator": {
+        "kind": "accelerating_ticks",
+        "interval_start_ms": 90,
+        "interval_end_ms": 30,
+        "count": 14,
+        "i_start": 0.25,
+        "i_end": 0.55,
+        "s_start": 0.35,
+        "s_end": 0.9,
+        "final": {
+          "i": 0.95,
+          "s": 0.35,
+          "gap_ms": 60
+        }
+      }
     },
     "hold": {
-      "number": 4, "name": "Hold to confirm", "meaning": "Press-and-hold for destructive or committing actions.",
+      "number": 4,
+      "name": "Hold to confirm",
+      "meaning": "Press-and-hold for destructive or committing actions.",
       "variants": {
-        "ramp": {"continuous_curve": {"duration": 600, "from": 0.1, "to": 0.8, "sharpness": 0.4}},
-        "click": {"events": [{"t": 0, "type": "transient", "i": 1.0, "s": 0.6}]},
-        "cancel": {"events": [{"t": 0, "type": "transient", "i": 0.2, "s": 0.1}]}
+        "ramp": {
+          "continuous_curve": {
+            "duration": 600,
+            "from": 0.1,
+            "to": 0.8,
+            "sharpness": 0.4
+          }
+        },
+        "click": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 1.0,
+              "s": 0.6
+            }
+          ]
+        },
+        "cancel": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.2,
+              "s": 0.1
+            }
+          ]
+        }
       }
     },
     "sort": {
-      "number": 5, "name": "Sort by feel", "meaning": "Caught card swipes. Right = looks right, left = fix it, up = Business.",
+      "number": 5,
+      "name": "Sort by feel",
+      "meaning": "Caught card swipes. Right = looks right, left = fix it, up = Business.",
       "variants": {
-        "right": {"events": [{"t": 0, "type": "transient", "i": 0.35, "s": 0.8}, {"t": 70, "type": "transient", "i": 0.35, "s": 0.8}]},
-        "left":  {"events": [{"t": 0, "type": "transient", "i": 0.5, "s": 0.1}]},
-        "up":    {"events": [{"t": 0, "type": "transient", "i": 0.4, "s": 0.4}, {"t": 90, "type": "transient", "i": 0.75, "s": 0.7}]}
+        "right": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.35,
+              "s": 0.8
+            },
+            {
+              "t": 70,
+              "type": "transient",
+              "i": 0.35,
+              "s": 0.8
+            }
+          ]
+        },
+        "left": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.5,
+              "s": 0.1
+            }
+          ]
+        },
+        "up": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.4,
+              "s": 0.4
+            },
+            {
+              "t": 90,
+              "type": "transient",
+              "i": 0.75,
+              "s": 0.7
+            }
+          ]
+        }
       }
     },
     "landed": {
-      "number": 6, "name": "Landed", "meaning": "Money arrived: a heavy stamp with a fading tail, synced to the stamp animation and chime.",
+      "number": 6,
+      "name": "Landed",
+      "meaning": "Money arrived: a heavy stamp with a fading tail, synced to the stamp animation and chime.",
       "events": [
-        {"t": 0, "type": "transient", "i": 1.0, "s": 0.3},
-        {"t": 0, "type": "continuous", "i": 0.6, "s": 0.2, "duration": 150, "fade_to": 0.0}
+        {
+          "t": 0,
+          "type": "transient",
+          "i": 1.0,
+          "s": 0.3
+        },
+        {
+          "t": 0,
+          "type": "continuous",
+          "i": 0.6,
+          "s": 0.2,
+          "duration": 150,
+          "fade_to": 0.0
+        }
       ]
     },
     "tear": {
-      "number": 7, "name": "Receipt tear", "meaning": "A tick per receipt line, then a rip when torn off to share.",
+      "number": 7,
+      "name": "Receipt tear",
+      "meaning": "A tick per receipt line, then a rip when torn off to share.",
       "variants": {
-        "tick": {"events": [{"t": 0, "type": "transient", "i": 0.25, "s": 0.6}]},
-        "rip": {"generator": {"kind": "randomized_transients", "count": 8, "span_ms": 180, "seed": 7,
-                              "i_min": 0.35, "i_max": 0.9, "s_min": 0.4, "s_max": 1.0}}
+        "tick": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.25,
+              "s": 0.6
+            }
+          ]
+        },
+        "rip": {
+          "generator": {
+            "kind": "randomized_transients",
+            "count": 8,
+            "span_ms": 180,
+            "seed": 7,
+            "i_min": 0.35,
+            "i_max": 0.9,
+            "s_min": 0.4,
+            "s_max": 1.0
+          }
+        }
       }
     },
     "heartbeat": {
-      "number": 8, "name": "Heartbeat", "meaning": "Reserved for future settle-ups: one soft beat per person. Gallery only in v1.",
+      "number": 8,
+      "name": "Heartbeat",
+      "meaning": "Reserved for future settle-ups: one soft beat per person. Gallery only in v1.",
       "events": [
-        {"t": 0,   "type": "transient", "i": 0.55, "s": 0.15},
-        {"t": 140, "type": "transient", "i": 0.4,  "s": 0.1}
+        {
+          "t": 0,
+          "type": "transient",
+          "i": 0.55,
+          "s": 0.15
+        },
+        {
+          "t": 140,
+          "type": "transient",
+          "i": 0.4,
+          "s": 0.1
+        }
+      ]
+    },
+    "intro": {
+      "number": 9,
+      "name": "Intro scenes",
+      "meaning": "One short gesture per first-run scene, timed to what is on screen.",
+      "variants": {
+        "stream": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.2,
+              "s": 0.5
+            },
+            {
+              "t": 160,
+              "type": "transient",
+              "i": 0.23,
+              "s": 0.5
+            },
+            {
+              "t": 320,
+              "type": "transient",
+              "i": 0.26,
+              "s": 0.5
+            },
+            {
+              "t": 480,
+              "type": "transient",
+              "i": 0.29000000000000004,
+              "s": 0.5
+            },
+            {
+              "t": 640,
+              "type": "transient",
+              "i": 0.32,
+              "s": 0.5
+            },
+            {
+              "t": 900,
+              "type": "transient",
+              "i": 0.7,
+              "s": 0.5
+            }
+          ]
+        },
+        "count": {
+          "generator": {
+            "kind": "accelerating_ticks",
+            "interval_start_ms": 90,
+            "interval_end_ms": 40,
+            "count": 10,
+            "i_start": 0.2,
+            "i_end": 0.45,
+            "s_start": 0.35,
+            "s_end": 0.8,
+            "final": {
+              "i": 0.85,
+              "s": 0.4,
+              "gap_ms": 60
+            }
+          }
+        },
+        "flip": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.4,
+              "s": 0.8
+            },
+            {
+              "t": 180,
+              "type": "transient",
+              "i": 0.5,
+              "s": 0.8
+            },
+            {
+              "t": 360,
+              "type": "transient",
+              "i": 0.7,
+              "s": 0.7
+            }
+          ]
+        },
+        "split": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.5,
+              "s": 0.4
+            },
+            {
+              "t": 120,
+              "type": "transient",
+              "i": 0.35,
+              "s": 0.7
+            },
+            {
+              "t": 240,
+              "type": "transient",
+              "i": 0.35,
+              "s": 0.7
+            },
+            {
+              "t": 360,
+              "type": "transient",
+              "i": 0.35,
+              "s": 0.7
+            }
+          ]
+        },
+        "type": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 90,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 180,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 270,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 360,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 450,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 540,
+              "type": "transient",
+              "i": 0.18,
+              "s": 0.9
+            },
+            {
+              "t": 720,
+              "type": "transient",
+              "i": 0.6,
+              "s": 0.5
+            }
+          ]
+        },
+        "done": {
+          "events": [
+            {
+              "t": 0,
+              "type": "transient",
+              "i": 0.8,
+              "s": 0.5
+            }
+          ]
+        }
+      }
+    },
+    "splash": {
+      "number": 10,
+      "name": "Splash",
+      "meaning": "The tick lands: one crisp hit with the Volt pulse.",
+      "events": [
+        {
+          "t": 0,
+          "type": "transient",
+          "i": 0.85,
+          "s": 0.85
+        }
       ]
     }
   },
   "modes": {
-    "full":   {"intensity_scale": 1.0, "continuous": true},
-    "subtle": {"intensity_scale": 0.5, "continuous": false},
-    "off":    {"intensity_scale": 0.0, "continuous": false}
+    "full": {
+      "intensity_scale": 1.0,
+      "continuous": true
+    },
+    "subtle": {
+      "intensity_scale": 0.5,
+      "continuous": false
+    },
+    "off": {
+      "intensity_scale": 0.0,
+      "continuous": false
+    }
   },
   "rules": [
     "Low Power Mode forces Subtle.",
