@@ -38,6 +38,27 @@ class PaybackLink {
   final int amountCents;
 }
 
+/// Someone said "I paid" and exactly that amount from them has landed.
+@immutable
+class LandedSettlement {
+  const LandedSettlement(this.settlementId, this.paybackId, this.amountCents, this.from);
+  final String settlementId;
+  final String paybackId;
+  final int amountCents;
+  final String from;
+}
+
+final landedSettlementsProvider = FutureProvider<List<LandedSettlement>>((ref) async {
+  ref.watch(ledgerRevisionProvider);
+  if (ref.watch(settingsProvider.select((s) => s.demoMode)) || ref.watch(remoteProvider) == null) return const [];
+  try {
+    final j = await ref.read(apiProvider).get('/paybacks/suggestions');
+    return [for (final s in (j['settlements'] as List? ?? const [])) LandedSettlement(s['settlement_id'] as String, s['payback_id'] as String, (s['amount_cents'] as num).toInt(), (s['from'] ?? 'Someone') as String)];
+  } catch (_) {
+    return const [];
+  }
+});
+
 /// Suggestions come from the server, which sees the whole ledger. Offline, or in demo mode, there are simply none to show.
 final paybackSuggestionsProvider = FutureProvider<List<PaybackSuggestion>>((ref) async {
   ref.watch(ledgerRevisionProvider);
@@ -68,6 +89,11 @@ class PaybackActions {
   }
   Future<void> link(String purchaseId, String paybackId) async {
     await ref.read(apiProvider).post('/paybacks/link', {'purchase_id': purchaseId, 'payback_id': paybackId});
+    await _after();
+  }
+  Future<void> received(LandedSettlement s) async {
+    await ref.read(apiProvider).post('/paybacks/received', {'settlement_id': s.settlementId, 'payback_id': s.paybackId});
+    ref.invalidate(landedSettlementsProvider);
     await _after();
   }
   Future<void> unlink(String paybackId) async {

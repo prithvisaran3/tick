@@ -129,3 +129,14 @@ def test_auto_link_needs_the_friends_name_and_one_candidate(api):
     f.insert("transactions", {**row(3, 4000, 2, "Zelle payment from ASHA R"), "user_id": U, "occurred_at": datetime.now(timezone.utc).isoformat()})
     settle(f, 4000, today, person="p1")
     assert P.auto_link(U) == 0                # two credits fit: a person decides
+
+def test_a_pending_i_paid_that_landed_is_offered_as_received(api):
+    f, c = api
+    members(f, "Asha Rao")
+    s = settle(f, 4000, "2026-11-01", status="pending")
+    settle(f, 1234, "2026-11-01", status="pending")
+    got = c.get("/paybacks/suggestions").json()["settlements"]
+    assert [x["settlement_id"] for x in got] == [s["id"]] and got[0]["from"] == "Asha Rao"
+    assert c.post("/paybacks/received", json={"settlement_id": s["id"], "payback_id": uid(2)}).status_code == 200
+    row = next(x for x in f.rows("tally_settlements") if x["id"] == s["id"])
+    assert (row["status"], row["transaction_id"]) == ("confirmed", uid(2))

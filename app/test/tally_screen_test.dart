@@ -50,4 +50,35 @@ void main() {
     ], now);
     expect(r.totalCents, 600);
   });
+
+  test('leaving or removing with a balance is blocked, with the amount; undo restores a delete', () async {
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    final n = c.read(tallyProvider.notifier);
+    final k = await n.addPerson('Kaarthik');
+    final g = await n.addGroup('Flat', [k.id]);
+    await n.saveExpense(TallyExpense(id: '', groupId: g.id, description: 'Rent', amountCents: 1000, paidBy: me, shares: {me: 500, k.id: 500}, spentOn: DateTime(2026, 11, 1)));
+    await expectLater(n.removeMember(g.id, k.id), throwsA(isA<TallyBlocked>().having((b) => b.netCents, 'net', -500)));
+    await expectLater(n.leaveGroup(g.id), throwsA(isA<TallyBlocked>().having((b) => b.netCents, 'net', 500)));
+    final e = c.read(tallyProvider).expensesOf(g.id).single;
+    await n.deleteExpense(e.id);
+    expect(c.read(tallyProvider).balancesOf(g.id), isEmpty);
+    await n.restoreExpense(e);
+    expect(c.read(tallyProvider).balancesOf(g.id)[k.id], -500);
+    await n.settle(g.id, k.id, me, 500);
+    await n.removeMember(g.id, k.id);
+    expect(c.read(tallyProvider).groups.single.memberIds, isEmpty);
+  });
+
+  test('a reminder is spaced and shows who it was for', () async {
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    final n = c.read(tallyProvider.notifier);
+    final k = await n.addPerson('Kaarthik');
+    final g = await n.addGroup('Flat', [k.id]);
+    await n.saveExpense(TallyExpense(id: '', groupId: g.id, description: 'Rent', amountCents: 1000, paidBy: me, shares: {me: 500, k.id: 500}, spentOn: DateTime(2026, 11, 1)));
+    await n.remind(g.id, k.id, ReminderTone.neutral);
+    expect(c.read(tallyProvider).lastReminder(g.id, k.id), isNotNull);
+    expect(c.read(tallyProvider).reminders.single.amountCents, 500);
+  });
 }

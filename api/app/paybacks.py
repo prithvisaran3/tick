@@ -101,6 +101,30 @@ def auto_link(user_id: str) -> int:
             n += 1
     return n
 
+def landed(user_id: str, rows: list[dict], types: dict[str, str], dismissed: set[str]) -> list[dict]:
+    """Someone said "I paid" and a credit of exactly that amount from them has now landed: ask whether to mark it received."""
+    mine = [m["id"] for m in rest().select("tally_members", member_user_id=f"eq.{user_id}", status="eq.active", select="id")]
+    if not mine:
+        return []
+    pending = rest().select("tally_settlements", status="eq.pending", deleted_at="is.null", transaction_id="is.null", to_member=f"in.({','.join(mine)})", select="id,group_id,from_member,amount_cents")
+    if not pending:
+        return []
+    names = {m["id"]: m.get("name") for m in rest().select("tally_members", group_id=f"in.({','.join(sorted({s['group_id'] for s in pending}))})", select="id,name")}
+    credits = [r for r in rows if is_person_credit(r, types) and r["id"] not in dismissed]
+    out, used = [], set()
+    for s in pending:
+        who = names.get(s["from_member"]) or "Someone"
+        hit = next((c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and who.split(" ")[0].lower() in _text(c).lower()), None)
+        if hit:
+            used.add(hit["id"])
+            out.append({"settlement_id": s["id"], "payback_id": hit["id"], "amount_cents": s["amount_cents"], "from": who, "date": _day(hit["occurred_at"]).isoformat()})
+    return out
+
+class ReceivedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    settlement_id: str
+    payback_id: str
+
 class LinkBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     purchase_id: str
@@ -122,7 +146,8 @@ def suggestions(user_id: str = Depends(current_user)):
     rows, types = _recent(user_id, 90)
     linked = {x["payback_id"] for x in rest().select("txn_paybacks", user_id=f"eq.{user_id}", select="payback_id")}
     dismissed = {x["payback_id"] for x in rest().select("txn_payback_dismissals", user_id=f"eq.{user_id}", select="payback_id")}
-    return {"suggestions": suggest([r for r in rows if r["id"] not in linked], types, dismissed)}
+    live = [r for r in rows if r["id"] not in linked]
+    return {"suggestions": suggest(live, types, dismissed), "settlements": landed(user_id, live, types, dismissed)}
 
 @router.post("/paybacks/link")
 def link(body: LinkBody, user_id: str = Depends(current_user)):
@@ -137,6 +162,19 @@ def link(body: LinkBody, user_id: str = Depends(current_user)):
         if e.response.status_code in (400, 409):
             raise HTTPException(409, "That one can't be linked.")
         raise
+
+@router.post("/paybacks/received")
+def received(body: ReceivedBody, user_id: str = Depends(current_user)):
+    """Accepting 'that Zelle is Asha's payment': the pending settlement is confirmed and tied to my bank row."""
+    user_limiter.check(f"paybacks-w:{user_id}", 30, 60)
+    sid, pid = _uuid(body.settlement_id), _uuid(body.payback_id)
+    st = rest().select("tally_settlements", id=f"eq.{sid}", status="eq.pending", select="id,to_member,amount_cents")
+    mine = {m["id"] for m in rest().select("tally_members", member_user_id=f"eq.{user_id}", status="eq.active", select="id")}
+    row = rest().select("transactions", id=f"eq.{pid}", user_id=f"eq.{user_id}", select="id,amount_cents")
+    if not st or st[0]["to_member"] not in mine or not row or row[0]["amount_cents"] != st[0]["amount_cents"]:
+        raise HTTPException(404, "not found")
+    rest().update("tally_settlements", {"id": sid}, {"status": "confirmed", "transaction_id": pid})
+    return {"received": True}
 
 @router.post("/paybacks/unlink")
 def unlink(body: PaybackBody, user_id: str = Depends(current_user)):

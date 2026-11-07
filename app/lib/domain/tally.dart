@@ -10,7 +10,8 @@ const me = 'me';
 enum SplitType { equal, exact, percent, shares }
 
 class TallyPerson {
-  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active'});
+  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId});
+  final String? personId; // my address book entry for this guest, when it is mine
   /// Set when this member is a Tick user; null for a guest.
   final String? userId;
   final String status; // active | left | removed
@@ -177,4 +178,59 @@ bool looksLikeSettlement({required Transfer t, required String personFirstName, 
   if (txnAt.isBefore(since) || txnAt.difference(since).inDays > days + 30) return false;
   final m = merchant.toLowerCase();
   return m.contains(personFirstName.toLowerCase()); // the right person, not just any Zelle of the right amount
+}
+
+enum ReminderTone { friendly, neutral, firm }
+
+/// A prefilled message. Sentence case, the amount first or near it; firm is plain, never rude.
+String reminderText(ReminderTone tone, {required String name, required String amount, required String group, String? link}) {
+  final body = switch (tone) {
+    ReminderTone.friendly => 'Hey $name, when you get a chance: $amount for $group.',
+    ReminderTone.neutral => '$name, you owe $amount for $group.',
+    ReminderTone.firm => '$name, $amount for $group is still outstanding. Please pay it this week.',
+  };
+  return link == null ? body : '$body $link';
+}
+
+/// "Reminded 2 days ago". Null when there is no reminder to mention.
+String? remindedAgo(DateTime? at, DateTime now) {
+  if (at == null) return null;
+  final d = now.difference(at);
+  if (d.inHours < 1) return 'Reminded just now';
+  if (d.inHours < 24) return 'Reminded ${d.inHours} ${d.inHours == 1 ? 'hour' : 'hours'} ago';
+  return 'Reminded ${d.inDays} ${d.inDays == 1 ? 'day' : 'days'} ago';
+}
+
+/// 24 hours between reminders to one person in one group. The server enforces it; this only greys out the button.
+bool canRemind(DateTime? last, DateTime now) => last == null || now.difference(last) >= const Duration(hours: 24);
+
+/// Venmo's documented web payment link (venmo.com/paymentlinks). Recipient is left out because Tick doesn't know Venmo usernames.
+Uri venmoLink(int cents, String note) => Uri.https('venmo.com', '/', {'txn': 'pay', 'amount': (cents / 100).toStringAsFixed(2), 'note': note});
+
+/// Cash App documents no amount-in-URL format, so this only opens the app; the amount is on the clipboard first.
+final cashAppLink = Uri.https('cash.app', '/');
+
+/// Everything between me and one person in a group, oldest first, with the running balance from my side (positive = they owe me).
+class LedgerLine {
+  const LedgerLine(this.on, this.label, this.deltaCents, this.runningCents);
+  final DateTime on;
+  final String label;
+  final int deltaCents;
+  final int runningCents;
+}
+
+List<LedgerLine> personLedger(String person, Iterable<TallyExpense> expenses, Iterable<TallySettlement> settlements) {
+  final rows = <(DateTime, String, int)>[];
+  for (final e in expenses) {
+    if (e.paidBy == me && e.shares.containsKey(person)) rows.add((e.spentOn, e.description, e.shares[person]!));
+    if (e.paidBy == person && e.shares.containsKey(me)) rows.add((e.spentOn, e.description, -e.shares[me]!));
+  }
+  for (final s in settlements) {
+    if (s.status != 'confirmed') continue;
+    if (s.from == person && s.to == me) rows.add((s.on, 'They paid you', -s.amountCents));
+    if (s.from == me && s.to == person) rows.add((s.on, 'You paid them', s.amountCents));
+  }
+  rows.sort((a, b) => a.$1.compareTo(b.$1));
+  var run = 0;
+  return [for (final r in rows) LedgerLine(r.$1, r.$2, r.$3, run += r.$3)];
 }

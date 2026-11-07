@@ -16,6 +16,7 @@ import '../domain/tally.dart';
 import '../services/api.dart';
 import 'common.dart';
 import 'tally_expense_sheet.dart';
+import 'tally_manage.dart';
 import 'tally_square.dart';
 
 class TallyGroupScreen extends ConsumerWidget {
@@ -34,11 +35,12 @@ class TallyGroupScreen extends ConsumerWidget {
     final txns = ref.watch(ledgerProvider).txns;
     return TickPage(
       title: g.name, onBack: () => context.pop(), bottomPad: 40,
+      trailing: Pressable(onTap: () => context.push('/tally/$id/settings'), semanticLabel: 'Group settings', minSize: 44, child: SizedBox(width: 40, height: 44, child: Center(child: TickIcon('sliders', size: 22, color: c.text)))),
       children: [
         TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           if (net.isEmpty) Text(expenses.isEmpty ? 'Nothing split yet.' : 'All square ✓', style: context.ts(TickType.title))
           else for (final e in net.entries) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
-            Expanded(child: Text(e.key == me ? (e.value > 0 ? 'You\'re owed' : 'You owe') : (e.value > 0 ? '${t.nameOf(e.key)} is owed' : '${t.nameOf(e.key)} owes'), style: context.ts(TickType.body))),
+            Expanded(child: Pressable(onTap: e.key == me ? null : () => context.push('/tally/$id/person/${e.key}'), scale: 0.99, child: Text(e.key == me ? (e.value > 0 ? 'You\'re owed' : 'You owe') : (e.value > 0 ? '${t.nameOf(e.key)} is owed' : '${t.nameOf(e.key)} owes'), style: context.ts(TickType.body)))),
             Text(formatCents(e.value.abs()), style: context.ts(TickType.mono, color: e.key == me && e.value < 0 ? c.alert : null)),
           ])),
         ])),
@@ -52,9 +54,15 @@ class TallyGroupScreen extends ConsumerWidget {
           const SizedBox(height: 20), const SectionLabel('Settle up'),
           for (final m in moves) _Move(m: m, g: g, txns: txns),
         ],
+        if (t.settlementsOf(id).any((s) => s.status == 'confirmed')) ...[
+          const SizedBox(height: 20), const SectionLabel('Payments'),
+          for (final s in t.settlementsOf(id)) if (s.status == 'confirmed') SettlementRow(s: s, g: g),
+        ],
         const SizedBox(height: 20),
         if (expenses.isNotEmpty) const SectionLabel('Expenses'),
         for (final e in expenses) _ExpenseRow(e: e, g: g),
+        const SizedBox(height: 12),
+        PillButton('Group activity', icon: 'tally', style: PillStyle.quiet, onTap: () => context.push('/tally/$id/activity')),
         const SizedBox(height: 20),
         PillButton('Share a read-only link', icon: 'share', style: PillStyle.quiet, onTap: () => _share(context, ref)),
         const SizedBox(height: 8),
@@ -83,7 +91,7 @@ class _ExpenseRow extends ConsumerWidget {
     final c = context.c;
     final mine = e.shares[me] ?? 0;
     return Pressable(
-      onTap: () => showExpenseSheet(context, group: g, edit: e), semanticLabel: '${e.description}, ${formatCents(e.amountCents)}',
+      onTap: t.canEdit(g, e.createdBy) ? () => showExpenseSheet(context, group: g, edit: e) : null, semanticLabel: '${e.description}, ${formatCents(e.amountCents)}',
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(e.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.bodyL)),
@@ -141,11 +149,15 @@ class _Move extends ConsumerWidget {
       Text(text, style: context.ts(TickType.bodyL)),
       if (match != null) Padding(padding: const EdgeInsets.only(top: 2), child: Text('Looks like ${match.merchant} on ${DateFormat('MMM d').format(match.occurredAt)}.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 10),
-      PillButton(match != null ? 'Yes, that settles it' : (third ? '${t.nameOf(m.from)} paid ${t.nameOf(m.to)}' : m.from == me ? 'I paid $first' : 'They paid me'), height: 44, style: match != null ? PillStyle.primary : PillStyle.quiet, onTap: () async {
+      if (match == null && !third) Row(children: [
+        Expanded(child: PillButton('Settle up', height: 44, onTap: () => showSettleSheet(context, g: g, m: m))),
+        if (m.from != me) ...[const SizedBox(width: 8), Expanded(child: PillButton('Remind', height: 44, style: PillStyle.quiet, onTap: canRemind(t.lastReminder(g.id, m.from), DateTime.now()) ? () => showRemindSheet(context, g: g, member: m.from, cents: m.cents) : null))],
+      ]) else PillButton(match != null ? 'Yes, that settles it' : '${t.nameOf(m.from)} paid ${t.nameOf(m.to)}', height: 44, style: match != null ? PillStyle.primary : PillStyle.quiet, onTap: () async {
         final before = ref.read(tallyProvider).balancesOf(g.id).isEmpty;
         await ref.read(tallyProvider.notifier).settle(g.id, m.from, m.to, m.cents, transactionId: match?.id.startsWith('local-') == false ? match?.id : null);
         if (context.mounted) await _maybeSquare(context, ref, g.id, before);
       }),
+      if (m.from != me && remindedAgo(t.lastReminder(g.id, m.from), DateTime.now()) != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(remindedAgo(t.lastReminder(g.id, m.from), DateTime.now())!, style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary))),
     ])));
   }
 }

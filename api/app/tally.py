@@ -12,6 +12,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -96,6 +97,22 @@ def revoke_link(link_id: str, user_id: str = Depends(current_user)):
     rest().update("tally_links", {"id": link_id}, {"revoked_at": datetime.now(timezone.utc).isoformat()})
     audit(user_id, "tally_share", {"scope": "link_revoked"})
     return {"revoked": True}
+
+@router.get("/tally/expenses/{expense_id}/receipt")
+def receipt_link(expense_id: str, user_id: str = Depends(current_user)):
+    """Receipts sit in a private bucket under the uploader's folder, so members get a short-lived link, and only for an expense in their group."""
+    if not re.fullmatch(r"[0-9a-f\-]{36}", expense_id):
+        raise HTTPException(404, "receipt not found")
+    rows = rest().select("tally_expenses", id=f"eq.{expense_id}", select="group_id,receipt_path")
+    if not rows or not rows[0].get("receipt_path"):
+        raise HTTPException(404, "receipt not found")
+    _group(user_id, rows[0]["group_id"])
+    s = settings()
+    r = httpx.post(f"{s.supabase_url.rstrip('/')}/storage/v1/object/sign/receipts/{rows[0]['receipt_path']}", json={"expiresIn": 300},
+                   headers={"apikey": s.supabase_secret_key, "Authorization": f"Bearer {s.supabase_secret_key}"}, timeout=15)
+    if r.status_code >= 300:
+        raise HTTPException(502, "Couldn't open that receipt. Try again.")
+    return {"url": f"{s.supabase_url.rstrip('/')}/storage/v1{r.json()['signedURL']}"}
 
 # ---------------- public page ----------------
 def _link(token: str) -> dict | None:

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../data/tally_store.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -7,7 +8,9 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../domain/money.dart';
 import '../domain/tally.dart';
+import '../services/api.dart';
 import '../services/haptics.dart';
+import 'tally_manage.dart' show showUndo;
 
 /// A one-line text field in the app's own look (no Material). Owns its FocusNode: creating one inside build would drop focus (and the
 /// keyboard) on every keystroke.
@@ -61,7 +64,10 @@ class ExpenseSheet extends ConsumerStatefulWidget {
 }
 
 class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
-  late final TextEditingController _desc, _amount;
+  late final TextEditingController _desc, _amount, _note;
+  String? _category;
+  String? _receipt;
+  bool _scanning = false;
   final Map<String, TextEditingController> _w = {};
   late SplitType _type;
   late Set<String> _in; // who shares it
@@ -75,6 +81,9 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
     super.initState();
     final e = widget.edit;
     _desc = TextEditingController(text: e?.description ?? widget.description ?? '');
+    _note = TextEditingController(text: e?.note ?? '');
+    _category = e?.category;
+    _receipt = e?.receiptPath;
     final c = e?.amountCents ?? widget.cents;
     _amount = TextEditingController(text: c == null ? '' : formatCents(c, symbol: false, raw: true));
     _type = e?.splitType ?? SplitType.equal;
@@ -87,7 +96,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
 
   @override
   void dispose() {
-    _desc.dispose(); _amount.dispose();
+    _desc.dispose(); _amount.dispose(); _note.dispose();
     for (final c in _w.values) { c.dispose(); }
     super.dispose();
   }
@@ -131,7 +140,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
     setState(() => _busy = true);
     final ok = await ref.read(tallyProvider.notifier).saveExpense(TallyExpense(
         id: widget.edit?.id ?? '', groupId: widget.group.id, description: _desc.text.trim(), amountCents: _total, paidBy: _paidBy, shares: shares,
-        spentOn: widget.edit?.spentOn ?? widget.on ?? DateTime.now(), splitType: _type,
+        spentOn: widget.edit?.spentOn ?? widget.on ?? DateTime.now(), splitType: _type, note: _note.text.trim().isEmpty ? null : _note.text.trim(), category: _category, receiptPath: _receipt, createdBy: widget.edit?.createdBy,
         weights: _type == SplitType.percent || _type == SplitType.shares ? {for (final p in shares.keys) p: num.tryParse(_ctl(p).text) ?? 0} : const {}, transactionId: widget.edit?.transactionId ?? widget.transactionId));
     if (!mounted) return;
     if (ok) { TickHaptics.instance.confirm(); Navigator.of(context).pop(); } else { setState(() => _busy = false); }
@@ -159,10 +168,43 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         const SizedBox(height: 12),
         for (final p in _everyone) _row(context, st, p, shares),
         if (hint != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(hint, style: context.ts(TickType.bodyS, color: c.alert))),
+        const SizedBox(height: 12),
+        TallyField(controller: _note, hint: 'Note (optional)', label: 'Note'),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 4, children: [
+          for (final k in const ['Groceries', 'Restaurants', 'Rent', 'Utilities', 'Travel', 'Fun']) TickChip(k, on: _category == k, onTap: () => setState(() => _category = _category == k ? null : k)),
+          TickChip(_scanning ? 'Adding photo…' : _receipt != null ? 'Receipt added' : 'Add receipt', icon: 'receipt', on: _receipt != null, onTap: _scanning ? null : _addReceipt),
+        ]),
         const SizedBox(height: 16),
         PillButton(shares == null || _desc.text.trim().isEmpty ? 'Split it' : 'Split ${formatCents(_total)}', busy: _busy, onTap: shares == null || _desc.text.trim().isEmpty ? null : _save),
+        if (widget.edit != null) ...[
+          const SizedBox(height: 8),
+          PillButton('Delete expense', style: PillStyle.quiet, onTap: _delete),
+        ],
       ]),
     );
+  }
+
+  Future<void> _delete() async {
+    final e = widget.edit!;
+    final n = ref.read(tallyProvider.notifier);
+    final overlay = Overlay.of(context, rootOverlay: true);
+    await n.deleteExpense(e.id);
+    TickHaptics.instance.confirm();
+    if (mounted) Navigator.of(context).pop();
+    showUndo(overlay, '${e.description} deleted', () => n.restoreExpense(e));
+  }
+
+  Future<void> _addReceipt() async {
+    setState(() => _scanning = true);
+    try {
+      final x = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 1800, imageQuality: 80);
+      if (x != null) {
+        final j = await ref.read(apiProvider).postFile('/receipts/scan', 'file', await x.readAsBytes(), 'receipt.jpg');
+        if (mounted) setState(() => _receipt = j['path'] as String?);
+      }
+    } catch (_) {/* the expense still saves without a photo */}
+    if (mounted) setState(() => _scanning = false);
   }
 
   Widget _row(BuildContext context, TallyState st, String p, Map<String, int>? shares) {

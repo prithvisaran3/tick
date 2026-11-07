@@ -10,6 +10,7 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
+import '../domain/money.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
 import 'common.dart';
@@ -75,9 +76,14 @@ class TallyInboxScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(tallyProvider);
+    if (t.inbox.any((r) => !r.read)) Future.microtask(() => ref.read(tallyProvider.notifier).markInboxSeen().catchError((_) {}));
     return TickPage(title: 'Inbox', onBack: () => context.pop(), onRefresh: () => ref.read(tallyProvider.notifier).refresh(), children: [
-      if (t.invites.isEmpty) const EmptyState('Nothing waiting', 'Invites to a tally land here.', icon: 'tally'),
+      if (t.invites.isEmpty && t.inbox.isEmpty) const EmptyState('Nothing waiting', 'Invites and reminders land here.', icon: 'tally'),
       for (final i in t.invites) _Invite(i: i),
+      for (final r in t.inbox) Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(onTap: () => context.push('/tally/${r.groupId}'), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('${formatCents(r.amountCents)} for ${r.groupName}', style: context.ts(TickType.title, size: 16)),
+        Text('${r.fromName} sent a reminder.', style: context.ts(TickType.bodyS, color: context.c.textSecondary)),
+      ]))),
     ]);
   }
 }

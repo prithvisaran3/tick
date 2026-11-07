@@ -67,3 +67,30 @@ Known gaps
 - A settlement holds one bank row. In a group of two Tick users only one side's Zelle can be linked; the other stays a Friends and family row,
   which is out of the totals by default anyway.
 - Avatars: the column and search field exist, there is no upload yet, so everyone gets initials.
+
+## Phase 3: Tally features
+Done.
+- Groups: create with type-ahead search, emoji and colour; add, remove, rename, archive, delete with a confirm and five seconds of undo; leave.
+- Expenses: edit, delete with undo, note, category, receipt photo. Other members open a receipt through a signed link
+  (`/tally/expenses/{id}/receipt`), because the bucket is private. There is no viewer for that link in the app yet.
+- Settle up per person: simplified amount, partial amounts, method. Payments can be changed or deleted with undo.
+- Remind: inbox and badge for Tick users, prefilled message for guests, three tones, one per person per group per 24 hours, enforced in SQL,
+  with the amount taken from the balance.
+- Balances: totals, per-person ledger (tap a name), group activity feed.
+- A pending "I paid" whose exact amount lands from that person is offered as "Mark received" on Activity (`/paybacks/received`).
+
+Deep links, checked against docs on 2026-11-06
+- Venmo: the documented web payment link, `https://venmo.com/?txn=pay&amount=..&note=..` (venmo.com/paymentlinks). Tick doesn't store Venmo
+  usernames, so there is no recipient. The undocumented `venmo://paycharge` form isn't used. Not tested on a phone.
+- Cash App: no amount-in-URL format is documented, only blog and forum mentions of `cash.app/$tag/amount`, so Tick copies the amount and opens
+  cash.app.
+- Zelle: copies the amount and says to open your bank app.
+
+Decisions
+- Multi-payer expenses aren't built. It wasn't cheap: balances, the sheet and the RPC all assume one payer.
+- A member marking "I paid" is confirmed at once, as the spec says anyone can add a settlement. Only the public page creates pending ones.
+- `url_launcher` is a new dependency in `pubspec.yaml`. `pubspec.lock` holds it uncommitted, alongside your local changes.
+  iOS needs a `pod install`, which a normal build runs.
+
+Follow-up
+- **APNs.** No push notifications: the free Apple Personal Team can't send them. Reminders and invites wait in the inbox until the app is opened.

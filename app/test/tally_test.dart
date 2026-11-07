@@ -67,4 +67,34 @@ void main() {
     expect(looksLikeSettlement(t: t, personFirstName: 'Kaarthik', txnCents: -3000, merchant: 'Zelle to Kaarthik', txnAt: DateTime(2026, 11, 5), since: since), isFalse);
     expect(looksLikeSettlement(t: t, personFirstName: 'Kaarthik', txnCents: 2999, merchant: 'Zelle from Kaarthik', txnAt: DateTime(2026, 11, 5), since: since), isFalse);
   });
+
+  test('reminder text, spacing and the "reminded" line', () {
+    expect(reminderText(ReminderTone.firm, name: 'Asha', amount: r'$40.00', group: 'Flat'), r'Asha, $40.00 for Flat is still outstanding. Please pay it this week.');
+    expect(reminderText(ReminderTone.friendly, name: 'Asha', amount: r'$40.00', group: 'Flat', link: 'https://x'), endsWith('https://x'));
+    final now = DateTime(2026, 11, 6, 12);
+    expect(remindedAgo(now.subtract(const Duration(days: 2)), now), 'Reminded 2 days ago');
+    expect(remindedAgo(now.subtract(const Duration(hours: 1)), now), 'Reminded 1 hour ago');
+    expect(remindedAgo(null, now), isNull);
+    expect(canRemind(now.subtract(const Duration(hours: 23)), now), isFalse);
+    expect(canRemind(now.subtract(const Duration(hours: 24)), now), isTrue);
+  });
+
+  test('Venmo link follows the documented payment link; Cash App only opens', () {
+    final u = venmoLink(4050, 'Flat rent');
+    expect((u.host, u.queryParameters['txn'], u.queryParameters['amount'], u.queryParameters['note']), ('venmo.com', 'pay', '40.50', 'Flat rent'));
+    expect(cashAppLink.toString().contains('40'), isFalse);
+  });
+
+  test('per-person ledger only holds what is between us, and ends at the balance', () {
+    final d = DateTime(2026, 11, 1);
+    final es = [
+      TallyExpense(id: '1', groupId: 'g', description: 'Dinner', amountCents: 6000, paidBy: me, shares: {me: 2000, 'k': 2000, 'j': 2000}, spentOn: d),
+      TallyExpense(id: '2', groupId: 'g', description: 'Wifi', amountCents: 3000, paidBy: 'k', shares: {me: 1500, 'k': 1500}, spentOn: d.add(const Duration(days: 1))),
+      TallyExpense(id: '3', groupId: 'g', description: 'Not mine', amountCents: 1000, paidBy: 'j', shares: {'k': 1000}, spentOn: d),
+    ];
+    final ss = [TallySettlement(id: 's', groupId: 'g', from: 'k', to: me, amountCents: 300, on: d.add(const Duration(days: 2))), TallySettlement(id: 'p', groupId: 'g', from: 'k', to: me, amountCents: 999, on: d, status: 'pending')];
+    final l = personLedger('k', es, ss);
+    expect(l.map((x) => x.deltaCents), [2000, -1500, -300]);
+    expect(l.last.runningCents, 200);
+  });
 }

@@ -165,6 +165,18 @@ begin
   perform public.tally_invite_respond(inv, false);
   if public.is_tally_member(g) then fails := fails || 'decline joined; '; end if;
 
+  -- reminders: amount from the balance, once per person per group per day, only someone who owes, members only
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  select member_id into st from public.tally_net(g) where net_cents < 0 order by net_cents limit 1;
+  perform public.tally_remind(st, 'firm');
+  select amount_cents, tone into r from public.tally_reminders where to_member = st;
+  if r.amount_cents <> -(select net_cents from public.tally_net(g) where member_id = st) or r.tone <> 'firm' then fails := fails || 'reminder amount or tone; '; end if;
+  begin perform public.tally_remind(st, 'friendly'); fails := fails || 'second reminder inside 24 hours; '; exception when sqlstate '53400' then null; end;
+  begin perform public.tally_remind((select member_id from public.tally_net(g) where net_cents > 0 limit 1)); fails := fails || 'reminded someone who owes nothing; '; exception when raise_exception then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', m2, 'role', 'authenticated')::text, true);
+  begin perform public.tally_remind(st); fails := fails || 'non-member reminded; '; exception when no_data_found then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+
   -- the history says who did what, with old and new amounts
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
   select count(*) into n from public.tally_activity where action = 'expense_edited' and old_cents = 3000 and new_cents = 3300 and actor = o and actor_name = 'Olive Owner'; if n <> 1 then fails := fails || 'edit not logged; '; end if;

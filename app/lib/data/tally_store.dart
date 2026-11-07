@@ -15,8 +15,32 @@ class TallyInvite {
   final DateTime at;
 }
 
+class TallyReminder {
+  const TallyReminder({required this.id, required this.groupId, required this.toMember, required this.fromName, required this.groupName, required this.amountCents, required this.tone, required this.at, this.toMe = false, this.read = true});
+  final String id;
+  final String groupId;
+  final String toMember;
+  final String fromName;
+  final String groupName;
+  final int amountCents;
+  final String tone;
+  final DateTime at;
+  final bool toMe;
+  final bool read;
+}
+
+class TallyActivity {
+  const TallyActivity({required this.action, required this.at, this.actor, this.label, this.oldCents, this.newCents});
+  final String action;
+  final DateTime at;
+  final String? actor;
+  final String? label;
+  final int? oldCents;
+  final int? newCents;
+}
+
 class TallyState {
-  const TallyState({this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
+  const TallyState({this.reminders = const [], this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
       this.myMember = const {}, this.myUserId, this.loading = false, this.offline = false});
   /// Everyone with a name in my groups, by member id, plus (locally) my friends.
   final List<TallyPerson> people;
@@ -26,15 +50,24 @@ class TallyState {
   final List<TallyExpense> expenses;
   final List<TallySettlement> settlements;
   final List<TallyInvite> invites;
+  final List<TallyReminder> reminders;
   /// group id -> my member id in it (live only).
   final Map<String, String> myMember;
   final String? myUserId;
   final bool loading;
   final bool offline;
 
-  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, bool? loading, bool? offline}) =>
+  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, bool? loading, bool? offline}) =>
       TallyState(people: people ?? this.people, contacts: contacts ?? this.contacts, groups: groups ?? this.groups, expenses: expenses ?? this.expenses, settlements: settlements ?? this.settlements,
-          invites: invites ?? this.invites, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline);
+          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline);
+
+  List<TallyReminder> get inbox => [for (final r in reminders) if (r.toMe) r];
+  int get inboxBadge => invites.length + inbox.where((r) => !r.read).length;
+  DateTime? lastReminder(String gid, String member) {
+    DateTime? best;
+    for (final r in reminders) { if (r.groupId == gid && r.toMember == member && (best == null || r.at.isAfter(best))) best = r.at; }
+    return best;
+  }
 
   /// An expense or settlement can be changed by whoever added it, or the group's owner.
   bool canEdit(TallyGroup g, String? createdBy) => g.isOwner || createdBy == null || createdBy == myUserId;
@@ -79,11 +112,12 @@ class TallyNotifier extends Notifier<TallyState> {
       final res = await Future.wait([
         db.from('people').select().filter('archived_at', 'is', null),
         db.from('tally_groups').select().filter('deleted_at', 'is', null),
-        db.from('tally_members').select('id,group_id,member_user_id,name,color_key,role,status'),
+        db.from('tally_members').select('id,group_id,member_user_id,person_id,name,color_key,role,status'),
         db.from('tally_expenses').select().filter('deleted_at', 'is', null).order('spent_on', ascending: false).limit(1000),
         db.from('tally_shares').select('expense_id,member_id,owed_cents,weight'),
         db.from('tally_settlements').select().filter('deleted_at', 'is', null),
         db.from('tally_invites').select().eq('status', 'pending').eq('invitee', uid ?? ''),
+        db.from('tally_reminders').select().order('created_at', ascending: false).limit(200),
       ]);
       final mine = <String, String>{};           // group -> my member id
       final members = <String, List<String>>{};
@@ -103,7 +137,8 @@ class TallyNotifier extends Notifier<TallyState> {
       state = TallyState(
         myMember: mine, myUserId: uid,
         contacts: [for (final j in res[0]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', phone: j['phone'] as String?)],
-        people: [for (final j in res[2]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', userId: j['member_user_id'] as String?, status: j['status'] as String)],
+        people: [for (final j in res[2]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', userId: j['member_user_id'] as String?, status: j['status'] as String,
+            phone: [for (final c in res[0]) if (c['id'] == j['person_id']) c['phone'] as String?].firstOrNull, personId: j['person_id'] as String?)],
         groups: [for (final j in res[1]) TallyGroup(id: j['id'] as String, name: j['name'] as String, emoji: j['emoji'] as String?, direct: j['kind'] == 'direct', colorKey: (j['color_key'] as String?) ?? 'shop',
             memberIds: members[j['id']] ?? const [], isOwner: j['user_id'] == uid, archived: j['archived_at'] != null)],
         expenses: [
@@ -119,6 +154,8 @@ class TallyNotifier extends Notifier<TallyState> {
                 on: DateTime.parse(j['settled_on'] as String), method: j['method'] as String, status: j['status'] as String, transactionId: _id(j['transaction_id']), createdBy: _id(j['created_by'])),
         ],
         invites: [for (final j in res[6]) TallyInvite(id: j['id'] as String, groupId: j['group_id'] as String, groupName: j['group_name'] as String, inviterName: j['inviter_name'] as String, at: DateTime.parse(j['created_at'] as String))],
+        reminders: [for (final j in res[7]) TallyReminder(id: j['id'] as String, groupId: j['group_id'] as String, toMember: j['to_member'] as String, fromName: j['from_name'] as String, groupName: j['group_name'] as String,
+            amountCents: (j['amount_cents'] as num).toInt(), tone: j['tone'] as String, at: DateTime.parse(j['created_at'] as String).toLocal(), toMe: j['to_user'] == uid, read: j['read_at'] != null)],
       );
     } catch (_) {
       state = state.copyWith(loading: false, offline: true);
@@ -189,10 +226,36 @@ class TallyNotifier extends Notifier<TallyState> {
     state = state.copyWith(expenses: [for (final e in state.expenses) if (e.id != id) e]);
   }
 
+  /// Undo for [deleteExpense]: the shares never left, so the row just comes back.
+  Future<void> restoreExpense(TallyExpense e) async {
+    final r = _remote;
+    if (r != null && !e.id.startsWith('local-')) {
+      try { await r.db.from('tally_expenses').update({'deleted_at': null}).eq('id', e.id); } catch (_) { state = state.copyWith(offline: true); return; }
+    }
+    state = state.copyWith(expenses: [...state.expenses.where((x) => x.id != e.id), e]);
+  }
+
+  Future<void> deleteSettlement(String id) async {
+    final r = _remote;
+    if (r != null && !id.startsWith('local-')) await r.db.from('tally_settlements').update({'deleted_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+    state = state.copyWith(settlements: [for (final s in state.settlements) if (s.id != id) s]);
+  }
+
+  Future<void> editSettlement(TallySettlement s, int cents) async {
+    if (_remote != null) { await _rpc('tally_edit_settlement', {'p_id': s.id, 'p_cents': cents, 'p_method': s.method}); return; }
+    state = state.copyWith(settlements: [for (final x in state.settlements) if (x.id == s.id) TallySettlement(id: s.id, groupId: s.groupId, from: s.from, to: s.to, amountCents: cents, on: s.on, method: s.method, status: s.status, transactionId: s.transactionId, createdBy: s.createdBy) else x]);
+  }
+
+  Future<void> restoreSettlement(TallySettlement s) async {
+    final r = _remote;
+    if (r != null && !s.id.startsWith('local-')) await r.db.from('tally_settlements').update({'deleted_at': null}).eq('id', s.id);
+    state = state.copyWith(settlements: [...state.settlements.where((x) => x.id != s.id), s]);
+  }
+
   /// Records that [from] paid [to]. Tick never moves money: this only notes that it happened.
   Future<void> settle(String groupId, String from, String to, int cents, {String method = 'zelle', String? transactionId}) async {
     if (cents <= 0) return;
-    var s = TallySettlement(id: _local(), groupId: groupId, from: from, to: to, amountCents: cents, on: DateTime.now(), method: method, transactionId: transactionId);
+    var s = TallySettlement(id: _local(), groupId: groupId, from: from, to: to, amountCents: cents, on: ref.read(clockProvider)(), method: method, transactionId: transactionId);
     final r = _remote;
     if (r != null) {
       try {
@@ -251,7 +314,74 @@ class TallyNotifier extends Notifier<TallyState> {
     return id;
   }
 
+  // ---------- the group itself (owner only on the server) ----------
+  TallyGroup _with(TallyGroup g, {String? name, bool? archived}) => TallyGroup(id: g.id, name: name ?? g.name, memberIds: g.memberIds, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: archived ?? g.archived);
+  Future<void> _patchGroup(String id, Map<String, dynamic> patch) async { await _remote?.db.from('tally_groups').update(patch).eq('id', id); }
+
+  Future<void> renameGroup(String id, String name) async {
+    await _patchGroup(id, {'name': name.trim()});
+    state = state.copyWith(groups: [for (final g in state.groups) g.id == id ? _with(g, name: name.trim()) : g]);
+  }
+  Future<void> archiveGroup(String id, {required bool archived}) async {
+    await _patchGroup(id, {'archived_at': archived ? DateTime.now().toUtc().toIso8601String() : null});
+    state = state.copyWith(groups: [for (final g in state.groups) g.id == id ? _with(g, archived: archived) : g]);
+  }
+  Future<void> deleteGroup(String id) async {
+    await _patchGroup(id, {'deleted_at': DateTime.now().toUtc().toIso8601String()});
+    state = state.copyWith(groups: [for (final g in state.groups) if (g.id != id) g]);
+  }
+  Future<void> restoreGroup(TallyGroup g) async {
+    await _patchGroup(g.id, {'deleted_at': null});
+    state = state.copyWith(groups: [...state.groups.where((x) => x.id != g.id), g]);
+  }
+
+  /// Throws [TallyBlocked] with what is outstanding when the balance isn't zero.
+  Future<void> removeMember(String groupId, String memberId) async {
+    final net = state.balancesOf(groupId)[memberId] ?? 0;
+    if (net != 0) throw TallyBlocked(net);
+    if (_remote == null) {
+      state = state.copyWith(groups: [for (final g in state.groups) if (g.id == groupId) _withMembers(g, [...g.memberIds]..remove(memberId)) else g]);
+      return;
+    }
+    await _rpc('tally_remove_member', {'p_member': memberId});
+  }
+  Future<void> leaveGroup(String groupId) async {
+    final net = state.balancesOf(groupId)[me] ?? 0;
+    if (net != 0) throw TallyBlocked(net);
+    if (_remote == null) { state = state.copyWith(groups: [for (final g in state.groups) if (g.id != groupId) g]); return; }
+    await _rpc('tally_leave_group', {'p_group': groupId});
+  }
+
+  /// Records a reminder. Guests also get a message the sender sends themselves.
+  Future<void> remind(String groupId, String memberId, ReminderTone tone) async {
+    if (_remote == null) {
+      final g = state.groups.firstWhere((x) => x.id == groupId);
+      state = state.copyWith(reminders: [TallyReminder(id: _local(), groupId: groupId, toMember: memberId, fromName: 'You', groupName: g.name, amountCents: -(state.balancesOf(groupId)[memberId] ?? 0), tone: tone.name, at: ref.read(clockProvider)()), ...state.reminders]);
+      return;
+    }
+    await _rpc('tally_remind', {'p_member': memberId, 'p_tone': tone.name});
+  }
+
+  Future<void> markInboxSeen() async {
+    if (state.inbox.every((r) => r.read)) return;
+    await _rpc('tally_reminders_seen', {});
+  }
+
+  Future<List<TallyActivity>> activity(String groupId) async {
+    final r = _remote;
+    if (r == null) return const [];
+    final rows = await r.db.from('tally_activity').select().eq('group_id', groupId).order('created_at', ascending: false).limit(100);
+    return [for (final j in rows) TallyActivity(action: j['action'] as String, at: DateTime.parse(j['created_at'] as String).toLocal(), actor: j['actor_name'] as String?, label: j['label'] as String?,
+        oldCents: (j['old_cents'] as num?)?.toInt(), newCents: (j['new_cents'] as num?)?.toInt())];
+  }
+
   TallyGroup _withMembers(TallyGroup g, List<String> ids) => TallyGroup(id: g.id, name: g.name, memberIds: ids, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: g.archived);
+}
+
+/// Leaving or removing someone with a balance is refused; the app shows what is outstanding and offers to settle.
+class TallyBlocked implements Exception {
+  const TallyBlocked(this.netCents);
+  final int netCents;
 }
 
 /// Someone found by search: a name, a handle and an avatar. Never an email or a phone number.

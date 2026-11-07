@@ -27,14 +27,15 @@ class TallyScreen extends ConsumerWidget {
       title: 'Tally', trailing: const AskButton(), bottomPad: 130,
       onRefresh: () => ref.read(tallyProvider.notifier).refresh(),
       children: [
-        if (t.invites.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Align(alignment: Alignment.centerLeft, child: TickChip('Inbox ${t.invites.length}', icon: 'tally', onTap: () => context.push('/tally/inbox')))),
+        if (t.inboxBadge > 0 || t.inbox.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Align(alignment: Alignment.centerLeft, child: TickChip(t.inboxBadge > 0 ? 'Inbox ${t.inboxBadge}' : 'Inbox', icon: 'tally', onTap: () => context.push('/tally/inbox')))),
         const HandleNudge(),
         if (t.groups.isEmpty)
           const EmptyState('All square ✓', 'Split a purchase with a friend and it shows up here.', icon: 'tally')
         else ...[
           _Summary(owed: s.owedToMe, owe: s.iOwe, square: t.allSquare),
           const SizedBox(height: 20),
-          for (final g in t.groups) _GroupRow(g: g, t: t),
+          for (final g in t.groups) if (!g.archived) _GroupRow(g: g, t: t),
+          for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t)),
         ],
         if (t.offline) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Couldn\'t reach Tick. Showing what is saved on this phone.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
         const SizedBox(height: 16),

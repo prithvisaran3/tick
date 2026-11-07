@@ -68,10 +68,18 @@ class PaybackBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final list = ref.watch(paybackSuggestionsProvider).value ?? const <PaybackSuggestion>[];
-    if (list.isEmpty) return const SizedBox.shrink();
+    final landed = ref.watch(landedSettlementsProvider).value ?? const <LandedSettlement>[];
+    if (list.isEmpty && landed.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final s in landed) Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('${formatCents(s.amountCents)} from ${s.from} landed. Mark it received?', style: context.ts(TickType.title, size: 15.5)),
+        const SizedBox(height: 10),
+        PillButton('Mark received', height: 44, onTap: () => ref.read(paybackActionsProvider).received(s)),
+      ]))),
+      if (list.isNotEmpty) ...[
       PaybackCard(key: ValueKey(list.first.paybackId), s: list.first),
       if (list.length > 1) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('${list.length - 1} more to check', style: context.ts(TickType.bodyS, size: 12.5, color: context.c.textSecondary))),
+      ],
     ]);
   }
 }

@@ -19,6 +19,7 @@ import 'features/import_screen.dart';
 import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
+import 'features/tally_manage.dart';
 import 'features/tally_people.dart';
 import 'features/tally_split_screen.dart';
 import 'features/cards.dart';
@@ -94,6 +95,9 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/tally/split/:txnId', pageBuilder: (c, s) => _page(s, TallySplitScreen(txnId: s.pathParameters['txnId']!))),
         GoRoute(path: '/tally/inbox', pageBuilder: (c, s) => _page(s, const TallyInboxScreen())),
         GoRoute(path: '/tally/:id', pageBuilder: (c, s) => _page(s, TallyGroupScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/settings', pageBuilder: (c, s) => _page(s, TallyGroupSettingsScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/activity', pageBuilder: (c, s) => _page(s, TallyActivityScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/tally/:id/person/:member', pageBuilder: (c, s) => _page(s, TallyPersonScreen(groupId: s.pathParameters['id']!, member: s.pathParameters['member']!))),
         GoRoute(path: '/txn/:id', pageBuilder: (c, s) => _page(s, TxnDetailScreen(id: s.pathParameters['id']!))),
         if (kDebugMode) GoRoute(path: '/dev/gallery', pageBuilder: (c, s) => _page(s, const GalleryScreen())),
       ],
