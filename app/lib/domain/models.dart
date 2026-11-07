@@ -198,7 +198,9 @@ enum PayFrequency { weekly, biweekly, semimonthly, monthly }
 
 @immutable
 class PaydayRule {
-  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents});
+  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents, this.days});
+  /// Twice a month: the two days of the month, like [15, 30].
+  final List<int>? days;
   final PayFrequency frequency;
   final DateTime anchor; // any known payday
   final int amountCents;

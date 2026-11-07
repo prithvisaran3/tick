@@ -84,6 +84,7 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           const SectionLabel('More'),
           group([
+            row('calendar', 'Payday', chevron(), onTap: () => context.push('/settings/payday')),
             row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
             row('goal', 'Data', chevron(), onTap: () => context.push('/settings/data')),
             row('heart-check', 'Labs', val('${featureFlags.where((f) => s.flag(f.$1)).length} on'), onTap: () => context.push('/settings/labs')),

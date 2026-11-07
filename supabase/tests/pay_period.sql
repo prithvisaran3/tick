@@ -1,0 +1,45 @@
+-- Vectors from api/tests/data/pay_period.json, which the Dart mirror also runs (app/test/domain/payday_test.dart). Always rolls back.
+do $$
+declare fails text := ''; r record; u uuid := gen_random_uuid(); s uuid := gen_random_uuid();
+begin
+  select * into r from public.pay_dates('{"frequency": "biweekly", "next_date": "2026-11-13"}'::jsonb, '2026-11-06');
+  if r.prev_payday is distinct from '2026-10-30'::date or r.next_payday is distinct from '2026-11-13'::date then fails := fails || format('anchor example: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "biweekly", "next_date": "2026-11-13"}'::jsonb, '2026-11-13');
+  if r.prev_payday is distinct from '2026-11-13'::date or r.next_payday is distinct from '2026-11-27'::date then fails := fails || format('on payday it starts the new period: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "biweekly", "next_date": "2026-11-13"}'::jsonb, '2026-11-27');
+  if r.prev_payday is distinct from '2026-11-27'::date or r.next_payday is distinct from '2026-12-11'::date then fails := fails || format('anchor example, two on: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "biweekly", "next_date": "2026-10-23"}'::jsonb, '2026-11-02');
+  if r.prev_payday is distinct from '2026-10-23'::date or r.next_payday is distinct from '2026-11-06'::date then fails := fails || format('across the fall DST change: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "weekly", "next_date": "2027-03-05"}'::jsonb, '2027-03-15');
+  if r.prev_payday is distinct from '2027-03-12'::date or r.next_payday is distinct from '2027-03-19'::date then fails := fails || format('across the spring DST change: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "biweekly", "next_date": "2025-01-03"}'::jsonb, '2026-11-06');
+  if r.prev_payday is distinct from '2026-11-06'::date or r.next_payday is distinct from '2026-11-20'::date then fails := fails || format('an old anchor keeps working: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "monthly", "next_date": "2026-01-31"}'::jsonb, '2026-02-15');
+  if r.prev_payday is distinct from '2026-01-31'::date or r.next_payday is distinct from '2026-02-28'::date then fails := fails || format('monthly clamps to a short month: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-10-15", "days": [15, 30]}'::jsonb, '2026-10-20');
+  if r.prev_payday is distinct from '2026-10-15'::date or r.next_payday is distinct from '2026-10-30'::date then fails := fails || format('twice a month, plain: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-11-13", "days": [15, 30]}'::jsonb, '2026-11-14');
+  if r.prev_payday is distinct from '2026-11-13'::date or r.next_payday is distinct from '2026-11-30'::date then fails := fails || format('a Sunday 15th pays Friday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-08-14", "days": [15, 31]}'::jsonb, '2026-08-13');
+  if r.prev_payday is distinct from '2026-07-31'::date or r.next_payday is distinct from '2026-08-14'::date then fails := fails || format('a Saturday 15th pays Friday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2027-02-15", "days": [15, 30]}'::jsonb, '2027-02-20');
+  if r.prev_payday is distinct from '2027-02-12'::date or r.next_payday is distinct from '2027-02-26'::date then fails := fails || format('the 30th in February is the last day, a Friday holiday-free: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-12-10", "days": [10, 25]}'::jsonb, '2026-12-20');
+  if r.prev_payday is distinct from '2026-12-10'::date or r.next_payday is distinct from '2026-12-24'::date then fails := fails || format('Christmas Friday pays Thursday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-09-07", "days": [7, 22]}'::jsonb, '2026-09-05');
+  if r.prev_payday is distinct from '2026-09-04'::date or r.next_payday is distinct from '2026-09-22'::date then fails := fails || format('Labor Day Monday pays Friday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2028-01-02", "days": [2, 17]}'::jsonb, '2027-12-29');
+  if r.prev_payday is distinct from '2027-12-17'::date or r.next_payday is distinct from '2027-12-31'::date then fails := fails || format('Sunday New Year observed Monday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency":"weekly","next_date":"2026-11-13"}'::jsonb, '2026-10-20');
+  if r.next_payday <> '2026-11-13' then fails := fails || 'far-off anchor; '; end if;
+  -- pay_period reads the owner's rule; another user sees nothing of it
+  insert into auth.users (id, aud, role, email) values (u, 'authenticated', 'authenticated', 'p@test.local'), (s, 'authenticated', 'authenticated', 's@test.local');
+  insert into public.settings (user_id, payday_rule) values (u, '{"frequency":"biweekly","next_date":"2026-11-13"}') on conflict (user_id) do update set payday_rule = excluded.payday_rule;
+  select * into r from public.pay_period(u, '2026-11-06');
+  if r.period_start <> '2026-10-30' or r.period_end <> '2026-11-12' or r.next_payday <> '2026-11-13' then fails := fails || 'pay_period anchor; '; end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', s, 'role', 'authenticated')::text, true); set local role authenticated;
+  if (select count(*) from public.pay_period(u, '2026-11-06')) <> 0 then fails := fails || 'another user reads a pay period; '; end if;
+  reset role;
+  if fails <> '' then raise exception 'PAY_TESTS_FAILED: %', fails; end if;
+  raise exception 'PAY_TESTS_PASSED';
+end $$;

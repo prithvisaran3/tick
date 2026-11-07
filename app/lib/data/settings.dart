@@ -60,7 +60,7 @@ class AppSettings {
         'haptics': haptics.name, 'sound': sound, 'theme': theme, 'faceIdLock': faceIdLock, 'privacyBlur': privacyBlur, 'demoMode': demoMode,
         'onboardingDone': onboardingDone, 'morningTime': morningTime, 'weeklyTime': weeklyTime, 'lastMorningReceipt': lastMorningReceipt, 'name': name,
         'flagsOff': flagsOff.toList(), 'hideAmounts': hideAmounts, 'lockAfterSeconds': lockAfterSeconds, 'includeFriends': includeFriends,
-        if (rule != null) 'rule': {'f': rule!.frequency.name, 'a': rule!.anchor.toIso8601String(), 'c': rule!.amountCents},
+        if (rule != null) 'rule': {'f': rule!.frequency.name, 'a': rule!.anchor.toIso8601String(), 'c': rule!.amountCents, 'd': rule!.days},
       };
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
         haptics: HapticMode.values.firstWhere((m) => m.name == j['haptics'], orElse: () => HapticMode.full),
@@ -71,7 +71,7 @@ class AppSettings {
         flagsOff: {...((j['flagsOff'] as List?) ?? const []).whereType<String>()}, hideAmounts: (j['hideAmounts'] ?? false) as bool,
         lockAfterSeconds: (j['lockAfterSeconds'] as num?)?.toInt() ?? 60, includeFriends: (j['includeFriends'] ?? false) as bool,
         rule: j['rule'] == null ? null : PaydayRule(
-            frequency: PayFrequency.values.firstWhere((f) => f.name == (j['rule'] as Map)['f'], orElse: () => PayFrequency.biweekly), anchor: DateTime.parse((j['rule'] as Map)['a'] as String), amountCents: ((j['rule'] as Map)['c'] as num).toInt()),
+            frequency: PayFrequency.values.firstWhere((f) => f.name == (j['rule'] as Map)['f'], orElse: () => PayFrequency.biweekly), anchor: DateTime.parse((j['rule'] as Map)['a'] as String), amountCents: ((j['rule'] as Map)['c'] as num).toInt(), days: ((j['rule'] as Map)['d'] as List?)?.cast<int>()),
       );
 }
 
@@ -106,7 +106,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     if (n.rule != null && n.rule != old.rule && !n.demoMode) {
       final remote = ref.read(remoteProvider);
       final r = n.rule!;
-      remote?.savePaydayRule({'frequency': r.frequency.name, 'next_date': r.anchor.toIso8601String().substring(0, 10), 'amount_cents': r.amountCents}).catchError((_) {});   // best effort
+      remote?.savePaydayRule({'frequency': r.frequency.name, 'next_date': r.anchor.toIso8601String().substring(0, 10), 'amount_cents': r.amountCents, 'days': ?r.days}).catchError((_) {});   // best effort
     }
   }
 

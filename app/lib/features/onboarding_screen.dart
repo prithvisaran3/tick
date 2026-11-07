@@ -1,9 +1,9 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../data/bank_step.dart';
 import '../data/remote.dart';
+import 'payday_editor.dart';
 import 'tally_people.dart';
 import '../data/ledger.dart';
 import '../data/settings.dart';
@@ -18,7 +18,6 @@ import '../domain/natural_input.dart';
 import '../domain/payday.dart';
 import '../services/auth.dart';
 import '../services/haptics.dart';
-import '../domain/dates.dart';
 
 /// Three steps: welcome + Google, paycheck, the big stuff (rent, goal).
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -34,21 +33,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   AuthFailureKind? _failure;
   bool _busy = false;
   // paycheck
-  int _freq = 1;
-  int _dateIdx = 0;
-  DateTime? _customDate;
+  PaydayRule? _payRule;
   String _amount = '';
   // basics
   String _rent = '';
   String _savings = '';
   int _field = 0; // 0 = rent, 1 = savings
   final List<ParsedEntry> _bills = [];
-
-  List<DateTime> _dateOptions(DateTime now) {
-    var d = dayOnly(now);
-    while (d.weekday != DateTime.friday) { d = addDays(d, 1); }
-    return [d, addDays(d, 7), addDays(d, 14)];
-  }
 
   Future<void> _google() async {
     if (_busy) return;                                                  // block double taps
@@ -82,8 +73,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final n = ref.read(settingsProvider.notifier);
     final now = ref.read(clockProvider)();
     final amt = parseCents(_amount) ?? 0;
-    final freq = [PayFrequency.weekly, PayFrequency.biweekly, PayFrequency.semimonthly, PayFrequency.monthly][_freq];
-    n.update((s) => s.copyWith(rule: PaydayRule(frequency: freq, anchor: _dateIdx < 0 && _customDate != null ? _customDate! : _dateOptions(now)[_dateIdx.clamp(0, 2)], amountCents: amt), onboardingDone: true));
+    final pr = _payRule ?? PaydayRule(frequency: PayFrequency.biweekly, anchor: dayOnly(now), amountCents: 0);
+    n.update((s) => s.copyWith(rule: PaydayRule(frequency: pr.frequency, anchor: pr.anchor, amountCents: amt, days: pr.days), onboardingDone: true));
     final led = ref.read(ledgerProvider.notifier);
     for (final b in _bills) {
       await ref.read(ledgerProvider.notifier).addRecurring(Recurring(id: 'local-bill-${b.merchant}', merchant: b.merchant, cadence: Cadence.monthly, expectedCents: b.amountCents.abs(), nextDate: nextDayOfMonth(b.recurringDayOfMonth ?? now.day, now), priceHistory: [b.amountCents.abs()]));
@@ -126,21 +117,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         const SizedBox(height: 28),
       ]);
     } else if (_step == 1) {
-      final dates = _dateOptions(now);
       body = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const SizedBox(height: 16),
         Text('When do you get paid?', style: context.ts(TickType.displayL)),
         const SizedBox(height: 16),
-        Segmented(options: const ['Weekly', 'Biweekly', 'Twice a month', 'Monthly'], index: _freq, onChanged: (i) => setState(() => _freq = i)),
-        const SizedBox(height: 16),
-        SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-          for (var i = 0; i < 2; i++) ...[if (i > 0) const SizedBox(width: 8), TickChip(DateFormat('EEE MMM d').format(dates[i]), on: i == _dateIdx, onTap: () => setState(() => _dateIdx = i))],
-          const SizedBox(width: 8),
-          TickChip(_customDate == null ? 'Pick date' : DateFormat('EEE MMM d').format(_customDate!), icon: 'calendar', on: _dateIdx < 0, onTap: () async {
-            final d = await showDateSheet(context, initial: _customDate ?? dates.first);
-            if (d != null) setState(() { _customDate = d; _dateIdx = -1; });
-          }),
-        ])),
+        PaydayEditor(today: now, onChanged: (r) => _payRule = r),
         const SizedBox(height: 16),
         Center(child: Column(children: [
           Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),

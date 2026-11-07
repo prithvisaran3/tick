@@ -29,11 +29,11 @@ SafeToSpend computeSafeToSpend({
   required List<Recurring> recurring,
   required List<Goal> goals,
   List<Expected> expected = const [],
+  PayPeriod? period,     // from SQL when there is one; the rule is the fallback
 }) {
   final t = dayOnly(today);
   // If today is payday the money is arriving: plan to the *following* payday.
-  var payday = nextPayday(rule, t);
-  if (payday == t) payday = nextPayday(rule, addDays(t, 1));
+  final payday = period != null && !period.nextPayday.isBefore(t) && period.nextPayday != t ? dayOnly(period.nextPayday) : payDates(rule, t).$2;
   final cash = accounts
       .where((a) => a.includeInSafe && a.isCash && a.type != 'savings')
       .fold<int>(0, (s, a) => s + (a.availableCents ?? a.balanceCents ?? 0));

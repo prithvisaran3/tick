@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import ai
 from .auth import current_user, user_limiter
 from .db import rest
+from .pay import pay_period
 from .intel import ET, detect_recurring
 
 router = APIRouter()
@@ -182,31 +183,6 @@ class AskBody(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     history: list[dict] = Field(default_factory=list, max_length=12)
 
-def next_payday(rule: dict | None, today: date) -> date | None:
-    """Next payday on or after today from {frequency, next_date (any known payday), amount_cents}."""
-    if not rule or not rule.get("next_date"):
-        return None
-    try:
-        a = date.fromisoformat(rule["next_date"])
-    except ValueError:
-        return None
-    f = rule.get("frequency", "biweekly")
-    if f in ("weekly", "biweekly"):
-        step = 7 if f == "weekly" else 14
-        if a >= today:
-            return a
-        return a + timedelta(days=-(-(today - a).days // step) * step)
-    import calendar
-    d, k = a, 0
-    while d < today and k < 600:
-        k += 1
-        if f == "semimonthly":
-            d = d + timedelta(days=15)
-        else:
-            y, m = a.year + (a.month - 1 + k) // 12, (a.month - 1 + k) % 12 + 1
-            d = date(y, m, min(a.day, calendar.monthrange(y, m)[1]))
-    return d
-
 def load_ledger(user_id: str) -> Ledger:
     today = datetime.now(ET).date()
     since = (today - timedelta(days=400)).isoformat()
@@ -220,8 +196,8 @@ def load_ledger(user_id: str) -> Ledger:
     exp = [{"label": x["label"], "kind": x["kind"], "amount_cents": x["amount_cents"], "date": date.fromisoformat(x["expected_date"])} for x in rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected")]
     acc = rest().select("accounts", user_id=f"eq.{user_id}", select="name,type,balance_cents,available_cents")
     bud = [{"category": cats.get(x["category_id"], "Other"), "cap_cents": x["monthly_cap_cents"]} for x in rest().select("budgets", user_id=f"eq.{user_id}")]
-    st = rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule")
-    payday = next_payday(st[0].get("payday_rule"), today) if st else None
+    per = pay_period(user_id, today)
+    payday = per["next_payday"] if per else None
     return Ledger(txns, rec, exp, acc, bud, payday, today)
 
 TOOL_SPECS = [

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
+import '../domain/payday.dart';
 import '../services/session.dart';
 import 'env.dart';
 import 'ledger.dart';
@@ -124,10 +125,18 @@ class Remote {
     try {
       return PaydayRule(
         frequency: PayFrequency.values.firstWhere((f) => f.name == r['frequency'], orElse: () => PayFrequency.biweekly),
-        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt());
+        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt(), days: (r['days'] as List?)?.cast<int>());
     } catch (_) {
       return null;
     }
+  }
+
+  /// The pay period from SQL, the one definition. Null when there's no rule yet.
+  Future<PayPeriod?> loadPayPeriod() async {
+    final rows = await db.rpc('pay_period', params: {'p_user': db.auth.currentUser!.id});
+    if (rows is! List || rows.isEmpty) return null;
+    final j = rows.first as Map;
+    return PayPeriod(start: DateTime.parse(j['period_start'] as String), end: DateTime.parse(j['period_end'] as String), nextPayday: DateTime.parse(j['next_payday'] as String));
   }
 
   Future<void> saveIncludeFriends(bool v) => db.from('settings').upsert({'user_id': db.auth.currentUser!.id, 'include_friends': v});

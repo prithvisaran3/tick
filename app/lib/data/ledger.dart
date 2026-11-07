@@ -308,6 +308,15 @@ class LedgerNotifier extends Notifier<LedgerState> {
 final ledgerProvider = NotifierProvider<LedgerNotifier, LedgerState>(LedgerNotifier.new);
 
 /// Safe to spend until the next payday, or null if no payday rule is known yet.
+/// The pay period from SQL. Re-read when the ledger or the schedule changes; offline it's null and the rule is used.
+final payPeriodProvider = FutureProvider<PayPeriod?>((ref) async {
+  ref.watch(ledgerRevisionProvider);
+  ref.watch(settingsProvider.select((s) => s.rule));
+  final r = ref.watch(remoteProvider);
+  if (r == null) return null;
+  try { return await r.loadPayPeriod(); } catch (_) { return null; }
+});
+
 final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
   final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
   var rule = ref.watch(settingsProvider.select((s) => s.rule));
@@ -315,5 +324,5 @@ final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
   final now = ref.watch(clockProvider)();
   if (demo) rule = demoPaydayRule(now);
   if (rule == null) return null;
-  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected);
+  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected, period: demo ? null : ref.watch(payPeriodProvider).value);
 });

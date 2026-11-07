@@ -421,7 +421,7 @@ def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
     """Nothing else creates `expected` rows on live data, so "Landed" and the Incoming list never had anything to match.
     Derive the paychecks from the person's payday rule: the last payday within 4 days (a deposit can post late) and the next one.
     Idempotent: one row per paycheck date, whatever its status, and it never touches a rule that has no amount."""
-    from app.ask import next_payday
+    from .pay import pay_period
     today = today or datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
     try:
         st = rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule")
@@ -429,7 +429,8 @@ def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
         amount = int((rule or {}).get("amount_cents") or 0)
         if amount <= 0:
             return
-        dates = {d for d in (next_payday(rule, today - timedelta(days=4)), next_payday(rule, today)) if d}
+        # the first payday on or after four days ago (a deposit can post late), and the first on or after today
+        dates = {p["next_payday"] for p in (pay_period(user_id, today - timedelta(days=5)), pay_period(user_id, today - timedelta(days=1))) if p}
         have = {e["expected_date"] for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", select="expected_date")}
         for d in sorted(dates):
             if d.isoformat() not in have and d <= today + timedelta(days=45):
