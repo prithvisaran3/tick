@@ -67,3 +67,8 @@ Merchants keep their monogram. Search results use the default face, because a se
 ## Phase 7: haptics and motion
 Done. Haptics on toggles, segmented controls, keypad, tab change, refresh threshold, swipes, undo, avatars and icons, and a warning on error states and failed saves; repeated clicks within 40 ms collapse to one. Settings has a Haptics toggle above Full/Subtle.
 Keypad digits roll, tappable cards tilt on long press, page transitions use the spring. Safe to spend already counted up on open. Tokens only; Reduce Motion respected.
+
+## Deploy notes
+Rent seed against production: 0 payments under any spelling of Kaarthik Roshan, so `tools/seed_rent_rule.py --apply` wasn't run and no rule exists. The bank's only Kaarthik with outgoing payments is Kaarthik Kumar: 4 payments, and 2 of them
+form a monthly run around day 3, about $493 (band $444 to $543). I didn't treat that as the same person, since it's a different name. Activity will offer "Looks like rent or a bill" for him, and one tap makes the rule.
+The owner's payday rule was empty in the database, so `tools/set_payday.py` stores amount 0; the take-home goes in Settings > Payday.

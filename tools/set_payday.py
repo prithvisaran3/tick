@@ -22,7 +22,7 @@ def main():
     old = (rows[0].get("payday_rule") if rows else None) or {}
     if isinstance(old, str):
         old = json.loads(old)
-    new = {**old, "frequency": "biweekly", "next_date": ANCHOR}
+    new = {"amount_cents": 0, **old, "frequency": "biweekly", "next_date": ANCHOR}
     new.pop("days", None)
     print(f"now:  {old.get('frequency')} from {old.get('next_date')}")
     print(f"then: biweekly from {ANCHOR}")
