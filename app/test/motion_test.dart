@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/design/motion.g.dart';
 import 'package:tick/design/widgets/core.dart';
 import 'package:tick/design/widgets/motion.dart';
+import 'package:tick/design/widgets/more.dart';
 import 'package:tick/design/widgets/swipe.dart';
+import 'package:tick/features/common.dart';
+import 'package:tick/services/haptics.dart';
 import 'package:tick/features/tally_more.dart';
 import 'golden_harness.dart';
 
@@ -97,5 +100,51 @@ void main() {
     expect(done, isTrue);
     await tester.pumpAndSettle();
     expect(find.byType(TickIcon), findsOneWidget);
+  });
+
+  testWidgets('toggles, segmented controls and keypad keys click', (tester) async {
+    await loadFonts();
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    TickHaptics.instance.log.clear();
+    await tester.pumpWidget(frame(c, Column(children: [TickToggle(on: false, onChanged: (_) {}), Segmented(options: const ['A', 'B'], index: 0, onChanged: (_) {}), NumberPad(onKey: (_) {})]), dark: true));
+    await tester.tap(find.byType(TickToggle)); await tester.tap(find.text('B')); await tester.tap(find.text('7'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(TickHaptics.instance.log.where((k) => k == 'selection').length, 3);
+  });
+
+  testWidgets('keypad digits roll in and read as the whole amount', (tester) async {
+    await loadFonts();
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    Widget w(String v) => frame(c, RollingDigits(v, style: const TextStyle(fontSize: 20)), dark: true);
+    await tester.pumpWidget(w(r'$4'));
+    await tester.pumpWidget(w(r'$42'));
+    await tester.pump(const Duration(milliseconds: TickMotion.digitMs + 20));
+    expect(find.text('2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an error state buzzes once', (tester) async {
+    await loadFonts();
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    TickHaptics.instance.log.clear();
+    await tester.pumpWidget(frame(c, ErrorState(onRetry: () async {}), dark: true));
+    await tester.pump();
+    expect(TickHaptics.instance.log.where((k) => k == 'warning').length, 1);
+  });
+
+  testWidgets('a held card tilts, and flat under Reduce Motion', (tester) async {
+    await loadFonts();
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(frame(c, Center(child: SizedBox(width: 200, height: 100, child: TickCard(onTap: () {}, child: const Text('card')))), dark: true));
+    final g = await tester.startGesture(tester.getTopLeft(find.text('card')));
+    await tester.pump(const Duration(milliseconds: 600));
+    final m = tester.widgetList<Transform>(find.byType(Transform)).first.transform;
+    expect(m.isIdentity(), isFalse);
+    await g.up();
+    await tester.pumpAndSettle();
   });
 }

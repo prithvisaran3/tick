@@ -77,9 +77,14 @@ class TickHaptics {
 
   // Everyday interactions mapped onto the language (docs/DECISIONS.md "Haptic map"). Silent when Haptics is Off, and light by design.
   /// Selection tick: a chip, a toggle, a segment, crossing into another month while scrolling.
+  DateTime _lastSelection = DateTime.fromMillisecondsSinceEpoch(0);
+  /// One click, however many widgets on the way down asked for it.
   Future<void> selection() {
     log.add('selection');
     if (_mode == HapticMode.off || recordOnly) return Future.value();
+    final now = DateTime.now();
+    if (now.difference(_lastSelection).inMilliseconds < 40) return Future.value();
+    _lastSelection = now;
     return HapticFeedback.selectionClick();
   }
   /// Confirm: a sheet applied, a swipe action committed (the two-tick "looks right").
@@ -88,5 +93,9 @@ class TickHaptics {
   Future<void> success() => play('price_weight', tier: 'mid');
 
   /// Errors use the standard system warning, never a custom pattern.
-  Future<void> warning() => HapticFeedback.heavyImpact();
+  Future<void> warning() {
+    log.add('warning');
+    if (_mode == HapticMode.off || recordOnly) return Future.value();
+    return HapticFeedback.heavyImpact();
+  }
 }

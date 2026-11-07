@@ -21,6 +21,7 @@ import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
 import 'features/tally_manage.dart';
 import 'features/ask_screen.dart';
+import 'features/avatar_builder.dart';
 import 'features/payday_editor.dart';
 import 'features/tally_expense_screen.dart';
 import 'features/tally_more.dart';
@@ -89,6 +90,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/incoming', pageBuilder: (c, s) => _page(s, const IncomingScreen())),
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
+        GoRoute(path: '/avatar', pageBuilder: (c, s) => _page(s, AvatarBuilderScreen(member: s.uri.queryParameters['member']))),
         GoRoute(path: '/settings/ask', pageBuilder: (c, s) => _page(s, const AskSettingsScreen())),
         GoRoute(path: '/settings/payday', pageBuilder: (c, s) => _page(s, const PaydayScreen())),
         GoRoute(path: '/settings/appearance', pageBuilder: (c, s) => _page(s, const SettingsScreen(page: SettingsPage.appearance))),

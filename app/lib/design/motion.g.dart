@@ -34,6 +34,11 @@ abstract final class TickMotion {
   static const int splashTotalMs = 1200;
   static const int splashDrawMs = 620;
   static const int splashFadeMs = 220;
+  static const double cardTiltMaxDeg = 3.0;
+  static const double digitFromOffsetY = 0.5;
+  static const int digitMs = 220;
+  static const int avatarIdleMs = 4200;
+  static const int avatarWinkMs = 380;
   static const int sceneMs = 5400;
   static const int undoWindowMs = 5000;
   static const double swipeThresholdRatio = 0.4;

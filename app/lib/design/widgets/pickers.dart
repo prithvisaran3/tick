@@ -5,6 +5,7 @@ import '../../domain/money.dart';
 import '../theme.dart';
 import '../tokens.g.dart';
 import 'core.dart';
+import 'motion.dart';
 import 'more.dart';
 
 /// Custom month-grid date picker in a sheet. Returns the picked day.
@@ -99,7 +100,7 @@ class _AmountSheetState extends State<_AmountSheet> {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       Text(widget.title, style: context.ts(TickType.displayM)),
       const SizedBox(height: 16),
-      Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_v.isEmpty ? '0' : _v}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
+      Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: RollingDigits('\$${_v.isEmpty ? '0' : _v}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
       const SizedBox(height: 8),
       NumberPad(onKey: _key),
       PillButton(widget.confirm, onTap: _cents > 0 ? () => Navigator.of(context).pop(_cents) : null),

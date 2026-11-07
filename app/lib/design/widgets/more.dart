@@ -78,7 +78,7 @@ class NumberPad extends StatelessWidget {
       children: [
         for (final k in keys)
           Pressable(
-            onTap: () => onKey(k), scale: 0.9, semanticLabel: k == '<' ? 'Delete' : (k == '.' ? 'Decimal point' : k),
+            onTap: () { TickHaptics.instance.selection(); onKey(k); }, scale: 0.9, semanticLabel: k == '<' ? 'Delete' : (k == '.' ? 'Decimal point' : k),
             child: Center(child: k == '<' ? TickIcon('backspace', size: 26, color: context.c.text) : Text(k, style: context.ts(TickType.monoL, size: 26))),
           ),
       ],
@@ -107,7 +107,7 @@ class TickTabBar extends StatelessWidget {
       final on = i == index;
       return Expanded(
         child: Pressable(
-          onTap: () => onTap(i), semanticLabel: tabs[i].label, scale: 0.92,
+          onTap: () { if (i != index) TickHaptics.instance.selection(); onTap(i); }, semanticLabel: tabs[i].label, scale: 0.92,
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             TickIcon(tabs[i].icon, size: 24, color: on ? c.text : c.textSecondary),
             const SizedBox(height: 3),

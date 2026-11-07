@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../services/haptics.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../design/theme.dart';
@@ -122,6 +123,8 @@ class ErrorState extends StatefulWidget {
 }
 
 class _ErrorStateState extends State<ErrorState> {
+  @override
+  void initState() { super.initState(); TickHaptics.instance.warning(); }
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),

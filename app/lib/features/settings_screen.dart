@@ -84,6 +84,7 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           const SectionLabel('More'),
           group([
+            row('heart-check', 'Your avatar', chevron(), onTap: () => context.push('/avatar')),
             row('ask', 'Ask Tick', chevron(), onTap: () => context.push('/settings/ask')),
             row('calendar', 'Payday', chevron(), onTap: () => context.push('/settings/payday')),
             row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
@@ -99,7 +100,10 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             Segmented(options: const ['System', 'Dark', 'Light'], index: ['system', 'dark', 'light'].indexOf(s.theme), onChanged: (i) { TickHaptics.instance.selection(); n.update((x) => x.copyWith(theme: ['system', 'dark', 'light'][i])); }),
             const SizedBox(height: 16),
-            Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700)),
+            Row(children: [
+              Expanded(child: Text('Haptics', style: context.ts(TickType.bodyS, size: 13, color: c.textSecondary).copyWith(fontWeight: FontWeight.w700))),
+              TickToggle(label: 'Haptics', on: s.haptics != HapticMode.off, onChanged: (v) => n.update((x) => x.copyWith(haptics: v ? HapticMode.full : HapticMode.off))),
+            ]),
             const SizedBox(height: 8),
             Segmented(options: const ['Full', 'Subtle', 'Off'], index: s.haptics.index, onChanged: (i) { n.update((x) => x.copyWith(haptics: HapticMode.values[i])); TickHaptics.instance.pop(); }),
           ])),

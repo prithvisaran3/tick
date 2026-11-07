@@ -70,6 +70,14 @@ def main():
     r = L.psql(CHECK, check=False)
     if r.returncode:
         sys.exit(r.stderr[-1500:])
-    print("migration keeps every row and balance")
+    for m in orig:                                  # and every migration after it, on the same data
+        if m.name > TARGET:
+            r = L.psql(file=m, check=False)
+            if r.returncode:
+                sys.exit(f"{m.name} failed on old-style data:\n" + r.stderr[-1500:])
+    r = L.psql(CHECK, check=False)
+    if r.returncode:
+        sys.exit(r.stderr[-1500:])
+    print("old-style data survives every migration, with every row and balance")
 if __name__ == "__main__":
     main()

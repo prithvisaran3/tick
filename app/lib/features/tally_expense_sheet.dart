@@ -5,6 +5,7 @@ import '../data/tally_store.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
+import '../design/widgets/avatar.dart';
 import '../design/widgets/more.dart';
 import '../domain/money.dart';
 import '../domain/tally.dart';
@@ -151,7 +152,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
         if (!mounted) return;
       }
       TickHaptics.instance.confirm(); Navigator.of(context).pop();
-    } else { setState(() { _busy = false; _saveError = ref.read(tallyProvider.notifier).lastError ?? 'That didn\'t save. Try again.'; }); }
+    } else { TickHaptics.instance.warning(); setState(() { _busy = false; _saveError = ref.read(tallyProvider.notifier).lastError ?? 'That didn\'t save. Try again.'; }); }
   }
 
   @override
@@ -230,7 +231,7 @@ class _ExpenseSheetState extends ConsumerState<ExpenseSheet> {
             Container(width: 24, height: 24, decoration: BoxDecoration(shape: BoxShape.circle, color: on ? c.accent : const Color(0x00000000), border: Border.all(color: on ? c.accent : c.hairline, width: 1.5)),
                 child: on ? Center(child: TickIcon('check', size: 16, color: c.onAccent)) : null),
             const SizedBox(width: 10),
-            Avatar(p == me ? 'Y' : (person?.name ?? '?'), person?.colorKey ?? 'biz', size: 32),
+            PersonAvatar(seed: p == me ? (st.myUserId ?? 'me') : (person?.userId ?? p), spec: p == me ? st.person(st.myMember[widget.group.id] ?? '')?.avatar : person?.avatar, size: 32),
           ]),
         ),
         const SizedBox(width: 10),

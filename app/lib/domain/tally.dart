@@ -7,10 +7,17 @@ library;
 
 const me = 'me';
 
+/// The custom group icons (design/icons/tally), in picker order.
+const tallyIcons = ['home', 'trip', 'food', 'drinks', 'party', 'groceries', 'rent', 'utilities', 'car', 'gym', 'movie', 'concert', 'coffee', 'gift', 'pets', 'work', 'study', 'game', 'beach', 'ski', 'camping', 'wedding', 'baby', 'misc'];
+
+/// A group from before icons: the nearest one to its emoji.
+String? iconForEmoji(String? e) => e == null ? null : const {'🏠': 'home', '✈️': 'trip', '🍽️': 'food', '🎉': 'party', '🛒': 'groceries', '💼': 'work'}[e] ?? 'misc';
+
 enum SplitType { equal, exact, percent, shares }
 
 class TallyPerson {
-  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId, this.email});
+  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId, this.email, this.avatar});
+  final Map<String, dynamic>? avatar;
   final String? email;
   final String? personId; // my address book entry for this guest, when it is mine
   /// Set when this member is a Tick user; null for a guest.
@@ -25,7 +32,8 @@ class TallyPerson {
 }
 
 class TallyGroup {
-  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false});
+  const TallyGroup({required this.id, required this.name, required this.memberIds, this.emoji, this.direct = false, this.colorKey = 'shop', this.isOwner = true, this.archived = false, this.icon});
+  final String? icon;   // a key in [tallyIcons]
   final bool isOwner;   // only the owner renames, archives, deletes or removes members
   final bool archived;
   final String id;

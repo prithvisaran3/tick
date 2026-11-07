@@ -14,6 +14,7 @@ import '../data/nav.dart';
 import '../data/remote.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
+import '../design/widgets/avatar.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
@@ -213,7 +214,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       Expanded(
         child: msgs.isEmpty
             ? ListView(children: [
-                const EmptyState('Ask me anything about your money.', 'Answers lead with the number.', icon: 'ask'),
+                const Padding(padding: EdgeInsets.only(top: 24), child: Center(child: AskMascot())),
+                Padding(padding: const EdgeInsets.fromLTRB(24, 12, 24, 16), child: Column(children: [
+                  Text('Ask me anything about your money.', textAlign: TextAlign.center, style: context.ts(TickType.title)),
+                  const SizedBox(height: 4),
+                  Text('Answers lead with the number.', textAlign: TextAlign.center, style: context.ts(TickType.body, color: c.textSecondary)),
+                ])),
                 Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [for (final q in suggested.take(4)) TickChip(q, onTap: () => _send(q))]),
               ])
             : ListView(controller: _scroll, padding: const EdgeInsets.only(bottom: 16), children: [

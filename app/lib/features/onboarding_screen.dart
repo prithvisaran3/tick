@@ -12,6 +12,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/motion.dart';
 import '../design/widgets/pickers.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
@@ -133,7 +134,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         PaydayEditor(today: now, initial: _payRule, onChanged: (r) => _payRule = r),
         const SizedBox(height: 16),
         Center(child: Column(children: [
-          Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: Text('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
+          Sticker(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12), child: RollingDigits('\$${_amount.isEmpty ? '0' : _amount}', style: context.ts(TickType.hero, color: c.onAccent, size: 52))),
           const SizedBox(height: 8),
           Text('Take-home per paycheck', style: context.ts(TickType.bodyS, color: c.textSecondary)),
         ])),

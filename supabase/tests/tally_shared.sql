@@ -222,6 +222,14 @@ begin
   begin insert into public.tally_zelle_notes (member_id, zelle) values (guest, 'x@y.z'); fails := fails || 'note on a stranger group; '; exception when insufficient_privilege then null; end;
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
 
+  -- avatars: mine reaches my member rows; a guest can be dressed by a member, a Tick user can't, and an outsider can't touch anyone
+  perform public.tally_set_avatar('{"hair":2}');
+  if (select avatar->>'hair' from public.tally_members where id = mo) <> '2' then fails := fails || 'avatar not on member row; '; end if;
+  begin perform public.tally_set_guest_avatar(mm, '{"hair":1}'); fails := fails || 'dressed a Tick user; '; exception when no_data_found then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', hid, 'role', 'authenticated')::text, true);
+  begin perform public.tally_set_guest_avatar((select id from public.tally_members where group_id = g and member_user_id is null limit 1), '{}'); fails := fails || 'outsider dressed a guest; '; exception when no_data_found then fails := fails || ''; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+
   -- the history says who did what, with old and new amounts
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
   select count(*) into n from public.tally_activity where action = 'expense_edited' and old_cents = 3000 and new_cents = 3300 and actor = o and actor_name = 'Olive Owner'; if n <> 1 then fails := fails || 'edit not logged; '; end if;

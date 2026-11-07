@@ -1,0 +1,7 @@
+{
+  "$comment": "Source of truth for avatar layers. Palettes are colours people have, so they live apart from the brand tokens; backgrounds are the brand's.",
+  "skin": ["#F7D7C4", "#EFC3A0", "#D9A06E", "#B97A4B", "#8A5433", "#5C3921"],
+  "hair": ["#1F1A17", "#4A2F1E", "#8C5A2B", "#D9B36A", "#B4B4BC", "#C8452E"],
+  "background": ["#C8FF2E", "#7AA7FF", "#FF6B4A", "#F5F3EC", "#222229", "#5B5B66"],
+  "options": {"face": 3, "skin": 6, "hair": 8, "hairColor": 6, "eyes": 4, "brows": 3, "mouth": 5, "glasses": 3, "hat": 4, "beard": 3, "background": 6}
+}

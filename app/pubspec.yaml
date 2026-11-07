@@ -71,6 +71,7 @@ flutter:
     - assets/haptics/
     - assets/sounds/
     - assets/icons/
+    - assets/icons/tally/
   fonts:
     - family: CabinetGrotesk
       fonts:

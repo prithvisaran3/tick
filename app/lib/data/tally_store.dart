@@ -131,7 +131,7 @@ class TallyNotifier extends Notifier<TallyState> {
       final res = await Future.wait<dynamic>([
         db.from('people').select().filter('archived_at', 'is', null),
         db.from('tally_groups').select().filter('deleted_at', 'is', null),
-        db.from('tally_members').select('id,group_id,member_user_id,person_id,name,color_key,role,status'),
+        db.from('tally_members').select('id,group_id,member_user_id,person_id,name,color_key,role,status,avatar'),
         db.from('tally_expenses').select().filter('deleted_at', 'is', null).order('spent_on', ascending: false).limit(1000),
         db.from('tally_shares').select('expense_id,member_id,owed_cents,weight'),
         db.from('tally_settlements').select().filter('deleted_at', 'is', null),
@@ -161,10 +161,10 @@ class TallyNotifier extends Notifier<TallyState> {
         zelleNotes: {for (final j in res[9]) j['member_id'] as String: j['zelle'] as String},
         zelleShared: {for (final j in res[10]) j['member_id'] as String: j['zelle'] as String},
         contacts: [for (final j in res[0]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', phone: j['phone'] as String?, email: j['email'] as String?)],
-        people: [for (final j in res[2]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', userId: j['member_user_id'] as String?, status: j['status'] as String,
+        people: [for (final j in res[2]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', userId: j['member_user_id'] as String?, status: j['status'] as String, avatar: (j['avatar'] as Map?)?.cast<String, dynamic>(),
             phone: [for (final c in res[0]) if (c['id'] == j['person_id']) c['phone'] as String?].firstOrNull, email: [for (final c in res[0]) if (c['id'] == j['person_id']) c['email'] as String?].firstOrNull, personId: j['person_id'] as String?)],
         groups: [for (final j in res[1]) TallyGroup(id: j['id'] as String, name: j['name'] as String, emoji: j['emoji'] as String?, direct: j['kind'] == 'direct', colorKey: (j['color_key'] as String?) ?? 'shop',
-            memberIds: members[j['id']] ?? const [], isOwner: j['user_id'] == uid, archived: j['archived_at'] != null)],
+            memberIds: members[j['id']] ?? const [], isOwner: j['user_id'] == uid, archived: j['archived_at'] != null, icon: (j['icon'] as String?) ?? iconForEmoji(j['emoji'] as String?))],
         expenses: [
           for (final j in res[3])
             TallyExpense(id: j['id'] as String, groupId: j['group_id'] as String, description: j['description'] as String, amountCents: (j['amount_cents'] as num).toInt(),
@@ -203,14 +203,14 @@ class TallyNotifier extends Notifier<TallyState> {
   }
 
   /// [memberIds]: people from my book, who join as guests. [invite]: Tick users, who get an invite to accept.
-  Future<TallyGroup> addGroup(String name, List<String> memberIds, {String? emoji, bool direct = false, List<String> invite = const [], String colorKey = 'shop'}) async {
-    var g = TallyGroup(id: _local(), name: name.trim(), memberIds: memberIds, emoji: emoji, direct: direct, colorKey: colorKey);
+  Future<TallyGroup> addGroup(String name, List<String> memberIds, {String? emoji, String? icon, bool direct = false, List<String> invite = const [], String colorKey = 'shop'}) async {
+    var g = TallyGroup(id: _local(), name: name.trim(), memberIds: memberIds, emoji: emoji, direct: direct, colorKey: colorKey, icon: icon);
     final r = _remote;
     if (r != null && memberIds.any((m) => m.startsWith('local-'))) {
       state = state.copyWith(offline: true);   // a friend that never reached the server can't join a server group; keep it on this phone
     } else if (r != null) {
       try {
-        final gid = await r.db.rpc('tally_create_group', params: {'p': {'name': g.name, 'emoji': emoji, 'color_key': colorKey, 'kind': direct ? 'direct' : 'group',
+        final gid = await r.db.rpc('tally_create_group', params: {'p': {'name': g.name, 'icon': icon, 'emoji': emoji, 'color_key': colorKey, 'kind': direct ? 'direct' : 'group',
           'guests': [for (final m in memberIds) {'person_id': m}], 'invite': invite}}) as String;
         await refresh();
         return state.groups.firstWhere((x) => x.id == gid);
@@ -342,7 +342,7 @@ class TallyNotifier extends Notifier<TallyState> {
   }
 
   // ---------- the group itself (owner only on the server) ----------
-  TallyGroup _with(TallyGroup g, {String? name, bool? archived}) => TallyGroup(id: g.id, name: name ?? g.name, memberIds: g.memberIds, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: archived ?? g.archived);
+  TallyGroup _with(TallyGroup g, {String? name, bool? archived}) => TallyGroup(id: g.id, name: name ?? g.name, memberIds: g.memberIds, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: archived ?? g.archived, icon: g.icon);
   Future<void> _patchGroup(String id, Map<String, dynamic> patch) async { await _remote?.db.from('tally_groups').update(patch).eq('id', id); }
 
   Future<void> renameGroup(String id, String name) async {
@@ -377,6 +377,17 @@ class TallyNotifier extends Notifier<TallyState> {
     if (net != 0) throw TallyBlocked(net);
     if (_remote == null) { state = state.copyWith(groups: [for (final g in state.groups) if (g.id != groupId) g]); return; }
     await _rpc('tally_leave_group', {'p_group': groupId});
+  }
+
+  /// Saves an avatar: mine ([member] null) or a guest's.
+  Future<void> saveAvatar(String? member, Map<String, dynamic> spec) async {
+    if (_remote != null) {
+      if (member == null) { await _rpc('tally_set_avatar', {'p_avatar': spec}); } else { await _rpc('tally_set_guest_avatar', {'p_member': member, 'p_avatar': spec}); }
+      return;
+    }
+    if (member != null) {
+      state = state.copyWith(people: [for (final p in state.people) if (p.id == member) TallyPerson(id: p.id, name: p.name, colorKey: p.colorKey, phone: p.phone, userId: p.userId, status: p.status, personId: p.personId, email: p.email, avatar: spec) else p]);
+    }
   }
 
   /// Saves or clears my note of where to Zelle someone.
@@ -449,7 +460,7 @@ class TallyNotifier extends Notifier<TallyState> {
         oldCents: (j['old_cents'] as num?)?.toInt(), newCents: (j['new_cents'] as num?)?.toInt())];
   }
 
-  TallyGroup _withMembers(TallyGroup g, List<String> ids) => TallyGroup(id: g.id, name: g.name, memberIds: ids, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: g.archived);
+  TallyGroup _withMembers(TallyGroup g, List<String> ids) => TallyGroup(id: g.id, name: g.name, memberIds: ids, emoji: g.emoji, direct: g.direct, colorKey: g.colorKey, isOwner: g.isOwner, archived: g.archived, icon: g.icon);
 }
 
 /// Leaving or removing someone with a balance is refused; the app shows what is outstanding and offers to settle.
@@ -474,7 +485,7 @@ TallyState demoTally(DateTime now) {
   final d = DateTime(now.year, now.month, now.day);
   const people = [TallyPerson(id: 'p-k', name: 'Kaarthik Kumar', colorKey: 'food'), TallyPerson(id: 'p-j', name: 'Jo Rivera', colorKey: 'shop'), TallyPerson(id: 'p-a', name: 'Alex Chen', colorKey: 'biz')];
   const groups = [
-    TallyGroup(id: 'g-room', name: 'Roommates', emoji: '🏠', memberIds: ['p-k', 'p-j']),
+    TallyGroup(id: 'g-room', name: 'Roommates', emoji: '🏠', icon: 'home', memberIds: ['p-k', 'p-j']),
     TallyGroup(id: 'g-alex', name: 'Alex', direct: true, memberIds: ['p-a'], colorKey: 'biz'),
   ];
   return TallyState(people: people, contacts: people, groups: groups, expenses: [

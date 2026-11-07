@@ -58,3 +58,12 @@ runs on every launch, 1.2 s at most, tap to skip: the tick draws on a spring, th
 choice. Tap or swipe moves on, Skip is always there, it plays once, and Settings > About replays it. New `intro_*` and `splash` AHAP patterns come from `design/haptics.json`. Reduce Motion shows finished frames with the same words.
 
 Decisions: no sound (optional in the brief, and silent is the safe default). No fragment shaders: CustomPainter was enough. 60 fps can only be checked on the phone.
+
+## Phase 6: icons and avatars
+Done. 24 icons from `tools/gen_tally_icons.py` into `design/icons/tally/`, with a pop on selection; old emoji groups map to the nearest in the migration. Avatars are layered vectors stored as small JSON (`profiles.avatar`, copied to my
+member rows so co-members can draw it; `design/avatar.json` holds the palettes). Blink and bob on large avatars only, so lists stay quiet; a tap winks with a light haptic; Randomise; a stable default from the id. Tally people and the builder use them, Ask Tick has a mascot.
+Merchants keep their monogram. Search results use the default face, because a search shouldn't reveal more than name and handle.
+
+## Phase 7: haptics and motion
+Done. Haptics on toggles, segmented controls, keypad, tab change, refresh threshold, swipes, undo, avatars and icons, and a warning on error states and failed saves; repeated clicks within 40 ms collapse to one. Settings has a Haptics toggle above Full/Subtle.
+Keypad digits roll, tappable cards tilt on long press, page transitions use the spring. Safe to spend already counted up on open. Tokens only; Reduce Motion respected.

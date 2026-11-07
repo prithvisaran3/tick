@@ -15,6 +15,7 @@ import '../domain/money.dart';
 import '../domain/tally.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
+import '../design/widgets/avatar.dart';
 import 'common.dart';
 import 'tally_expense_sheet.dart';
 
@@ -59,7 +60,7 @@ class _PeopleSearchState extends ConsumerState<PeopleSearch> {
         onTap: () { TickHaptics.instance.selection(); widget.onPick(p); _q.clear(); setState(() { _hits = const []; _searched = false; }); },
         semanticLabel: 'Add ${p.name}', scale: 0.99,
         child: Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [
-          Avatar(p.name, 'shop', size: 36), const SizedBox(width: 12),
+          PersonAvatar(seed: p.userId, size: 36), const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.title, size: 15.5)),
             if (p.handle != null) Text('@${p.handle}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
@@ -263,7 +264,9 @@ class GroupBadge extends StatelessWidget {
   final TallyGroup g;
   final double size;
   @override
-  Widget build(BuildContext context) => g.emoji == null ? Avatar(g.name, g.colorKey, size: size) : Container(
-        width: size, height: size, alignment: Alignment.center, decoration: BoxDecoration(color: context.c.surface2, shape: BoxShape.circle),
-        child: ExcludeSemantics(child: Text(g.emoji!, style: TextStyle(fontSize: size / 2, decoration: TextDecoration.none))));
+  Widget build(BuildContext context) {
+    final icon = g.icon ?? iconForEmoji(g.emoji);
+    if (icon == null) return Avatar(g.name, g.colorKey, size: size);
+    return Container(width: size, height: size, alignment: Alignment.center, decoration: BoxDecoration(color: context.c.surface2, shape: BoxShape.circle), child: TallyIcon(icon, size: size * 0.55));
+  }
 }

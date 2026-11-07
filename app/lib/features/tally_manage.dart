@@ -11,6 +11,7 @@ import '../design/theme.dart';
 import '../design/motion.g.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
+import '../design/widgets/avatar.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/motion.dart';
 import '../design/widgets/pickers.dart';
@@ -36,7 +37,7 @@ void showUndo(OverlayState overlay, String text, Future<void> Function() onUndo)
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(TickRadius.card)),
       child: Row(children: [
         Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
-        PillButton('Undo', expand: false, height: 40, style: PillStyle.inverse, onTap: () { close(); onUndo(); }),
+        PillButton('Undo', expand: false, height: 40, style: PillStyle.inverse, onTap: () { TickHaptics.instance.confirm(); close(); onUndo(); }),
       ]),
     ))));
   });
@@ -104,7 +105,7 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
     final wasSquare = ref.read(tallyProvider).balancesOf(widget.g.id).isEmpty;
     final ok = await n.settle(widget.g.id, widget.m.from, widget.m.to, _cents, method: _method);
     if (!mounted) return;
-    if (!ok) { setState(() { _busy = false; _note = n.lastError; }); return; }
+    if (!ok) { TickHaptics.instance.warning(); setState(() { _busy = false; _note = n.lastError; }); return; }
     TickHaptics.instance.confirm();
     final square = ref.read(tallyProvider).balancesOf(widget.g.id).isEmpty;
     Navigator.of(context).pop();
@@ -317,13 +318,13 @@ class _GroupSettingsState extends ConsumerState<TallyGroupSettingsScreen> {
       const SectionLabel('Members'),
       TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
         Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Row(children: [
-          Avatar('You', 'biz', size: 32), const SizedBox(width: 12),
+          PersonAvatar(seed: t.myUserId ?? 'me', spec: t.person(t.myMember[g.id] ?? '')?.avatar, size: 32), const SizedBox(width: 12),
           Expanded(child: Text(g.isOwner ? 'You (owner)' : 'You', style: context.ts(TickType.body))),
         ])),
         for (final m in g.memberIds) ...[
           const Hairline(),
           Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [
-            Avatar(t.nameOf(m), t.person(m)?.colorKey ?? 'shop', size: 32), const SizedBox(width: 12),
+            PersonAvatar(seed: t.person(m)?.userId ?? m, spec: t.person(m)?.avatar, size: 32), const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(t.person(m)?.name ?? t.nameOf(m), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body)),
               if (t.person(m)?.isGuest ?? false) Text('Guest', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
@@ -371,6 +372,8 @@ class TallyPersonScreen extends ConsumerWidget {
     final lines = personLedger(member, t.expensesOf(groupId), t.settlementsOf(groupId));
     final zelle = t.zelleOf(member);
     return TickPage(title: t.nameOf(member), onBack: () => context.pop(), children: [
+      Center(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: PersonAvatar(seed: t.person(member)?.userId ?? member, spec: t.person(member)?.avatar, size: 96, live: true))),
+      if (t.person(member)?.isGuest ?? false) Center(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TickChip('Change avatar', onTap: () => context.push('/avatar?member=$member')))),
       TickCard(onTap: () async {
         final n = ref.read(tallyProvider.notifier);
         final v = await showTextSheet(context, title: 'Zelle email or phone', initial: zelle ?? '', hint: 'name@email.com or 555 123 4567', confirm: 'Save');

@@ -123,3 +123,21 @@ class _StaggerInState extends State<StaggerIn> with SingleTickerProviderStateMix
     });
   }
 }
+
+/// Keypad text whose digits roll in as they're typed. Reduce Motion: they fade.
+class RollingDigits extends StatelessWidget {
+  const RollingDigits(this.text, {super.key, required this.style});
+  final String text;
+  final TextStyle style;
+  @override
+  Widget build(BuildContext context) {
+    final reduce = context.reduceMotion;
+    return Semantics(label: text, excludeSemantics: true, child: Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final (i, ch) in text.characters.indexed) AnimatedSwitcher(
+        duration: const Duration(milliseconds: TickMotion.digitMs),
+        transitionBuilder: (child, a) => reduce ? FadeTransition(opacity: a, child: child) : ClipRect(child: SlideTransition(position: Tween(begin: const Offset(0, TickMotion.digitFromOffsetY), end: Offset.zero).animate(CurvedAnimation(parent: a, curve: const SpringCurve(TickSprings.pop))), child: FadeTransition(opacity: a, child: child))),
+        child: Text(ch, key: ValueKey('$i$ch'), style: style),
+      ),
+    ]));
+  }
+}
