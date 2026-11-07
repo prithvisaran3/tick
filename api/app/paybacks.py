@@ -18,11 +18,13 @@ from pydantic import BaseModel, ConfigDict
 from .auth import current_user, user_limiter
 from .db import rest
 from .merchants import clean_merchant
+from .tally import simplify
 from .transfers import is_p2p
 
 router = APIRouter()
 ET = ZoneInfo("America/New_York")
 WINDOW_DAYS = 21
+BALANCE_DAYS = 30                                  # how old a credit can be and still be offered against an open balance
 MAX_CANDIDATES = 3
 SETTLE_BEFORE_DAYS, SETTLE_AFTER_DAYS = 2, 10      # a settlement recorded up to 2 days after, or 10 days before, the money landed
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -40,6 +42,19 @@ def payer_name(text: str) -> str | None:
     """'Zelle payment from ASWIN KUMAR 3140' -> 'Aswin Kumar'."""
     m = _FROM.search(text or "")
     return m.group(1).strip().title() if m else None
+
+_NOISE = {"zelle", "payment", "from", "by", "venmo", "cash", "app", "cashapp", "paypal", "transfer", "credit", "deposit", "received", "conf", "ref", "id"}
+
+def _words(s: str | None) -> set[str]:
+    return set(re.findall(r"[a-z]+", (s or "").lower())) - _NOISE
+
+def name_score(name: str | None, text: str) -> int:
+    """How many words of a person's name appear as WHOLE words in a bank line ("Jo" is not in "Major"). 0 unless the first name is one of them,
+    or at least two other words are: bank lines reorder and add middle names ("ASWIN KAARTHIK SURESH KUMAR" for Kaarthik Kumar)."""
+    parts = re.findall(r"[a-z]+", (name or "").lower())
+    words = _words(text)
+    hits = sum(1 for p in parts if p in words)
+    return hits if parts and (parts[0] in words or hits >= 2) else 0
 
 def is_person_credit(r: dict, types: dict[str, str]) -> bool:
     t = _text(r)
@@ -92,9 +107,9 @@ def auto_link(user_id: str) -> int:
     used: set[str] = set()
     n = 0
     for s in sorted(open_, key=lambda x: str(x["settled_on"])):
-        first = (names.get(s.get("from_member")) or "").split(" ")[0].lower()
+        who = names.get(s.get("from_member"))
         on = date.fromisoformat(str(s["settled_on"])[:10])
-        hits = [c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and first and first in _text(c).lower()
+        hits = [c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and name_score(who, _text(c))
                 and -SETTLE_BEFORE_DAYS <= (on - _day(c["occurred_at"])).days <= SETTLE_AFTER_DAYS]
         if len(hits) == 1:
             used.add(hits[0]["id"])
@@ -126,18 +141,61 @@ def settle_split(user_id: str, purchase_id: str, payback_id: str) -> bool:
     expenses = rest().select("tally_expenses", transaction_id=f"eq.{purchase_id}", deleted_at="is.null", select="id,group_id")
     if not credit or not expenses:
         return False
-    text = _text(credit[0]).lower()
+    text = _text(credit[0])
     for e in expenses:
         mine = rest().select("tally_members", group_id=f"eq.{e['group_id']}", member_user_id=f"eq.{user_id}", status="eq.active", select="id")
         if not mine:
             continue
         for m in rest().select("tally_members", group_id=f"eq.{e['group_id']}", status="eq.active", select="id,name"):
-            first = (m.get("name") or "").split(" ")[0].lower()
-            if m["id"] != mine[0]["id"] and first and first in text and _split_expense(None, purchase_id, m["id"], credit[0]["amount_cents"]):
+            if m["id"] != mine[0]["id"] and name_score(m.get("name"), text) and _split_expense(None, purchase_id, m["id"], credit[0]["amount_cents"]):
                 rest().insert("tally_settlements", {"group_id": e["group_id"], "from_member": m["id"], "to_member": mine[0]["id"], "amount_cents": credit[0]["amount_cents"], "method": "other",
                                                     "status": "confirmed", "transaction_id": payback_id, "created_by": user_id, "settled_on": datetime.now(ET).date().isoformat(), "deleted_at": None}, returning=False)
                 return True
     return False
+
+def match_balances(credits: list[dict], owed: list[dict], today: date) -> list[dict]:
+    """Credits that look like someone paying down an open balance, oldest first. [owed]: {group_id, group_name, member_id, name, owed_cents}.
+    The same or a smaller amount counts; more than they owe doesn't. Two different people fitting equally well is a question Tick can't answer, so it stays quiet."""
+    left = {(o["group_id"], o["member_id"]): o["owed_cents"] for o in owed}
+    out = []
+    for c in sorted(credits, key=lambda r: str(r["occurred_at"])):
+        day = _day(c["occurred_at"])
+        if not 0 <= (today - day).days <= BALANCE_DAYS:
+            continue
+        cents, text = c["amount_cents"], _text(c)
+        fits = [(name_score(o["name"], text), o) for o in owed if cents <= left[(o["group_id"], o["member_id"])]]
+        fits = [f for f in fits if f[0] > 0]
+        if not fits:
+            continue
+        best = max(f[0] for f in fits)
+        top = [o for s, o in fits if s == best]
+        if len({o["name"].lower() for o in top}) > 1:
+            continue
+        o = max(top, key=lambda x: (left[(x["group_id"], x["member_id"])] == cents, left[(x["group_id"], x["member_id"])], x["group_id"]))
+        key = (o["group_id"], o["member_id"])
+        out.append({"payback_id": c["id"], "amount_cents": cents, "date": day.isoformat(), "group_id": o["group_id"], "group_name": o["group_name"], "member_id": o["member_id"],
+                    "name": o["name"], "owed_cents": left[key], "left_cents": left[key] - cents})
+        left[key] -= cents
+    return out
+
+def owed_to_me(user_id: str) -> list[dict]:
+    """Everyone who owes me right now, per group, from the same simplified moves the app shows."""
+    nets: dict[str, dict] = {}
+    for r in rest().rpc("tally_balances", {"p_uid": user_id, "p_group": None}):
+        nets.setdefault(r["group_id"], {})[r["member_id"]] = int(r["net_cents"])
+    if not nets:
+        return []
+    ids = ",".join(sorted(nets))
+    rows = rest().select("tally_members", group_id=f"in.({ids})", select="id,group_id,name,member_user_id")
+    names = {g["id"]: g["name"] for g in rest().select("tally_groups", id=f"in.({ids})", select="id,name")}
+    out = []
+    for gid, net in nets.items():
+        mine = next((m["id"] for m in rows if m["group_id"] == gid and m.get("member_user_id") == user_id), None)
+        who = {m["id"]: m.get("name") for m in rows if m["group_id"] == gid}
+        for frm, to, cents in simplify(net):
+            if to == mine:
+                out.append({"group_id": gid, "group_name": names.get(gid) or "Tally", "member_id": frm, "name": who.get(frm) or "Someone", "owed_cents": cents})
+    return out
 
 def landed(user_id: str, rows: list[dict], types: dict[str, str], dismissed: set[str]) -> list[dict]:
     """Someone said "I paid" and a credit of exactly that amount from them has now landed: ask whether to mark it received."""
@@ -152,11 +210,17 @@ def landed(user_id: str, rows: list[dict], types: dict[str, str], dismissed: set
     out, used = [], set()
     for s in pending:
         who = names.get(s["from_member"]) or "Someone"
-        hit = next((c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and who.split(" ")[0].lower() in _text(c).lower()), None)
+        hit = next((c for c in credits if c["id"] not in used and c["amount_cents"] == s["amount_cents"] and name_score(who, _text(c))), None)
         if hit:
             used.add(hit["id"])
             out.append({"settlement_id": s["id"], "payback_id": hit["id"], "amount_cents": s["amount_cents"], "from": who, "date": _day(hit["occurred_at"]).isoformat()})
     return out
+
+class SettleBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payback_id: str
+    group_id: str
+    member_id: str
 
 class ReceivedBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -187,7 +251,12 @@ def suggestions(user_id: str = Depends(current_user)):
     live = [r for r in rows if r["id"] not in linked]
     ids = [r["id"] for r in live if r["amount_cents"] < 0]
     split = {e["transaction_id"] for e in rest().select("tally_expenses", transaction_id=f"in.({','.join(ids)})", deleted_at="is.null", select="transaction_id")} if ids else set()
-    return {"suggestions": suggest(live, types, dismissed, split), "settlements": landed(user_id, live, types, dismissed)}
+    settled = landed(user_id, live, types, dismissed)
+    taken = {s["payback_id"] for s in settled}
+    credits = [r for r in live if is_person_credit(r, types) and r["id"] not in dismissed and r["id"] not in taken]
+    balances = match_balances(credits, owed_to_me(user_id), datetime.now(ET).date())
+    taken |= {b["payback_id"] for b in balances}             # a friend paying what they owe is one question, not two
+    return {"suggestions": suggest([r for r in live if r["id"] not in taken], types, dismissed, split), "settlements": settled, "balances": balances}
 
 @router.post("/paybacks/link")
 def link(body: LinkBody, user_id: str = Depends(current_user)):
@@ -216,6 +285,29 @@ def received(body: ReceivedBody, user_id: str = Depends(current_user)):
         raise HTTPException(404, "not found")
     rest().update("tally_settlements", {"id": sid}, {"status": "confirmed", "transaction_id": pid})
     return {"received": True}
+
+def _method(text: str) -> str:
+    t = text.lower()
+    return "zelle" if "zelle" in t else "venmo" if "venmo" in t else "cashapp" if "cash app" in t or "cashapp" in t else "other"
+
+@router.post("/paybacks/settle")
+def settle(body: SettleBody, user_id: str = Depends(current_user)):
+    """One tap on "Mark Asha as settled?": a confirmed settlement tied to my bank row. The balance is checked again here, not taken from the app."""
+    user_limiter.check(f"paybacks-w:{user_id}", 30, 60)
+    pid, gid, mid = _uuid(body.payback_id), _uuid(body.group_id), _uuid(body.member_id)
+    row = rest().select("transactions", id=f"eq.{pid}", user_id=f"eq.{user_id}", flow="is.null", select="id,amount_cents,merchant_raw,merchant_clean")
+    open_ = next((o for o in owed_to_me(user_id) if o["group_id"] == gid and o["member_id"] == mid), None)
+    mine = rest().select("tally_members", group_id=f"eq.{gid}", member_user_id=f"eq.{user_id}", status="eq.active", select="id")
+    if not row or not open_ or not mine:
+        raise HTTPException(404, "not found")
+    cents = row[0]["amount_cents"]
+    if not 0 < cents <= open_["owed_cents"]:
+        raise HTTPException(409, "That's more than they owe now.")
+    s = {"group_id": gid, "from_member": mid, "to_member": mine[0]["id"], "amount_cents": cents, "method": _method(_text(row[0])), "status": "confirmed", "transaction_id": pid,
+         "created_by": user_id, "settled_on": datetime.now(ET).date().isoformat(), "deleted_at": None}
+    rest().insert("tally_settlements", s, returning=False)
+    _net_the_purchase(user_id, s, row[0])
+    return {"settled": True, "left_cents": open_["owed_cents"] - cents}
 
 @router.post("/paybacks/unlink")
 def unlink(body: PaybackBody, user_id: str = Depends(current_user)):

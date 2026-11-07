@@ -209,6 +209,19 @@ begin
     set local role authenticated;
   end;
 
+  -- Zelle: co-members read what someone shared, strangers and ex-members don't; a note is mine alone
+  reset role;
+  update public.profiles set zelle = 'mina@zelle.test' where user_id = m;
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.tally_zelle_book() z where z.member_id = mm and z.zelle = 'mina@zelle.test';   if n <> 1 then fails := fails || 'co-member can''t read Zelle; '; end if;
+  insert into public.tally_zelle_notes (member_id, zelle) values (guest, '5551112222');
+  perform set_config('request.jwt.claims', json_build_object('sub', m2, 'role', 'authenticated')::text, true);
+  select count(*) into n from public.tally_zelle_book();                       if n <> 0 then fails := fails || 'ex-member reads Zelle; '; end if;
+  select count(*) into n from public.tally_zelle_notes;                        if n <> 0 then fails := fails || 'someone else reads my Zelle note; '; end if;
+  begin insert into public.tally_zelle_notes (member_id, zelle) values (guest, 'x@y.z'); fails := fails || 'note on a stranger group; '; exception when insufficient_privilege then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
+
   -- the history says who did what, with old and new amounts
   perform set_config('request.jwt.claims', json_build_object('sub', o, 'role', 'authenticated')::text, true);
   select count(*) into n from public.tally_activity where action = 'expense_edited' and old_cents = 3000 and new_cents = 3300 and actor = o and actor_name = 'Olive Owner'; if n <> 1 then fails := fails || 'edit not logged; '; end if;

@@ -136,6 +136,15 @@ the system font draws them.
 `bank_status_test` was stale: 207ac1b deliberately removed link wording from the Reconnect line and the test kept the old sentence. The test now pins the
 new copy and also fails if link wording returns.
 
+## Zelle first
+Friends pay by Zelle, so Settle up leads with Zelle and Cash; Venmo, Cash App and Other sit under "Other method" (code kept).
+- `20261113000001_tally_zelle.sql`. `tally_zelle_notes` is my private note per member, set on the person screen. It falls back to what they share, then to the
+  email or phone in my people book. `profiles.zelle` is "Your Zelle email or phone" in Settings: it goes in reminders to guests and **co-members can read it**
+  through `tally_zelle_book`, so friends on Tick know where to pay. Strangers and ex-members can't.
+- `paybacks.match_balances`: a person-to-person credit from the last 30 days, the same as or less than what that person owes me, asks "Mark Asha as settled?" on
+  Activity. One tap records it (`/paybacks/settle`, which rechecks the balance). It replaces the reimbursement question for that credit. Names match on whole
+  words, so "Jo" no longer matches "Major" anywhere in pairing. Two different people who fit equally get no suggestion. A credit more than they owe gets none either.
+
 ## Not verified
 - Nothing ran on a device or simulator. Motion feel, the Venmo link, Messages prefill, camera and share sheet need a phone.
 - The migrations have only run on local Postgres 16, not on Supabase.

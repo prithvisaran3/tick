@@ -62,6 +62,47 @@ class _PaybackCardState extends ConsumerState<PaybackCard> {
   }
 }
 
+/// "Mark Asha as settled?" One tap records it against this bank row.
+class BalanceMatchCard extends ConsumerStatefulWidget {
+  const BalanceMatchCard({super.key, required this.b});
+  final BalanceMatch b;
+  @override
+  ConsumerState<BalanceMatchCard> createState() => _BalanceMatchCardState();
+}
+
+class _BalanceMatchCardState extends ConsumerState<BalanceMatchCard> {
+  bool _busy = false;
+  String? _error;
+  Future<void> _run(Future<void> Function() f) async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await f();
+      TickHaptics.instance.confirm();
+    } catch (e) {
+      if (mounted) setState(() => _error = describeError(e, action: 'save that'));
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final b = widget.b;
+    final a = ref.read(paybackActionsProvider);
+    return Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Mark ${b.first} as settled?', style: context.ts(TickType.title, size: 15.5)),
+      const SizedBox(height: 2),
+      Text('${formatCents(b.amountCents)} from ${b.first} on ${DateFormat('MMM d').format(b.date)}, for ${b.groupName}.${b.leftCents > 0 ? ' ${formatCents(b.leftCents)} still left.' : ''}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(child: PillButton(b.leftCents > 0 ? 'Mark paid' : 'Mark settled', height: 44, busy: _busy, onTap: () => _run(() => a.settleBalance(b)))),
+        const SizedBox(width: 8),
+        Expanded(child: PillButton('Not this', height: 44, style: PillStyle.quiet, onTap: _busy ? null : () => _run(() => a.dismiss(b.paybackId)))),
+      ]),
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_error!, style: context.ts(TickType.bodyS, size: 12.5, color: c.alert))),
+    ])));
+  }
+}
+
 /// Top of Activity: the newest question, and how many are behind it.
 class PaybackBanner extends ConsumerWidget {
   const PaybackBanner({super.key});
@@ -69,8 +110,10 @@ class PaybackBanner extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final list = ref.watch(paybackSuggestionsProvider).value ?? const <PaybackSuggestion>[];
     final landed = ref.watch(landedSettlementsProvider).value ?? const <LandedSettlement>[];
-    if (list.isEmpty && landed.isEmpty) return const SizedBox.shrink();
+    final balances = ref.watch(balanceMatchesProvider).value ?? const <BalanceMatch>[];
+    if (list.isEmpty && landed.isEmpty && balances.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      for (final b in balances) BalanceMatchCard(key: ValueKey('b${b.paybackId}'), b: b),
       for (final s in landed) Padding(padding: const EdgeInsets.only(bottom: 8), child: TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('${formatCents(s.amountCents)} from ${s.from} landed. Mark it received?', style: context.ts(TickType.title, size: 15.5)),
         const SizedBox(height: 10),

@@ -81,4 +81,19 @@ void main() {
     expect(c.read(tallyProvider).lastReminder(g.id, k.id), isNotNull);
     expect(c.read(tallyProvider).reminders.single.amountCents, 500);
   });
+
+  test('Zelle: my note wins, then their email or phone; clearing falls back', () async {
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    final n = c.read(tallyProvider.notifier);
+    final k = await n.addPerson('Kaarthik');
+    final g = await n.addGroup('Flat', [k.id]);
+    final m = await n.addGuest(g.id, 'Asha', phone: '5551234567');
+    expect(c.read(tallyProvider).zelleOf(k.id), isNull);
+    expect(c.read(tallyProvider).zelleOf(m), '5551234567');
+    await n.setZelle(m, 'asha@zelle.test');
+    expect(c.read(tallyProvider).zelleOf(m), 'asha@zelle.test');
+    await n.setZelle(m, ' ');
+    expect(c.read(tallyProvider).zelleOf(m), '5551234567');
+  });
 }

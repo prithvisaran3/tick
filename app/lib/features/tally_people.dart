@@ -9,6 +9,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../design/widgets/pickers.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/money.dart';
 import '../domain/tally.dart';
@@ -126,7 +127,8 @@ class _InviteState extends ConsumerState<_Invite> {
 }
 
 class HandleInfo {
-  const HandleInfo(this.handle, this.discoverable, this.suggestion);
+  const HandleInfo(this.handle, this.discoverable, this.suggestion, [this.zelle]);
+  final String? zelle;
   final String? handle;
   final bool discoverable;
   final String? suggestion;
@@ -135,7 +137,7 @@ class HandleInfo {
 final handleProvider = FutureProvider<HandleInfo?>((ref) async {
   if (ref.watch(remoteProvider) == null || ref.watch(settingsProvider.select((s) => s.demoMode))) return null;
   final j = await ref.read(apiProvider).get('/people/handle');
-  return HandleInfo(j['handle'] as String?, j['discoverable'] != false, j['suggestion'] as String?);
+  return HandleInfo(j['handle'] as String?, j['discoverable'] != false, j['suggestion'] as String?, j['zelle'] as String?);
 });
 
 /// Choose a handle. Skippable: Tick works without one, friends just can't search for you by it.
@@ -192,6 +194,20 @@ class HandleSettings extends ConsumerStatefulWidget {
 
 class _HandleSettingsState extends ConsumerState<HandleSettings> {
   String? _error;
+  Future<void> _zelle() async {
+    final info = ref.read(handleProvider).value;
+    final v = await showTextSheet(context, title: 'Your Zelle email or phone', initial: info?.zelle ?? '', hint: 'name@email.com or 555 123 4567', confirm: 'Save');
+    if (v == null) return;
+    setState(() => _error = null);
+    try {
+      final r = ref.read(remoteProvider);
+      await r?.db.from('profiles').update({'zelle': v.trim().isEmpty ? null : v.trim()}).eq('user_id', r.db.auth.currentUser!.id);
+      ref.invalidate(handleProvider);
+    } catch (e) {
+      if (mounted) setState(() => _error = describeError(e, action: 'save that'));
+    }
+  }
+
   Future<void> _discoverable(bool v) async {
     setState(() => _error = null);
     try {
@@ -217,6 +233,14 @@ class _HandleSettingsState extends ConsumerState<HandleSettings> {
         TickToggle(on: info?.discoverable ?? true, label: 'Friends can find me', onChanged: _discoverable),
       ]),
       Text((info?.discoverable ?? true) ? 'By exact handle, email or phone.' : 'Hidden from search. You can still be added by a share link.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
+      const SizedBox(height: 6),
+      const Hairline(),
+      Pressable(onTap: _zelle, scale: 0.99, semanticLabel: 'Your Zelle email or phone', child: SizedBox(height: 44, child: Row(children: [
+        Expanded(child: Text('Your Zelle email or phone', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
+        const SizedBox(width: 8),
+        Flexible(child: Text(info?.zelle ?? 'Add', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body, color: c.textSecondary))),
+      ]))),
+      Text('Goes in reminders to guests, and people in your tallies can see it.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
       if (_error != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(_error!, style: context.ts(TickType.bodyS, size: 12.5, color: c.alert))),
     ]));
   }

@@ -63,6 +63,8 @@ def test_not_a_payback_is_never_asked_again():
 
 class PaybackRest(FakeRest):
     def rpc(self, fn, args):
+        if fn == "tally_balances":
+            return []
         assert fn == "tick_payback_link"
         if args["p_payback"] == uid(9):
             req = httpx.Request("POST", "http://fake")
@@ -140,3 +142,82 @@ def test_a_pending_i_paid_that_landed_is_offered_as_received(api):
     assert c.post("/paybacks/received", json={"settlement_id": s["id"], "payback_id": uid(2)}).status_code == 200
     row = next(x for x in f.rows("tally_settlements") if x["id"] == s["id"])
     assert (row["status"], row["transaction_id"]) == ("confirmed", uid(2))
+
+def owed(name="Asha Rao", cents=6000, gid="g1", mid="m1"):
+    return {"group_id": gid, "group_name": "Flat", "member_id": mid, "name": name, "owed_cents": cents}
+
+TODAY = NOW.astimezone(P.ET).date()
+
+@pytest.mark.parametrize("cents,left", [(6000, 0), (2500, 3500)])
+def test_a_zelle_for_the_same_or_part_of_a_balance_is_offered(cents, left):
+    got = P.match_balances([row(1, cents, 3, "Zelle payment from ASHA RAO 3140")], [owed()], TODAY)
+    assert (got[0]["member_id"], got[0]["amount_cents"], got[0]["left_cents"]) == ("m1", cents, left)
+
+def test_more_than_they_owe_is_not_offered():
+    assert P.match_balances([row(1, 6001, 3, "Zelle payment from ASHA RAO")], [owed()], TODAY) == []
+
+@pytest.mark.parametrize("days,hit", [(0, True), (30, True), (31, False)])
+def test_thirty_day_window(days, hit):
+    assert bool(P.match_balances([row(1, 100, days, "Zelle payment from ASHA RAO")], [owed()], TODAY)) is hit
+
+@pytest.mark.parametrize("text,name,hit", [
+    ("Zelle payment from ASWIN KAARTHIK SURESH KUMAR 31405259358", "Kaarthik Kumar", True),     # extra names, name not first
+    ("ZELLE FROM asha", "Asha Rao", True),
+    ("Zelle Credit RAO ASHA", "Asha Rao", True),
+    ("Zelle payment from MAJOR TOM", "Jo Lee", False),            # "jo" inside a word is not Jo
+    ("Zelle payment from ASHA RAO", "Priya Rao", False),          # a shared surname alone is someone else
+])
+def test_names_match_on_whole_words(text, name, hit):
+    assert bool(P.match_balances([row(1, 100, 1, text)], [owed(name)], TODAY)) is hit
+
+def test_two_people_who_fit_equally_stay_quiet():
+    assert P.match_balances([row(1, 100, 1, "Zelle payment from ASHA")], [owed("Asha Rao", mid="a"), owed("Asha Iyer", mid="b")], TODAY) == []
+
+def test_the_better_name_wins():
+    got = P.match_balances([row(1, 100, 1, "Zelle payment from ASHA RAO")], [owed("Asha Iyer", mid="a"), owed("Asha Rao", mid="b")], TODAY)
+    assert got[0]["member_id"] == "b"
+
+def test_exact_amount_picks_the_right_group():
+    got = P.match_balances([row(1, 2000, 1, "Zelle from Asha")], [owed(cents=5000, gid="big"), owed(cents=2000, gid="small")], TODAY)
+    assert got[0]["group_id"] == "small"
+
+def test_two_payments_cannot_clear_more_than_is_owed():
+    got = P.match_balances([row(1, 4000, 3, "Zelle from Asha"), row(2, 4000, 1, "Zelle from Asha")], [owed()], TODAY)
+    assert [g["payback_id"] for g in got] == [uid(1)]
+
+class SettleRest(PaybackRest):
+    def rpc(self, fn, args):
+        if fn == "tally_balances":
+            return [{"group_id": uid(70), "member_id": uid(71), "net_cents": -6000}, {"group_id": uid(70), "member_id": uid(72), "net_cents": 6000}]
+        return super().rpc(fn, args)
+
+@pytest.fixture
+def owes(monkeypatch):
+    f = SettleRest()
+    monkeypatch.setattr(P, "rest", lambda: f)
+    monkeypatch.setattr(P, "user_limiter", type("L", (), {"check": lambda *a, **k: None})())
+    now = datetime.now(timezone.utc)
+    f.insert("accounts", {"id": CHK, "user_id": U, "type": "checking"})
+    f.insert("transactions", {**row(2, 4000, 0, "Zelle payment from ASHA RAO"), "occurred_at": now.isoformat(), "user_id": U})
+    f.insert("tally_groups", {"id": uid(70), "name": "Flat"})
+    f.insert("tally_members", {"id": uid(71), "group_id": uid(70), "name": "Asha Rao", "status": "active"})
+    f.insert("tally_members", {"id": uid(72), "group_id": uid(70), "name": "Me", "member_user_id": U, "status": "active"})
+    app.dependency_overrides[current_user] = lambda: U
+    yield f, TestClient(app)
+    app.dependency_overrides.clear()
+
+def test_one_tap_settles_and_it_stops_being_a_payback_question(owes):
+    f, c = owes
+    j = c.get("/paybacks/suggestions").json()
+    assert j["balances"][0]["name"] == "Asha Rao" and j["suggestions"] == []
+    b = j["balances"][0]
+    r = c.post("/paybacks/settle", json={"payback_id": b["payback_id"], "group_id": b["group_id"], "member_id": b["member_id"]})
+    assert r.json() == {"settled": True, "left_cents": 2000}
+    s = f.rows("tally_settlements")[0]
+    assert (s["amount_cents"], s["method"], s["status"], s["transaction_id"], s["to_member"]) == (4000, "zelle", "confirmed", uid(2), uid(72))
+
+def test_settling_rechecks_the_balance(owes):
+    f, c = owes
+    f.rows("transactions")[0]["amount_cents"] = 6001
+    assert c.post("/paybacks/settle", json={"payback_id": uid(2), "group_id": uid(70), "member_id": uid(71)}).status_code == 409
+    assert c.post("/paybacks/settle", json={"payback_id": uid(2), "group_id": uid(70), "member_id": uid(72)}).status_code == 404

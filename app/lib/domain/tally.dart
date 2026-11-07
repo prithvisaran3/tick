@@ -10,7 +10,8 @@ const me = 'me';
 enum SplitType { equal, exact, percent, shares }
 
 class TallyPerson {
-  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId});
+  const TallyPerson({required this.id, required this.name, this.colorKey = 'shop', this.phone, this.userId, this.status = 'active', this.personId, this.email});
+  final String? email;
   final String? personId; // my address book entry for this guest, when it is mine
   /// Set when this member is a Tick user; null for a guest.
   final String? userId;
@@ -183,13 +184,14 @@ bool looksLikeSettlement({required Transfer t, required String personFirstName, 
 enum ReminderTone { friendly, neutral, firm }
 
 /// A prefilled message. Sentence case, the amount first or near it; firm is plain, never rude.
-String reminderText(ReminderTone tone, {required String name, required String amount, required String group, String? link}) {
+String reminderText(ReminderTone tone, {required String name, required String amount, required String group, String? link, String? zelle}) {
   final body = switch (tone) {
     ReminderTone.friendly => 'Hey $name, when you get a chance: $amount for $group.',
     ReminderTone.neutral => '$name, you owe $amount for $group.',
     ReminderTone.firm => '$name, $amount for $group is still outstanding. Please pay it this week.',
   };
-  return link == null ? body : '$body $link';
+  final parts = [body, if (zelle != null && zelle.trim().isNotEmpty) 'My Zelle is ${zelle.trim()}.', ?link];
+  return parts.join(' ');
 }
 
 /// "Reminded 2 days ago". Null when there is no reminder to mention.

@@ -56,6 +56,8 @@ Future<void> deleteExpenseWithUndo(BuildContext context, WidgetRef ref, TallyExp
 Future<void> showSettleSheet(BuildContext context, {required TallyGroup g, required Transfer m}) => showTickSheet<void>(context, full: true, builder: (_) => SettleSheet(g: g, m: m, host: context));
 
 const settleMethods = <(String, String)>[('zelle', 'Zelle'), ('venmo', 'Venmo'), ('cashapp', 'Cash App'), ('cash', 'Cash'), ('other', 'Other')];
+/// Friends pay by Zelle. The rest stays one tap away, under "Other method".
+const featuredMethods = {'zelle', 'cash'};
 
 class SettleSheet extends ConsumerStatefulWidget {
   const SettleSheet({super.key, required this.g, required this.m, required this.host});
@@ -70,6 +72,7 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
   late final _amount = TextEditingController(text: formatCents(widget.m.cents, symbol: false, raw: true));
   String _method = 'zelle';
   bool _busy = false;
+  bool _more = false;
   String? _note;
   @override
   void dispose() { _amount.dispose(); super.dispose(); }
@@ -80,6 +83,12 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: (_cents / 100).toStringAsFixed(2)));
     TickHaptics.instance.selection();
+  }
+
+  Future<void> _copyZelle(String v) async {
+    await Clipboard.setData(ClipboardData(text: v));
+    TickHaptics.instance.selection();
+    if (mounted) setState(() => _note = 'Zelle details copied.');
   }
 
   Future<void> _open() async {
@@ -108,6 +117,7 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
     final t = ref.watch(tallyProvider);
     final iPay = widget.m.from == me;
     final other = t.nameOf(iPay ? widget.m.to : widget.m.from);
+    final zelle = iPay ? t.zelleOf(widget.m.to) : null;
     return SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
       Text('Settle up with $other', style: context.ts(TickType.title)),
       const SizedBox(height: 4),
@@ -116,14 +126,21 @@ class _SettleSheetState extends ConsumerState<SettleSheet> {
       TallyField(controller: _amount, hint: 'Amount', label: 'Amount in dollars', keyboard: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {})),
       if (_cents > widget.m.cents) Padding(padding: const EdgeInsets.only(top: 6), child: Text('That\'s more than ${formatCents(widget.m.cents)}.', style: context.ts(TickType.bodyS, color: c.alert))),
       const SizedBox(height: 12),
-      Wrap(spacing: 8, runSpacing: 4, children: [for (final (k, l) in settleMethods) TickChip(l, on: _method == k, onTap: () { TickHaptics.instance.selection(); setState(() { _method = k; _note = null; }); })]),
+      Wrap(spacing: 8, runSpacing: 4, children: [
+        for (final (k, l) in settleMethods) if (_more || featuredMethods.contains(k)) TickChip(l, on: _method == k, onTap: () { TickHaptics.instance.selection(); setState(() { _method = k; _note = null; }); }),
+        if (!_more) TickChip('Other method', onTap: () => setState(() => _more = true)),
+      ]),
       if (iPay && _valid) ...[
         const SizedBox(height: 12),
         if (_method == 'venmo') PillButton('Open Venmo', style: PillStyle.quiet, onTap: _open),
         if (_method == 'cashapp') PillButton('Open Cash App', style: PillStyle.quiet, onTap: _open),
         if (_method == 'zelle') ...[
-          PillButton('Copy amount', style: PillStyle.quiet, onTap: () async { await _copy(); if (mounted) setState(() => _note = 'Amount copied.'); }),
-          Padding(padding: const EdgeInsets.only(top: 6), child: Text('Open your bank app to send it with Zelle.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            PillButton('Copy amount', expand: false, height: 44, style: PillStyle.quiet, onTap: () async { await _copy(); if (mounted) setState(() => _note = 'Amount copied.'); }),
+            if (zelle != null) PillButton('Copy Zelle', expand: false, height: 44, style: PillStyle.quiet, onTap: () => _copyZelle(zelle)),
+          ]),
+          if (zelle != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(zelle, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.mono))),
+          Padding(padding: const EdgeInsets.only(top: 6), child: Text('Open your bank app to send it.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
         ],
       ],
       if (_note != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_note!, style: context.ts(TickType.bodyS, color: c.textSecondary))),
@@ -178,7 +195,8 @@ class _RemindSheetState extends ConsumerState<RemindSheet> {
     final t = ref.watch(tallyProvider);
     final p = t.person(widget.member);
     final name = t.nameOf(widget.member);
-    final text = reminderText(_tone, name: name, amount: formatCents(widget.cents), group: widget.g.name);
+    final myZelle = (p?.isGuest ?? true) ? ref.watch(handleProvider).value?.zelle : null;
+    final text = reminderText(_tone, name: name, amount: formatCents(widget.cents), group: widget.g.name, zelle: myZelle);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
       Text('Remind $name', style: context.ts(TickType.title)),
       const SizedBox(height: 12),
@@ -351,7 +369,18 @@ class TallyPersonScreen extends ConsumerWidget {
     final t = ref.watch(tallyProvider);
     final c = context.c;
     final lines = personLedger(member, t.expensesOf(groupId), t.settlementsOf(groupId));
+    final zelle = t.zelleOf(member);
     return TickPage(title: t.nameOf(member), onBack: () => context.pop(), children: [
+      TickCard(onTap: () async {
+        final n = ref.read(tallyProvider.notifier);
+        final v = await showTextSheet(context, title: 'Zelle email or phone', initial: zelle ?? '', hint: 'name@email.com or 555 123 4567', confirm: 'Save');
+        if (v != null) await n.setZelle(member, v).catchError((_) {});
+      }, child: Row(children: [
+        Expanded(child: Text('Zelle email or phone', style: context.ts(TickType.body, color: c.textSecondary))),
+        const SizedBox(width: 12),
+        Flexible(child: Text(zelle ?? 'Add', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
+      ])),
+      const SizedBox(height: 12),
       if (lines.isEmpty) const EmptyState('Nothing yet', 'Nothing between you two in this tally.', icon: 'tally'),
       if (lines.isNotEmpty) TickCard(padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(children: [
         for (final (i, l) in lines.reversed.indexed) ...[

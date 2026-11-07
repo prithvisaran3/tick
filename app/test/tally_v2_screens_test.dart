@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tick/data/tally_store.dart';
 import 'package:tick/domain/tally.dart';
 import 'package:tick/features/tally_manage.dart';
 import 'package:tick/features/tally_more.dart';
@@ -40,11 +41,31 @@ void main() {
     await tester.pumpWidget(frame(c, Builder(builder: (ctx) { host = ctx; return SingleChildScrollView(child: SettleSheet(g: room, m: const Transfer('p-j', me, 3000), host: host)); }), dark: true));
     await tester.pump();
     expect(find.text('Settle up with Jo'), findsOneWidget);
+    expect(find.text('Venmo'), findsNothing);
+    expect(find.text('Cash App'), findsNothing);
     await tester.enterText(find.byType(EditableText).first, '45');
     await tester.pump();
     expect(find.textContaining('more than'), findsOneWidget);
     await tester.enterText(find.byType(EditableText).first, '10');
     await tester.pump();
     expect(find.textContaining('more than'), findsNothing);
+  });
+
+  testWidgets('paying someone: Zelle first, their details to copy, Venmo and Cash App behind Other method', (tester) async {
+    await loadFonts();
+    final c = await demoContainer();
+    addTearDown(c.dispose);
+    await c.read(tallyProvider.notifier).setZelle('p-k', 'kaarthik@zelle.test');
+    late BuildContext host;
+    await tester.pumpWidget(frame(c, Builder(builder: (ctx) { host = ctx; return SingleChildScrollView(child: SettleSheet(g: room, m: const Transfer(me, 'p-k', 3000), host: host)); }), dark: true));
+    await tester.pump();
+    expect(find.text('kaarthik@zelle.test'), findsOneWidget);
+    expect(find.text('Copy Zelle'), findsOneWidget);
+    expect(find.text('Open your bank app to send it.'), findsOneWidget);
+    expect(find.text('Open Venmo'), findsNothing);
+    await tester.tap(find.text('Other method'));
+    await tester.pump();
+    expect(find.text('Venmo'), findsOneWidget);
+    expect(find.text('Cash App'), findsOneWidget);
   });
 }

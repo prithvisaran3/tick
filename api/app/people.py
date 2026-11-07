@@ -41,9 +41,9 @@ def search(q: str = Query(min_length=1, max_length=120), user_id: str = Depends(
 
 @router.get("/people/handle")
 def my_handle(user_id: str = Depends(current_user)):
-    p = rest().select("profiles", user_id=f"eq.{user_id}", select="handle,display_name,discoverable")
+    p = rest().select("profiles", user_id=f"eq.{user_id}", select="handle,display_name,discoverable,zelle")
     me = p[0] if p else {}
-    return {"handle": me.get("handle"), "discoverable": me.get("discoverable", True),
+    return {"handle": me.get("handle"), "discoverable": me.get("discoverable", True), "zelle": me.get("zelle"),
             "suggestion": None if me.get("handle") else suggestion(me.get("display_name"), lambda h: bool(rest().select("profiles", handle=f"eq.{h}", select="user_id")))}
 
 @router.post("/people/handle")

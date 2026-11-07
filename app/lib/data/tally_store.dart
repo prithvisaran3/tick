@@ -40,7 +40,7 @@ class TallyActivity {
 }
 
 class TallyState {
-  const TallyState({this.reminders = const [], this.bills = const [], this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
+  const TallyState({this.reminders = const [], this.bills = const [], this.zelleNotes = const {}, this.zelleShared = const {}, this.people = const [], this.contacts = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.invites = const [],
       this.myMember = const {}, this.myUserId, this.loading = false, this.offline = false, this.error});
   /// Why the last load failed, in words for a person. Null when it worked.
   final String? error;
@@ -54,15 +54,18 @@ class TallyState {
   final List<TallyInvite> invites;
   final List<TallyReminder> reminders;
   final List<TallyBill> bills;
+  /// member id -> what I noted for them (mine alone), and what they share themselves.
+  final Map<String, String> zelleNotes;
+  final Map<String, String> zelleShared;
   /// group id -> my member id in it (live only).
   final Map<String, String> myMember;
   final String? myUserId;
   final bool loading;
   final bool offline;
 
-  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, List<TallyBill>? bills, bool? loading, bool? offline, String? error}) =>
+  TallyState copyWith({List<TallyPerson>? people, List<TallyPerson>? contacts, List<TallyGroup>? groups, List<TallyExpense>? expenses, List<TallySettlement>? settlements, List<TallyInvite>? invites, List<TallyReminder>? reminders, List<TallyBill>? bills, Map<String, String>? zelleNotes, bool? loading, bool? offline, String? error}) =>
       TallyState(people: people ?? this.people, contacts: contacts ?? this.contacts, groups: groups ?? this.groups, expenses: expenses ?? this.expenses, settlements: settlements ?? this.settlements,
-          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, bills: bills ?? this.bills, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline, error: error ?? this.error);
+          invites: invites ?? this.invites, reminders: reminders ?? this.reminders, bills: bills ?? this.bills, zelleNotes: zelleNotes ?? this.zelleNotes, zelleShared: zelleShared, myMember: myMember, myUserId: myUserId, loading: loading ?? this.loading, offline: offline ?? this.offline, error: error ?? this.error);
 
   List<TallyReminder> get inbox => [for (final r in reminders) if (r.toMe) r];
   int get inboxBadge => invites.length + inbox.where((r) => !r.read).length;
@@ -70,6 +73,12 @@ class TallyState {
     DateTime? best;
     for (final r in reminders) { if (r.groupId == gid && r.toMember == member && (best == null || r.at.isAfter(best))) best = r.at; }
     return best;
+  }
+
+  /// Where to send someone money: my note, then what they share, then their email or phone if I have it.
+  String? zelleOf(String member) {
+    final p = person(member);
+    return zelleNotes[member] ?? zelleShared[member] ?? p?.email ?? p?.phone;
   }
 
   List<TallyBill> billsOf(String gid) => [for (final b in bills) if (b.groupId == gid) b];
@@ -119,7 +128,7 @@ class TallyNotifier extends Notifier<TallyState> {
     try {
       final db = r.db;
       final uid = db.auth.currentUser?.id;
-      final res = await Future.wait([
+      final res = await Future.wait<dynamic>([
         db.from('people').select().filter('archived_at', 'is', null),
         db.from('tally_groups').select().filter('deleted_at', 'is', null),
         db.from('tally_members').select('id,group_id,member_user_id,person_id,name,color_key,role,status'),
@@ -129,6 +138,8 @@ class TallyNotifier extends Notifier<TallyState> {
         db.from('tally_invites').select().eq('status', 'pending').eq('invitee', uid ?? ''),
         db.from('tally_reminders').select().order('created_at', ascending: false).limit(200),
         db.from('tally_recurring').select().eq('active', true),
+        db.from('tally_zelle_notes').select('member_id,zelle'),
+        db.rpc('tally_zelle_book'),
       ]);
       final mine = <String, String>{};           // group -> my member id
       final members = <String, List<String>>{};
@@ -147,9 +158,11 @@ class TallyNotifier extends Notifier<TallyState> {
       }
       state = TallyState(
         myMember: mine, myUserId: uid,
-        contacts: [for (final j in res[0]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', phone: j['phone'] as String?)],
+        zelleNotes: {for (final j in res[9]) j['member_id'] as String: j['zelle'] as String},
+        zelleShared: {for (final j in res[10]) j['member_id'] as String: j['zelle'] as String},
+        contacts: [for (final j in res[0]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', phone: j['phone'] as String?, email: j['email'] as String?)],
         people: [for (final j in res[2]) TallyPerson(id: j['id'] as String, name: j['name'] as String, colorKey: (j['color_key'] as String?) ?? 'shop', userId: j['member_user_id'] as String?, status: j['status'] as String,
-            phone: [for (final c in res[0]) if (c['id'] == j['person_id']) c['phone'] as String?].firstOrNull, personId: j['person_id'] as String?)],
+            phone: [for (final c in res[0]) if (c['id'] == j['person_id']) c['phone'] as String?].firstOrNull, email: [for (final c in res[0]) if (c['id'] == j['person_id']) c['email'] as String?].firstOrNull, personId: j['person_id'] as String?)],
         groups: [for (final j in res[1]) TallyGroup(id: j['id'] as String, name: j['name'] as String, emoji: j['emoji'] as String?, direct: j['kind'] == 'direct', colorKey: (j['color_key'] as String?) ?? 'shop',
             memberIds: members[j['id']] ?? const [], isOwner: j['user_id'] == uid, archived: j['archived_at'] != null)],
         expenses: [
@@ -364,6 +377,20 @@ class TallyNotifier extends Notifier<TallyState> {
     if (net != 0) throw TallyBlocked(net);
     if (_remote == null) { state = state.copyWith(groups: [for (final g in state.groups) if (g.id != groupId) g]); return; }
     await _rpc('tally_leave_group', {'p_group': groupId});
+  }
+
+  /// Saves or clears my note of where to Zelle someone.
+  Future<void> setZelle(String member, String value) async {
+    final v = value.trim();
+    final r = _remote;
+    if (r != null) {
+      if (v.isEmpty) {
+        await r.db.from('tally_zelle_notes').delete().eq('member_id', member).eq('user_id', state.myUserId ?? '');
+      } else {
+        await r.db.from('tally_zelle_notes').upsert({'user_id': state.myUserId, 'member_id': member, 'zelle': v});
+      }
+    }
+    state = state.copyWith(zelleNotes: {...state.zelleNotes}..remove(member)..addAll({if (v.isNotEmpty) member: v}));
   }
 
   /// Repeats [e] on a schedule, from the next date after it.

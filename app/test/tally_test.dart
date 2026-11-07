@@ -154,4 +154,9 @@ void main() {
     expect(nextBillDate(d, 'monthly'), DateTime(2026, 2, 15));
     expect(nextBillDate(d, 'yearly'), DateTime(2027, 1, 15));
   });
+
+  test('a reminder to a guest says where to send it', () {
+    expect(reminderText(ReminderTone.neutral, name: 'Asha', amount: r'$40.00', group: 'Flat', zelle: ' me@zelle.test ', link: 'https://x'), r'Asha, you owe $40.00 for Flat. My Zelle is me@zelle.test. https://x');
+    expect(reminderText(ReminderTone.neutral, name: 'Asha', amount: r'$40.00', group: 'Flat', zelle: ''), r'Asha, you owe $40.00 for Flat.');
+  });
 }
