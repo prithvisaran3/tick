@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dates.dart';
 
 enum TxStatus { pending, posted }
 
@@ -58,7 +59,7 @@ class Account {
     if (s == null) return false;
     if (s <= 0) return true;
     if (lastPaymentCents == null || lastPaymentDate == null) return false;
-    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    final from = lastStatementDate ?? (dueDate == null ? null : addDays(dueDate!, -30));
     if (from == null) return false; // no statement or due date to anchor on: never claim "paid" from an undated payment
     final after = !lastPaymentDate!.isBefore(from);
     return after && lastPaymentCents! >= s;
@@ -70,7 +71,7 @@ class Account {
     if (s == null) return owedCents;
     if (statementPaid) return 0;
     var due = s < owedCents ? s : owedCents;
-    final from = lastStatementDate ?? dueDate?.subtract(const Duration(days: 30));
+    final from = lastStatementDate ?? (dueDate == null ? null : addDays(dueDate!, -30));
     if (lastPaymentDate != null && lastPaymentCents != null && (from == null || !lastPaymentDate!.isBefore(from))) {
       due = (s - lastPaymentCents!).clamp(0, due);
     }

@@ -14,6 +14,7 @@ import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'common.dart';
+import '../domain/dates.dart';
 
 class IncomingScreen extends ConsumerWidget {
   const IncomingScreen({super.key, this.landed});
@@ -25,7 +26,7 @@ class IncomingScreen extends ConsumerWidget {
     final c = context.c;
     final today = dayOnly(now);
     final incoming = [...l.expected]..sort((a, b) => a.date.compareTo(b.date));
-    final horizon = today.add(const Duration(days: 30));
+    final horizon = addDays(today, 30);
     final bills = l.recurring.where((r) => r.nextDate.isBefore(horizon)).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
     final inTotal = incoming.fold(0, (s, e) => s + e.amountCents);
     final billTotal = bills.fold(0, (s, r) => s + r.expectedCents);

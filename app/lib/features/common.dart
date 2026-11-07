@@ -8,6 +8,7 @@ import '../domain/models.dart';
 import '../domain/merchant_name.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
+import '../domain/dates.dart';
 
 enum MoneyKind { out, income, expected, alert }
 
@@ -31,14 +32,14 @@ class Money extends StatelessWidget {
 
 String dayLabel(DateTime d, DateTime now) {
   final t = dayOnly(now), x = dayOnly(d);
-  final diff = t.difference(x).inDays;
+  final diff = daysBetween(x, t);
   if (diff == 0) return 'Today';
   if (diff == 1) return 'Yesterday';
   return DateFormat(diff < 7 ? 'EEEE' : 'EEE MMM d').format(x);
 }
 
 String weekdayName(DateTime d, DateTime now) {
-  final diff = dayOnly(d).difference(dayOnly(now)).inDays;
+  final diff = daysBetween(dayOnly(now), dayOnly(d));
   if (diff == 0) return 'today';
   if (diff == 1) return 'tomorrow';
   if (diff < 7) return DateFormat('EEEE').format(d);

@@ -3,6 +3,7 @@ import '../domain/tally.dart';
 import 'ledger.dart' show clockProvider;
 import 'remote.dart';
 import 'settings.dart';
+import '../domain/dates.dart';
 
 class TallyState {
   const TallyState({this.people = const [], this.groups = const [], this.expenses = const [], this.settlements = const [], this.loading = false, this.offline = false});
@@ -189,8 +190,8 @@ TallyState demoTally(DateTime now) {
     TallyGroup(id: 'g-alex', name: 'Alex', direct: true, memberIds: ['p-a'], colorKey: 'biz'),
   ];
   return TallyState(people: people, groups: groups, expenses: [
-    TallyExpense(id: 'x1', groupId: 'g-room', description: 'Groceries', amountCents: 9000, paidBy: me, shares: splitEqual(9000, [me, 'p-k', 'p-j']), spentOn: d.subtract(const Duration(days: 3))),
-    TallyExpense(id: 'x2', groupId: 'g-room', description: 'Internet', amountCents: 6000, paidBy: 'p-k', shares: splitEqual(6000, [me, 'p-k', 'p-j']), spentOn: d.subtract(const Duration(days: 6))),
-    TallyExpense(id: 'x3', groupId: 'g-alex', description: 'Concert tickets', amountCents: 14000, paidBy: 'p-a', shares: splitEqual(14000, [me, 'p-a']), spentOn: d.subtract(const Duration(days: 9))),
+    TallyExpense(id: 'x1', groupId: 'g-room', description: 'Groceries', amountCents: 9000, paidBy: me, shares: splitEqual(9000, [me, 'p-k', 'p-j']), spentOn: addDays(d, -3)),
+    TallyExpense(id: 'x2', groupId: 'g-room', description: 'Internet', amountCents: 6000, paidBy: 'p-k', shares: splitEqual(6000, [me, 'p-k', 'p-j']), spentOn: addDays(d, -6)),
+    TallyExpense(id: 'x3', groupId: 'g-alex', description: 'Concert tickets', amountCents: 14000, paidBy: 'p-a', shares: splitEqual(14000, [me, 'p-a']), spentOn: addDays(d, -9)),
   ], settlements: const []);
 }

@@ -37,7 +37,7 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
     if (rule == null) {
       return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const EmptyState('Add your paycheck first', 'Tick plans payday once it knows when you get paid.', icon: 'calendar')]));
     }
-    final landed = l.txns.any((t) => t.amountCents > 0 && dayOnly(t.occurredAt) == dayOnly(now) && t.categoryId == 'cat-income');
+    final landed = l.txns.any((t) => t.amountCents > 0 && dayOnly(t.occurredAt) == dayOnly(now) && l.category(t.categoryId)?.name == 'Income' && t.flow != 'transfer');
     final plan = buildPaydayPlan(today: now, rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, paycheckLanded: landed);
     final headlineAmount = plan.safeAfterCents;
     return TickScreen(

@@ -16,6 +16,7 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/payday.dart';
 import 'common.dart';
+import '../domain/dates.dart';
 
 /// Utilisation above this reads as "high" (the usual credit-score guidance).
 const highUtilisation = 0.30;
@@ -27,7 +28,7 @@ String dueLine(Account a, DateTime now) {
   if (a.statementPaid) return a.newSinceStatementCents > 0 ? 'Statement paid · ${formatDollars(a.newSinceStatementCents)} new' : 'Statement paid';
   final d = a.dueDate;
   if (d == null) return '${formatDollars(a.statementDueCents)} due, date not shared';
-  final days = dayOnly(d).difference(dayOnly(now)).inDays;
+  final days = daysBetween(dayOnly(now), dayOnly(d));
   final when = days < 0 ? 'was due ${DateFormat('MMM d').format(d)}' : days == 0 ? 'due today' : days == 1 ? 'due tomorrow' : days < 7 ? 'due ${DateFormat('EEEE').format(d)}' : 'due ${DateFormat('MMM d').format(d)}';
   return '${formatDollars(a.statementDueCents)} $when';
 }
@@ -79,7 +80,7 @@ class CardTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final u = a.utilisation;
-    final dueSoon = a.dueDate != null && a.statementDueCents > 0 && dayOnly(a.dueDate!).difference(dayOnly(now)).inDays <= 3;
+    final dueSoon = a.dueDate != null && a.statementDueCents > 0 && daysBetween(dayOnly(now), dayOnly(a.dueDate!)) <= 3;
     return TickCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
@@ -201,7 +202,7 @@ class _CompactCardRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final u = a.utilisation;
-    final dueSoon = a.dueDate != null && a.statementDueCents > 0 && dayOnly(a.dueDate!).difference(dayOnly(now)).inDays <= 3;
+    final dueSoon = a.dueDate != null && a.statementDueCents > 0 && daysBetween(dayOnly(now), dayOnly(a.dueDate!)) <= 3;
     return Pressable(
       onTap: () => context.push('/card/${a.id}'), scale: 0.985,
       semanticLabel: '${a.shortLabel}, ${formatCents(a.owedCents)} owed, ${dueLine(a, now)}${u == null ? '' : ', ${(u * 100).round()} percent used'}',

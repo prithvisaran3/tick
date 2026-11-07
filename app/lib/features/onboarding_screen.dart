@@ -16,6 +16,7 @@ import '../domain/natural_input.dart';
 import '../domain/payday.dart';
 import '../services/auth.dart';
 import '../services/haptics.dart';
+import '../domain/dates.dart';
 
 /// Three steps: welcome + Google, paycheck, the big stuff (rent, goal) or demo data.
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -43,8 +44,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   List<DateTime> _dateOptions(DateTime now) {
     var d = dayOnly(now);
-    while (d.weekday != DateTime.friday) { d = d.add(const Duration(days: 1)); }
-    return [d, d.add(const Duration(days: 7)), d.add(const Duration(days: 14))];
+    while (d.weekday != DateTime.friday) { d = addDays(d, 1); }
+    return [d, addDays(d, 7), addDays(d, 14)];
   }
 
   Future<void> _google() async {

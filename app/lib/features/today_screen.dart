@@ -24,6 +24,7 @@ import 'nudges.dart';
 import '../domain/budget_plan.dart';
 import '../domain/ideas.dart';
 import '../domain/safe_to_spend.dart';
+import '../domain/dates.dart';
 
 class TodayScreen extends ConsumerWidget {
   const TodayScreen({super.key});
@@ -38,11 +39,11 @@ class TodayScreen extends ConsumerWidget {
     final todays = ledger.txns.where((t) => dayOnly(t.occurredAt) == today).toList();
     final greeting = now.hour < 12 ? 'Good morning' : now.hour < 18 ? 'Good afternoon' : 'Good evening';
     final first = (settings.name ?? '').split(' ').first;
-    final billShown = ledger.recurring.where((r) => !r.nextDate.isAfter(dayOnly(now).add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
+    final billShown = ledger.recurring.where((r) => !r.nextDate.isAfter(addDays(dayOnly(now), 7))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
     final paydayNear = settings.demoMode ? (sts != null && sts.daysToPayday <= 1) : (settings.rule != null && isPaydayWindow(settings.rule!, now));
     final nudge = pickNudge(ledger, sts, now, skipBillFor: billShown.isEmpty ? null : billShown.first.merchant);
 
-    final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(today.add(const Duration(days: 7)))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
+    final upcoming = sts == null ? <Recurring>[] : (ledger.recurring.where((r) => !r.nextDate.isAfter(addDays(today, 7))).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate)));
     final nextIn = ledger.expected.where((e) => e.kind == ExpectedKind.paycheck).toList()..sort((a, b) => a.date.compareTo(b.date));
 
     return TickScrollView(

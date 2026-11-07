@@ -36,6 +36,12 @@ def out(t: dict) -> int:
         return t["out_cents"]
     return -t["amount_cents"] if t["amount_cents"] < 0 and t.get("category") != "Transfer" else 0
 
+def inc(t: dict) -> int:
+    """Money in for a row, from the SQL money rules (`in_cents`). The fallback only serves hand-built test ledgers."""
+    if "in_cents" in t:
+        return t["in_cents"]
+    return t["amount_cents"] if t["amount_cents"] > 0 and t.get("category") != "Transfer" else 0
+
 def money(c: int) -> str:
     return f"${abs(c) / 100:,.2f}".replace(".00", "") if abs(c) % 100 == 0 else f"${abs(c) / 100:,.2f}"
 
@@ -56,7 +62,13 @@ class Tools:
         rows = [t for t in self.l.txns if s <= t["date"] <= e and (not merchant or merchant.lower() in t["merchant"].lower())
                 and (not category or category.lower() == (t["category"] or "").lower()) and (not business_only or "business" in t["tags"])]
         rows.sort(key=lambda t: t["date"], reverse=True)
-        return {"count": len(rows), "total_cents": sum(t["amount_cents"] for t in rows), "items": [{"id": t["id"], "merchant": t["merchant"], "cents": t["amount_cents"], "date": t["date"].isoformat()} for t in rows[:max(1, min(limit, 20))]]}
+        # Totals follow the shared money rules: internal transfers, card payments and settlements are EXCLUDED (out and in are both 0), so they never
+        # inflate "how much did I spend at X". `total_cents` is the net of the counted rows (negative = money out), as before.
+        spent = sum(out(t) for t in rows)
+        income = sum(inc(t) for t in rows)
+        counted = [t for t in rows if out(t) != 0 or inc(t) != 0]
+        return {"count": len(counted), "excluded_count": len(rows) - len(counted), "spent_cents": spent, "income_cents": income, "total_cents": income - spent,
+                "items": [{"id": t["id"], "merchant": t["merchant"], "cents": t["amount_cents"], "date": t["date"].isoformat(), **({"excluded": True} if t in rows and out(t) == 0 and inc(t) == 0 else {})} for t in rows[:max(1, min(limit, 20))]]}
 
     def spend_by_category(self, start: str = "", end: str = "") -> dict:
         """Spending by category between two dates (default: this month)."""
@@ -213,7 +225,7 @@ def load_ledger(user_id: str) -> Ledger:
     return Ledger(txns, rec, exp, acc, bud, payday, today)
 
 TOOL_SPECS = [
-    {"name": "query_transactions", "description": "Find transactions. Dates are YYYY-MM-DD. Returns up to `limit` newest matches plus count and total (cents).",
+    {"name": "query_transactions", "description": "Find transactions. Dates are YYYY-MM-DD. Returns up to `limit` newest matches, the count, spent_cents, income_cents and total_cents (cents). Internal transfers and card payments are excluded from the totals.",
      "parameters": {"type": "object", "properties": {"merchant": {"type": "string"}, "category": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}, "business_only": {"type": "boolean"}, "limit": {"type": "integer"}}}},
     {"name": "spend_by_category", "description": "Spending by category between two dates (default this month). Amounts in cents.",
      "parameters": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}}},

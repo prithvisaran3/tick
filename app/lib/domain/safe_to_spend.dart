@@ -1,5 +1,6 @@
 import 'models.dart';
 import 'payday.dart';
+import 'dates.dart';
 
 class SafeToSpend {
   const SafeToSpend({required this.cashCents, required this.billsCents, required this.goalsCents, required this.nextPayday, required this.daysToPayday,
@@ -32,7 +33,7 @@ SafeToSpend computeSafeToSpend({
   final t = dayOnly(today);
   // If today is payday the money is arriving: plan to the *following* payday.
   var payday = nextPayday(rule, t);
-  if (payday == t) payday = nextPayday(rule, t.add(const Duration(days: 1)));
+  if (payday == t) payday = nextPayday(rule, addDays(t, 1));
   final cash = accounts
       .where((a) => a.includeInSafe && a.isCash && a.type != 'savings')
       .fold<int>(0, (s, a) => s + (a.availableCents ?? a.balanceCents ?? 0));
@@ -50,7 +51,7 @@ SafeToSpend computeSafeToSpend({
     loansDueCents: loansDue,
     cardsLaterCents: cardsLater,
     nextPayday: payday,
-    daysToPayday: payday.difference(t).inDays,
+    daysToPayday: daysBetween(t, payday),
   );
 }
 

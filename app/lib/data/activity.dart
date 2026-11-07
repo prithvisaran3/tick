@@ -14,6 +14,7 @@ import 'ledger.dart';
 import 'ledger_codec.dart';
 import 'remote.dart';
 import 'settings.dart';
+import '../domain/dates.dart';
 
 const activityPageSize = 40;
 
@@ -330,7 +331,7 @@ final monthFlowsProvider = FutureProvider.family<MonthFlows, DateTime>((ref, now
   final prevStart = DateTime(m.year, m.month - 1, 1);
   final r = await Future.wait([
     src.totals(const ActivityQuery(), from: etToUtc(m), to: etToUtc(DateTime(m.year, m.month + 1, 1))),
-    src.totals(const ActivityQuery(), from: etToUtc(prevStart), to: etToUtc(prevStart.add(Duration(days: now.day)))),
+    src.totals(const ActivityQuery(), from: etToUtc(prevStart), to: etToUtc(addDays(prevStart, now.day))),
   ]);
   return MonthFlows.from(r[0], r[1].outCents);
 });

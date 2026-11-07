@@ -10,7 +10,8 @@ import logging
 import os
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import httpx
@@ -328,7 +329,14 @@ def _ensure_accounts(user_id: str, conn_id: str, accts: list[dict], institution:
         row = {"user_id": user_id, "connection_id": conn_id, "provider_account_id": a["account_id"], "name": a.get("official_name") or a.get("name") or "Account",
                "mask": a.get("mask"), "type": typ, "subtype": a.get("subtype"), "institution": institution, "balance_cents": bal, "available_cents": av,
                "credit_limit_cents": None if limit is None else round(limit * 100), "include_in_safe": typ in ("checking", "credit")}
-        saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
+        existing = rest().select("accounts", user_id=f"eq.{user_id}", provider_account_id=f"eq.{a['account_id']}")
+        if existing:
+            # What the person set survives every sync: the name they chose and whether it counts toward Safe to spend. The bank owns balances only.
+            keep = {"name", "include_in_safe"}
+            patch = {k: v for k, v in row.items() if k not in keep and k not in ("user_id", "provider_account_id")}
+            saved = (rest().update("accounts", {"id": existing[0]["id"], "user_id": user_id}, patch) or [existing[0]])[0]
+        else:
+            saved = rest().insert("accounts", row, upsert_on="user_id,provider_account_id")[0]
         out[a["account_id"]] = saved
     return out
 
@@ -406,6 +414,26 @@ def apply_money_rules(user_id: str, raw: list[dict], *, dry_run: bool = False) -
         rest().update("transactions", {"id": tid, "user_id": user_id}, patch)
     return len(plan)
 
+def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
+    """Nothing else creates `expected` rows on live data, so "Landed" and the Incoming list never had anything to match.
+    Derive the paychecks from the person's payday rule: the last payday within 4 days (a deposit can post late) and the next one.
+    Idempotent: one row per paycheck date, whatever its status, and it never touches a rule that has no amount."""
+    from app.ask import next_payday
+    today = today or datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+    try:
+        st = rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule")
+        rule = st[0].get("payday_rule") if st else None
+        amount = int((rule or {}).get("amount_cents") or 0)
+        if amount <= 0:
+            return
+        dates = {d for d in (next_payday(rule, today - timedelta(days=4)), next_payday(rule, today)) if d}
+        have = {e["expected_date"] for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", select="expected_date")}
+        for d in sorted(dates):
+            if d.isoformat() not in have and d <= today + timedelta(days=45):
+                rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": "Paycheck", "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
+    except Exception:
+        pass                                                   # a sync must never fail because of the paycheck helper
+
 def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """A positive transaction near an expected paycheck/refund/IOU of about the same size marks it landed."""
     if cents <= 0:
@@ -419,6 +447,13 @@ def _landed(user_id: str, txn_id: str, cents: int, when: datetime) -> None:
                 best = (days, e)
     if best:
         rest().update("expected", {"id": best[1]["id"]}, {"status": "landed", "matched_transaction_id": txn_id})
+
+def _is_income_deposit(cand, accts: dict[str, dict]) -> bool:
+    """Only real deposits can land an expected paycheck: not a card payment or refund on a card/loan, not an internal transfer."""
+    if getattr(cand, "flow", None) in ("transfer", "settlement"):
+        return False
+    acct = next((a for a in accts.values() if a.get("id") == getattr(cand, "account_id", None)), None)
+    return not (acct and acct.get("type") in ("credit", "loan"))
 
 def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime) -> None:
     """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit)."""
@@ -540,6 +575,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
     restarts = 0
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
+    ensure_expected_paycheck(user_id)
     expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date")
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
@@ -593,7 +629,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
                 # Landed matching after rows exist (matched_transaction_id is a foreign key).
                 for cand, _ in cands:
                     row = next((t for t in txns if getattr(t, "plaid_transaction_id", None) == cand.plaid_transaction_id), None)
-                    if row is not None and cand.amount_cents > 0:
+                    if row is not None and cand.amount_cents > 0 and _is_income_deposit(cand, accts):
                         _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at)
             rem = [r["transaction_id"] for r in page.get("removed", [])]
             if rem:

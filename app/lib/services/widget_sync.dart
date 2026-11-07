@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../domain/models.dart';
 import '../domain/payday.dart';
 import '../domain/safe_to_spend.dart';
+import '../domain/dates.dart';
 
 const appGroupId = 'group.com.prithvi.tick';
 
@@ -14,7 +15,7 @@ Map<String, dynamic> buildWidgetSnapshot({required SafeToSpend? sts, required Li
   final spent = txns.where((t) => t.amountCents < 0 && dayOnly(t.occurredAt) == today).fold<int>(0, (s, t) => s - t.amountCents);
   final upcoming = recurring.where((r) => !r.nextDate.isBefore(today)).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
   final bill = upcoming.isEmpty ? null : upcoming.first;
-  final diff = bill == null ? 0 : dayOnly(bill.nextDate).difference(today).inDays;
+  final diff = bill == null ? 0 : daysBetween(today, dayOnly(bill.nextDate));
   return {
     'safeCents': sts?.cents ?? 0,
     'until': sts == null ? 'payday' : DateFormat('EEEE').format(sts.nextPayday),

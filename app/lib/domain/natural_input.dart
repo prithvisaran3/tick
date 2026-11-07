@@ -1,4 +1,5 @@
 import 'payday.dart';
+import 'dates.dart';
 
 class ParsedEntry {
   const ParsedEntry({required this.amountCents, required this.merchant, this.person, this.date, this.recurringDayOfMonth, this.categoryHint});
@@ -39,7 +40,7 @@ ParsedEntry? parseNatural(String raw, DateTime now) {
   // Date words
   DateTime? date;
   int? recurDay;
-  if (RegExp(r'\byesterday\b').hasMatch(lower)) date = dayOnly(now).subtract(const Duration(days: 1));
+  if (RegExp(r'\byesterday\b').hasMatch(lower)) date = addDays(dayOnly(now), -1);
   final dm = RegExp(r'\bon the (\d{1,2})(?:st|nd|rd|th)\b').firstMatch(lower);
   if (dm != null) {
     recurDay = int.parse(dm.group(1)!).clamp(1, 28);

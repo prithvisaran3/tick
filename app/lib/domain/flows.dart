@@ -1,4 +1,5 @@
 import 'models.dart';
+import 'dates.dart';
 
 /// Totals for a set of transactions under Tick's money rules. LIVE numbers come from the server (`tick_flows` in
 /// supabase/migrations/20261106000002_activity_cards.sql); this Dart mirror is used only for demo mode and the signed-out guest
@@ -99,7 +100,7 @@ MonthFlows computeFlows(List<Txn> txns, DateTime now, {Map<String, Category>? ca
   final start = DateTime(now.year, now.month, 1);
   final end = DateTime(now.year, now.month + 1, 1);
   final prevStart = DateTime(now.year, now.month - 1, 1);
-  final prevCut = prevStart.add(Duration(days: now.day));
+  final prevCut = addDays(prevStart, now.day);
   final cur = computeTotals(txns.where((t) => _inRange(t.occurredAt, start, end)), cats: cats, accounts: accounts);
   final prev = computeTotals(txns.where((t) => _inRange(t.occurredAt, prevStart, prevCut)), cats: cats, accounts: accounts);
   return MonthFlows.from(cur, prev.outCents);

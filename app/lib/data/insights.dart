@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/flows.dart';
 import 'activity.dart';
 import 'ledger.dart';
+import '../domain/dates.dart';
 
 class InsightsData {
   const InsightsData({required this.now, required this.cur, required this.prevSame, required this.prevFull, required this.merchants});
@@ -36,7 +37,7 @@ final insightsProvider = FutureProvider<InsightsData>((ref) async {
   final bounds = (etToUtc(m), etToUtc(DateTime(m.year, m.month + 1, 1)));
   final r = await Future.wait([
     src.totals(none, from: bounds.$1, to: bounds.$2),
-    src.totals(none, from: etToUtc(prev), to: etToUtc(prev.add(Duration(days: now.day)))),
+    src.totals(none, from: etToUtc(prev), to: etToUtc(addDays(prev, now.day))),
     src.totals(none, from: etToUtc(prev), to: etToUtc(m)),
     src.topMerchants(bounds.$1, bounds.$2, limit: 6),
   ]);

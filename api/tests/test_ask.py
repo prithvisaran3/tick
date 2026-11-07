@@ -50,3 +50,15 @@ def test_next_payday():
     assert next_payday({"frequency": "weekly", "next_date": "2026-11-13"}, t) == date(2026, 11, 13)
     assert next_payday({"frequency": "monthly", "next_date": "2026-01-31"}, date(2026, 2, 1)) == date(2026, 2, 28)
     assert next_payday(None, t) is None and next_payday({"next_date": "bad"}, t) is None
+
+def test_query_transactions_totals_exclude_transfers_and_follow_money_rules():
+    from app.ask import Ledger, Tools
+    day = date(2026, 11, 3)
+    tx = [
+        {"id": "a", "merchant": "Chase card payment", "amount_cents": -120000, "out_cents": 0, "in_cents": 0, "date": day, "category": "Transfer", "tags": [], "account": None},
+        {"id": "b", "merchant": "Chase coffee", "amount_cents": -600, "out_cents": 600, "in_cents": 0, "date": day, "category": "Coffee", "tags": [], "account": None},
+        {"id": "c", "merchant": "Chase refund", "amount_cents": 250, "out_cents": -250, "in_cents": 0, "date": day, "category": "Coffee", "tags": [], "account": None},
+    ]
+    r = Tools(Ledger(tx, [], [], [], [], None, TODAY)).query_transactions(merchant="chase")
+    assert r["spent_cents"] == 350 and r["total_cents"] == -350       # the $1,200 card payment is not spending; the refund lowers it
+    assert r["count"] == 2 and r["excluded_count"] == 1

@@ -182,3 +182,35 @@ def test_non_owner_can_still_reconnect_their_own_connection(db, monkeypatch):
     monkeypatch.setattr(db, "rpc", lambda name, args: "access-x", raising=False)
     r = _as(OTHER, lambda c: c.post("/plaid/link-token", json={"connection_id": conn["id"]}))
     assert r.status_code == 200
+
+def test_sync_keeps_the_name_and_include_in_safe_the_person_set(db):
+    acct = {"account_id": "acc-1", "name": "Plaid Checking", "official_name": "Total Checking", "mask": "1173", "type": "depository", "subtype": "checking", "balances": {"current": 100.0, "available": 90.0}}
+    first = P._ensure_accounts(U, "conn-1", [acct], "Chase")["acc-1"]
+    db.update("accounts", {"id": first["id"]}, {"name": "Rent money", "include_in_safe": False})
+    acct["balances"] = {"current": 250.5, "available": 200.0}
+    again = P._ensure_accounts(U, "conn-1", [acct], "Chase")["acc-1"]
+    rows = db.rows("accounts")
+    assert len(rows) == 1 and again["id"] == first["id"]
+    assert rows[0]["name"] == "Rent money" and rows[0]["include_in_safe"] is False      # edits survive
+    assert rows[0]["balance_cents"] == 25050 and rows[0]["available_cents"] == 20000     # balances still refresh
+
+def test_payday_rule_creates_expected_paychecks_once_and_a_deposit_lands_one(db):
+    from datetime import date
+    db.insert("settings", {"user_id": U, "payday_rule": {"frequency": "biweekly", "next_date": "2026-11-06", "amount_cents": 231000}})
+    today = date(2026, 11, 7)
+    P.ensure_expected_paycheck(U, today)
+    P.ensure_expected_paycheck(U, today)                                  # idempotent
+    rows = db.rows("expected")
+    assert sorted(r["expected_date"] for r in rows) == ["2026-11-06", "2026-11-20"] and all(r["amount_cents"] == 231000 for r in rows)
+    exp = [dict(r) for r in rows if r.get("status", "expected") == "expected"]
+    from datetime import datetime as _dt, timezone as _tz
+    P._landed_in(exp, U, "txn-1", 230500, _dt(2026, 11, 6, 13, tzinfo=_tz.utc))
+    assert [r.get("status", "expected") for r in sorted(db.rows("expected"), key=lambda r: r["expected_date"])] == ["landed", "expected"]
+
+def test_a_card_payment_credit_can_never_land_a_paycheck():
+    class C: flow = None; account_id = "card"
+    assert P._is_income_deposit(C, {"x": {"id": "card", "type": "credit"}}) is False
+    C.account_id = "chk"
+    assert P._is_income_deposit(C, {"x": {"id": "chk", "type": "checking"}}) is True
+    C.flow = "transfer"
+    assert P._is_income_deposit(C, {}) is False

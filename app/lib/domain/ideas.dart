@@ -2,6 +2,7 @@ import 'models.dart';
 import 'money.dart';
 import 'payday.dart';
 import 'safe_to_spend.dart';
+import 'dates.dart';
 
 /// Shipped ideas from docs/IDEAS.md. Pure functions; unit-tested in test/domain/ideas_test.dart.
 /// Tick only ever SUGGESTS: none of these move money.
@@ -43,7 +44,7 @@ class Cycle {
   final int? dueDays; // days until the current statement is due (null if unknown)
   final int statementDueCents;
   /// Best day to pay for utilisation: two days before the close (payments take a day or two to post).
-  DateTime get bestPayDay => closes.subtract(const Duration(days: 2));
+  DateTime get bestPayDay => addDays(closes, -2);
 }
 
 DateTime _addMonth(DateTime d) {
@@ -61,8 +62,8 @@ Cycle? statementCycle(Account a, DateTime now) {
   final limit = a.creditLimitCents;
   final target = limit == null ? null : (limit * 0.29).floor();   // a hair under 30% so rounding never reports 30%
   final pay = target == null ? 0 : (a.owedCents - target).clamp(0, a.owedCents);
-  return Cycle(closes: close, daysToClose: close.difference(today).inDays, payForUnder30Cents: pay,
-      dueDays: a.dueDate == null ? null : dayOnly(a.dueDate!).difference(today).inDays, statementDueCents: a.statementDueCents);
+  return Cycle(closes: close, daysToClose: daysBetween(today, close), payForUnder30Cents: pay,
+      dueDays: a.dueDate == null ? null : daysBetween(today, dayOnly(a.dueDate!)), statementDueCents: a.statementDueCents);
 }
 
 /// The heads-up a few days before a statement closes with high utilisation. Null when nothing to say.

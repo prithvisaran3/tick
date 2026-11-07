@@ -1,4 +1,5 @@
 import 'models.dart';
+import 'dates.dart';
 
 DateTime dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
@@ -19,7 +20,7 @@ DateTime nextPayday(PaydayRule r, DateTime from) {
       final step = r.frequency == PayFrequency.weekly ? 7 : 14;
       var d = a;
       if (d.isBefore(f)) {
-        final diff = f.difference(d).inDays;
+        final diff = daysBetween(d, f);
         d = d.add(Duration(days: ((diff + step - 1) ~/ step) * step));
       }
       return d;
@@ -56,8 +57,8 @@ List<DateTime> occurrencesBetween(Cadence c, DateTime next, DateTime start, Date
     if (!d.isBefore(start)) out.add(d);
     k++;
     switch (c) {
-      case Cadence.weekly: d = d.add(const Duration(days: 7));
-      case Cadence.biweekly: d = d.add(const Duration(days: 14));
+      case Cadence.weekly: d = addDays(d, 7);
+      case Cadence.biweekly: d = addDays(d, 14);
       case Cadence.monthly: d = _addMonths(dayOnly(next), k);
       case Cadence.yearly: d = _addMonths(dayOnly(next), 12 * k);
     }
