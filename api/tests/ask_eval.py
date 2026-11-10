@@ -115,6 +115,16 @@ def main() -> int:
         p = paths.setdefault("learned", [0, 0]); p[1] += 1; p[0] += ok
         if not ok:
             wrong.append((q, r.path, r.tool, None, tool))
+    # approved: questions behind proposals I approved route by their rule, and the tool answers
+    import json
+    approved = json.loads((ROOT / "tests" / "data" / "ask_eval_approved.json").read_text())["cases"]
+    for c in approved:
+        promoted = {B.normalise(c["question"], l): {"tool": c["tool"], "params": c.get("params") or {}}}
+        r, slots = B.route(c["question"], l, promoted=promoted)
+        ok = r.path == "rules" and r.tool == c["tool"] and B.run(r.tool, r.params, slots, l) is not None
+        p = paths.setdefault("approved", [0, 0]); p[1] += 1; p[0] += ok
+        if not ok:
+            wrong.append((c["question"], r.path, r.tool, None, c["tool"]))
     for path, (a, b) in sorted(paths.items()):
         print(f"{path}: {a}/{b}")
     for w in wrong:

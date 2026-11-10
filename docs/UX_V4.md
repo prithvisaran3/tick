@@ -134,3 +134,15 @@ the widget extension isn't in the Xcode project yet (free account, no App Groups
 - Caching: the background and head layers are recorded once per face as a `Picture` (LRU, 160) and replayed, so lists only redraw eyes and mouth.
 - Golden matrix: `app/test/goldens/avatars/matrix-{24,48,120}.{dark,light}.png` (every skin tone × every hair style, accessories across the
   columns, mascot moods on the last row).
+
+## Phase 10: Ask Tick reflection
+- The existing nightly job (`/jobs/ask-nightly`) now also reflects: the last 7 days of thumbs-down that came with a fix ("it should have been…") are
+  grouped by question shape and corrected tool into proposals (`ask_memory` kind `proposal`, status open). A thumbs-down with no fix says nothing about
+  the right answer, so it proposes nothing. Nothing is applied by the job.
+- Profile > Categories and rules > Suggested rules lists open proposals: "When you ask "…", answer with Spending by category", how many thumbs-down,
+  the other wordings, Approve / Dismiss. Empty, skeleton and error states.
+- Approve: the shape becomes an Ask Tick rule (`ask_memory` kind `rule`, answered on the rules path) and each triggering question is kept as kind `eval`.
+  Dismiss: never proposed again. Approved shapes aren't proposed again either.
+- Eval: `api/tests/ask_eval.py` now also runs `api/tests/data/ask_eval_approved.json` (approved 2/2 on the two made-up seed cases).
+  `python3 tools/export_ask_eval.py` (read-only, needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) adds your approved questions to that file.
+- Migration `20261122000001_ask_reflection.sql`: kinds `proposal` and `eval`, and an index for thumbs-down.

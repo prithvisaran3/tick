@@ -1,0 +1,7 @@
+{
+  "$comment": "Questions behind approved Ask Tick proposals (Profile > Suggested rules). tools/export_ask_eval.py refreshes this from ask_memory kind 'eval'. The two seed cases are made up.",
+  "cases": [
+    {"question": "what did eating out cost me in october", "tool": "category_breakdown", "params": {}},
+    {"question": "the damage since payday", "tool": "spend_summary", "params": {}}
+  ]
+}

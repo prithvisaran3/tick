@@ -40,5 +40,5 @@ final askMemoryProvider = FutureProvider<({List<AliasRow> aliases, int proposals
     if (m['categories'] is List) return (m['categories'] as List).join(', ');
     return (m['person'] ?? '') as String;
   }
-  return (aliases: [for (final j in rows) if (j['kind'] == 'alias') AliasRow(j['key'] as String, meaning(j['value']))], proposals: rows.where((j) => j['kind'] == 'proposal').length);
+  return (aliases: [for (final j in rows) if (j['kind'] == 'alias') AliasRow(j['key'] as String, meaning(j['value']))], proposals: rows.where((j) => j['kind'] == 'proposal' && (j['value'] as Map?)?['status'] == 'open').length);
 });

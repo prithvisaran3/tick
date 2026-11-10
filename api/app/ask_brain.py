@@ -341,6 +341,11 @@ class Tools:
         return Result(f"{money(v)} {word} {r.label}, from {len(rows)} pay {'statement' if len(rows) == 1 else 'statements'}.", {"cents": v, "count": len(rows)}, r)
 
 TOOL_NAMES = ["pay_statements", "spend_summary", "category_breakdown", "top_merchants", "compare_periods", "balance_now", "upcoming_bills", "subscriptions", "safe_to_spend", "payday_info", "tally_balances", "find_transactions", "what_if", "biggest"]
+# In words, for proposals and Profile.
+TOOL_LABELS = {"pay_statements": "Pay statements", "spend_summary": "Total spending", "category_breakdown": "Spending by category", "top_merchants": "Top places",
+               "compare_periods": "This vs last period", "balance_now": "Balances now", "upcoming_bills": "Bills coming up", "subscriptions": "Subscriptions",
+               "safe_to_spend": "Safe to spend", "payday_info": "Next payday", "tally_balances": "Tally balances", "find_transactions": "Find transactions",
+               "what_if": "What if", "biggest": "Biggest purchases"}
 
 # ---------------- rules ----------------
 INTENTS: list[tuple[str, str, dict]] = [
