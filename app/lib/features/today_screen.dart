@@ -80,9 +80,9 @@ class TodayScreen extends ConsumerWidget {
               if (i == 0 && t.source != 'manual' && now.difference(t.occurredAt).abs() < const Duration(minutes: 2))
                 // A capture that just arrived lands with the pop and its price weight; reopening the app later doesn't replay it.
                 PopIn(fromOffsetY: 60, fromScale: 0.94, onLanded: () => TickHaptics.instance.capturePop(t.amountCents),
-                    child: TxRow(t: t, ledger: ledger, hero: true, sticker: true, onTap: () => context.push('/txn/${t.id}')))
+                    child: TxRow(t: t, ledger: ledger, sticker: true, onTap: () => context.push('/txn/${t.id}')))
               else
-                StaggerIn(scope: 'home-recent', index: i, child: TxRow(t: t, ledger: ledger, hero: true, onTap: () => context.push('/txn/${t.id}'))),
+                StaggerIn(scope: 'home-recent', index: i, child: TxRow(t: t, ledger: ledger, onTap: () => context.push('/txn/${t.id}'))),
             ],
           ])),
       ]))),
