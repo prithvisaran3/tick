@@ -18,7 +18,7 @@ import '../domain/money.dart';
 import '../services/haptics.dart';
 import 'ask_button.dart';
 import 'common.dart';
-import 'payback_card.dart';
+import 'review.dart';
 import 'rule_cards.dart';
 import 'splitwise_detail.dart';
 
@@ -140,7 +140,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         if (q.anyFilter || q.upTo != null)
           Padding(padding: const EdgeInsets.only(bottom: 4), child: _ActiveFilters(q: q, ledger: l, onChange: _set)),
         if (a.offline) OfflineBanner(onRetry: notifier.refresh),
-        if (!q.anyFilter) const PaybackBanner(),
+        if (!q.anyFilter) const ReviewDeck(),
         if (a.loading && a.rows.isEmpty) const ListSkeleton(rows: 8)
         else if (a.error && a.rows.isEmpty) ErrorState(onRetry: notifier.refresh)
         else if (a.rows.isEmpty)

@@ -91,3 +91,13 @@ Sources: https://plaid.com/docs/income/payroll-income/ · https://plaid.com/docs
   emails" line that explains this; nothing is enabled from the app.
 - Loading is a skeleton card, an error says why with Try again (silent provider retry is off for these two), no match says "No match yet".
 - API: `GET /splitwise/explain/{txn}`, `GET /splitwise/options`, `POST /splitwise/tag`, `POST /splitwise/not`, all owner-checked (other people's rows 404).
+
+## Phase 5: Yes/No cards
+- Every question (payback, settle up, landed, Likely Splitwise, rent rule) is now one `ReviewQ` (`app/lib/features/review.dart`): the question, one line,
+  the reason, the rows, what Yes / No (and any extra answer, like "Other bill") will do, and a confidence in words.
+- Activity shows one card, most sure first, then "N more to review ›", which opens `/review`: one question per page, swipe to move between them, answering
+  moves on. Swiping never answers; on money questions an accidental swipe shouldn't change anything.
+- Tapping a card opens its sheet: confidence chip, why Tick asks, the rows (tap one to open it), "If you say …" for every answer, then the buttons.
+- "Not sure" hides the question for 7 days, then it comes back once headed "Still unsure?"; a second Not sure hides it for good. Snoozes live only on the
+  phone (`review_snoozes_v1`) and are never sent, so they can't train a rule. Undo is on the toast.
+- The old per-kind cards (PaybackBanner, BalanceMatchCard, RuleSuggestionCard, LikelySplitwiseCard) are gone; the per-transaction PaybackCard stays on detail.
