@@ -101,3 +101,19 @@ Sources: https://plaid.com/docs/income/payroll-income/ · https://plaid.com/docs
 - "Not sure" hides the question for 7 days, then it comes back once headed "Still unsure?"; a second Not sure hides it for good. Snoozes live only on the
   phone (`review_snoozes_v1`) and are never sent, so they can't train a rule. Undo is on the toast.
 - The old per-kind cards (PaybackBanner, BalanceMatchCard, RuleSuggestionCard, LikelySplitwiseCard) are gone; the per-transaction PaybackCard stays on detail.
+
+## Phases 6 and 7: skipped
+Skipped at your request (Apple Pay "Was this for Tally?" and Apple Card online capture). Nothing was built for either. Groundwork found while looking:
+the widget extension isn't in the Xcode project yet (free account, no App Groups), so a Live Activity would need that target added first.
+
+## Phase 8: Live walkthrough
+- `app/lib/features/tips.dart`: `TipTarget` wraps what a tip points at; `TipHost` over the tab shell dims everything but a rounded hole around it
+  (`_Spotlight` CustomPainter) and shows a tooltip with an arrow, "Got it" and "Skip tips". The dim ignores touches, so the target and the rest of the
+  screen still work; tapping the target counts as seeing the tip.
+- The four tips, in order: Home's Cash number "Tap to see every account"; Activity's first question card; Tally's New tally button; the Ask Tick button.
+- A tip shows only when its target is at least 80% on screen (above the tab bar, below the status bar), on the visible tab, and on the current route,
+  so never under a sheet or a pushed screen. It rechecks on scroll and every 400 ms.
+- Progress is saved locally and to `profiles.tips` (`{"done": [...]}`), and merged from the server on start. Profile > Help > Show tips again resets
+  them (with Undo). Springs for the tooltip, a plain fade under Reduce Motion.
+- First run is now splash, sign in, essential setup, then Home with the first tip. The cinematic is no longer on first run; it lives at Profile > Help >
+  Watch the intro.

@@ -145,6 +145,12 @@ class Remote {
   Future<void> updateRecurring(String id, {int? cents, DateTime? next, bool? ended}) => db.from('recurring').update({
         'expected_cents': ?cents, if (next != null) 'next_date': next.toIso8601String().substring(0, 10), if (ended == true) 'status': 'ended', if (ended == false) 'status': 'active', 'is_manual': true}).eq('id', id);
   Future<void> setIncludeInSafe(String accountId, bool v) => db.from('accounts').update({'include_in_safe': v}).eq('id', accountId);
+  /// Walkthrough tips done or skipped: profiles.tips = {"done": [ids]}.
+  Future<List<String>> loadTips() async {
+    final r = await db.from('profiles').select('tips').eq('user_id', db.auth.currentUser!.id).maybeSingle();
+    return [...(((r?['tips'] as Map?)?['done'] as List?) ?? const []).whereType<String>()];
+  }
+  Future<void> saveTips(List<String> done) => db.from('profiles').update({'tips': {'done': done}}).eq('user_id', db.auth.currentUser!.id);
   Future<void> setDisplayName(String name) => db.from('profiles').update({'display_name': name}).eq('user_id', db.auth.currentUser!.id);
 
   Future<void> insertRecurring(Recurring r) => db.from('recurring').insert({

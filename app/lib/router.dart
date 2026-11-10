@@ -57,6 +57,7 @@ import 'services/haptics.dart';
 import 'services/open_file.dart';
 import 'services/notifications.dart';
 import 'services/widget_sync.dart';
+import 'features/tips.dart';
 
 CustomTransitionPage<void> _page(GoRouterState s, Widget child) => CustomTransitionPage<void>(
       key: s.pageKey, child: child, transitionDuration: const Duration(milliseconds: TickMotion.pageInMs), reverseTransitionDuration: const Duration(milliseconds: TickMotion.pageOutMs),
@@ -87,7 +88,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
       },
       routes: [
         GoRoute(path: '/', pageBuilder: (c, s) => NoTransitionPage(key: s.pageKey, child: const Shell())),
-        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen(intro: true))),
+        GoRoute(path: '/onboarding', pageBuilder: (c, s) => _page(s, const OnboardingScreen())),
         GoRoute(path: '/intro', pageBuilder: (c, s) => _page(s, const IntroReplayScreen())),
         GoRoute(path: '/onboarding/bank', pageBuilder: (c, s) => _page(s, const BankStepScreen())),
         GoRoute(path: '/caught', pageBuilder: (c, s) => _page(s, const CaughtScreen())),
@@ -275,7 +276,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     return ColoredBox(
       color: context.c.bg,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned.fill(child: IndexedStack(index: tab, children: [for (var i = 0; i < 4; i++) page(i)])),
+        Positioned.fill(child: TipHost(bottomInset: 84, child: IndexedStack(index: tab, children: [for (var i = 0; i < 4; i++) page(i)]))),
         Positioned(left: 0, right: 0, bottom: 0, child: TickTabBar(index: tab, badge: l.needsReview.length, onTap: (i) { TickHaptics.instance.selection(); ref.read(shellTabProvider.notifier).go(i); }, onAdd: () => showQuickAdd(context))),
       ]),
     );

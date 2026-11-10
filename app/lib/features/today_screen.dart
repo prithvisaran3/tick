@@ -20,6 +20,7 @@ import '../services/haptics.dart';
 import 'ask_button.dart';
 import 'common.dart';
 import 'nudges.dart';
+import 'tips.dart';
 
 /// Home: what you have. Cash in checking leads; savings sits apart; cards are one quiet row and never come off Cash here.
 /// Then the one suggestion that matters most, and the last few purchases. Safe to spend lives in Insights.
@@ -109,13 +110,13 @@ class CashCard extends ConsumerWidget {
       ]));
     }
     return TickCard(raised: true, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Pressable(
+      TipTarget(id: 'home-cash', child: Pressable(
         onTap: () => context.push('/banks'), scale: 0.99, semanticLabel: 'Cash ${formatCents(b.cashCents)} across ${b.cash.length} checking ${b.cash.length == 1 ? 'account' : 'accounts'}. Show every account',
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Cash', style: context.ts(TickType.bodyS, color: c.textSecondary)),
           FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: CountUpText(cents: b.cashCents, style: context.ts(TickType.hero), haptic: true, format: (v) => formatCents(v))),
         ]),
-      ),
+      )),
       const SizedBox(height: TickSpace.x2),
       for (final (a, cents) in b.cash) _AccountRow(a: a, cents: cents),
       if (b.excludedCount > 0) Padding(padding: const EdgeInsets.only(top: TickSpace.x1), child: Text('${b.excludedCount} checking ${b.excludedCount == 1 ? 'account is' : 'accounts are'} left out. Change it in Profile.', style: context.ts(TickType.bodyS, color: c.textSecondary))),

@@ -15,6 +15,7 @@ import '../services/haptics.dart';
 import 'common.dart';
 import 'rule_cards.dart';
 import 'tally_manage.dart' show showUndo;
+import 'tips.dart';
 
 /// One more answer than Yes and No, like "Other bill".
 class ReviewAnswer {
@@ -283,7 +284,7 @@ class ReviewDeck extends ConsumerWidget {
     final qs = ref.watch(reviewQuestionsProvider);
     if (qs.isEmpty) return const SizedBox.shrink();
     return Padding(padding: const EdgeInsets.only(bottom: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      ReviewCard(key: ValueKey(qs.first.key), q: qs.first),
+      TipTarget(id: 'activity-suggestion', child: ReviewCard(key: ValueKey(qs.first.key), q: qs.first)),
       if (qs.length > 1) Pressable(
         onTap: () => context.push('/review'),
         child: Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text('${qs.length - 1} more to review  ›', style: context.ts(TickType.bodyS, color: context.c.textSecondary))),

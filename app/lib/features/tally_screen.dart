@@ -16,6 +16,7 @@ import 'ask_button.dart';
 import 'common.dart';
 import 'tally_expense_sheet.dart';
 import 'tally_people.dart';
+import 'tips.dart';
 
 /// Tally: split costs with friends. Playful on purpose (the one place), but errors and money problems stay plain.
 class TallyScreen extends ConsumerWidget {
@@ -43,7 +44,7 @@ class TallyScreen extends ConsumerWidget {
         if (t.offline && t.groups.isNotEmpty) OfflineBanner(onRetry: () => ref.read(tallyProvider.notifier).refresh()),
         if (t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1)) ...[const SizedBox(height: 8), PillButton('Settle everything', icon: 'check', style: PillStyle.quiet, onTap: () => context.push('/tally/plan'))],
         const SizedBox(height: 16),
-        PillButton('New tally', icon: 'plus', style: t.groups.isEmpty ? PillStyle.primary : PillStyle.quiet, onTap: () => showNewGroupSheet(context)),
+        TipTarget(id: 'tally-new', child: PillButton('New tally', icon: 'plus', style: t.groups.isEmpty ? PillStyle.primary : PillStyle.quiet, onTap: () => showNewGroupSheet(context))),
       ],
     );
   }

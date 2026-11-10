@@ -4,6 +4,7 @@ import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import 'ask_screen.dart';
+import 'tips.dart';
 
 /// Ask Tick lives behind this avatar button, top-right of Today, Activity, Insights and Tally. It opens as a sheet (spring up from the bottom).
 class AskButton extends StatelessWidget {
@@ -11,13 +12,13 @@ class AskButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Pressable(
+    return TipTarget(id: 'ask-tick', child: Pressable(
       onTap: () => showAskSheet(context), semanticLabel: 'Ask Tick', minSize: 44,
       child: SizedBox(width: 44, height: 44, child: Center(child: Container(
         width: 34, height: 34, decoration: BoxDecoration(color: context.isDark ? c.accent : c.text, shape: BoxShape.circle), alignment: Alignment.center,
         child: TickIcon('insights', size: 18, color: context.isDark ? c.onAccent : c.bg),
       ))),
-    );
+    ));
   }
 }
 
