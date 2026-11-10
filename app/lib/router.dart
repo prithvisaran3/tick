@@ -20,6 +20,7 @@ import 'features/insights_screen.dart';
 import 'features/tally_screen.dart';
 import 'features/tally_group_screen.dart';
 import 'features/tally_manage.dart';
+import 'domain/balances.dart';
 import 'features/ask_screen.dart';
 import 'features/avatar_builder.dart';
 import 'features/payday_editor.dart';
@@ -199,7 +200,7 @@ class _ShellState extends ConsumerState<Shell> with WidgetsBindingObserver {
     final s = ref.read(settingsProvider);
     final sts = ref.read(safeToSpendProvider);
     final now = ref.read(clockProvider)();
-    if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, txns: l.txns, recurring: l.recurring, now: now));
+    if (Env.widgetsEnabled) writeWidgetSnapshot(buildWidgetSnapshot(sts: sts, cashCents: homeBalances(l.accounts).cashCents, txns: l.txns, recurring: l.recurring, now: now));
     ref.read(notificationServiceProvider).apply(planNotifications(now: now, morningTime: s.morningTime, weeklyTime: s.weeklyTime, sts: sts, recurring: l.recurring, goals: l.goals, accounts: l.accounts, utilisationAlerts: s.flag('statement_cycle'), statementDay: l.accounts.any((a) => a.institution == 'Apple Card')));
   }
 

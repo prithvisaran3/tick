@@ -2,24 +2,26 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tick/data/settings.dart';
 import 'package:tick/features/cards.dart';
-import 'package:tick/features/today_screen.dart';
+import 'package:flutter/widgets.dart';
+import 'package:tick/features/safe_card.dart';
 import 'golden_harness.dart';
 
 void main() {
   setUpAll(loadFonts);
 
-  testWidgets('Today: card guard, truly free and what-if follow their flags', (tester) async {
+  testWidgets('Insights: card guard, truly free and what-if follow their flags, inside How it\'s calculated', (tester) async {
     final c = await demoContainer();
     addTearDown(c.dispose);
-    await pumpGolden(tester, frame(c, const TodayScreen(), dark: true, tab: 0));
-    expect(find.text('Cards before payday'), findsOneWidget);
+    await pumpGolden(tester, frame(c, const SingleChildScrollView(child: SafeToSpendCard()), dark: true, tab: 2));
+    await tester.tap(find.text('How it\'s calculated'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('before payday'), findsWidgets);
     expect(find.textContaining('every card balance'), findsOneWidget);
-    expect(find.text('What if…'), findsOneWidget);
+    expect(find.text('What if I spend…'), findsOneWidget);
     c.read(settingsProvider.notifier).update((s) => s.copyWith(flagsOff: {'card_guard', 'truly_free', 'what_if'}));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Cards before payday'), findsNothing);
     expect(find.textContaining('every card balance'), findsNothing);
-    expect(find.text('What if…'), findsNothing);
+    expect(find.text('What if I spend…'), findsNothing);
   });
 
   testWidgets('Card screen: statement cycle follows its flag', (tester) async {

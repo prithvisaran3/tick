@@ -15,7 +15,7 @@ import 'payday_editor.dart';
 
 const introScenes = <(String, String, String)>[
   ('Every purchase. One number.', 'Tick reads your accounts and resolves them into what matters.', 'stream'),
-  ('Safe to spend.', 'What is really yours until payday, after bills and cards.', 'count'),
+  ('Your balance, across every account.', 'And what\'s safe to spend until payday, after bills and cards.', 'count'),
   ('Payday, always in view.', 'Every number knows when the next one lands.', 'flip'),
   ('Split it in seconds.', 'Shared costs go to the right people, and Tick spots when they pay you back.', 'split'),
   ('Ask, and get the number.', 'Plain questions, exact answers from your own data.', 'type'),
@@ -149,10 +149,14 @@ class _Count extends StatelessWidget {
   final double t;
   @override
   Widget build(BuildContext context) {
-    final count = (t / 0.6).clamp(0.0, 1.0);
-    final v = (214 * (1 - math.pow(1 - count, 3))).round();
-    final line = _spring((t - 0.6) / 0.3);
+    // First the balance across every account counts up, then it settles into what's safe until payday.
+    final first = t < 0.5;
+    final k = first ? (t / 0.4).clamp(0.0, 1.0) : ((t - 0.5) / 0.25).clamp(0.0, 1.0);
+    final ease = 1 - math.pow(1 - k, 3);
+    final v = first ? (1840 * ease).round() : (1840 - (1840 - 214) * ease).round();
+    final line = _spring((t - 0.75) / 0.2);
     return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(first ? 'Across every account' : 'Safe until payday', style: tickTextStyle(TickType.body, TickPalette.mist)),
       FittedBox(child: Text('\$$v', style: tickTextStyle(TickType.heroXL, TickPalette.paper, size: 96))),
       const SizedBox(height: 8),
       Container(width: 200 * line.clamp(0.0, 1.1), height: 8, decoration: BoxDecoration(color: TickPalette.volt, borderRadius: BorderRadius.circular(TickRadius.pill))),

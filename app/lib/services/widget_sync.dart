@@ -10,14 +10,15 @@ import '../domain/dates.dart';
 const appGroupId = 'group.com.prithvi.tick';
 
 /// Snapshot JSON read by the WidgetKit extension. Pure builder + thin writer.
-Map<String, dynamic> buildWidgetSnapshot({required SafeToSpend? sts, required List<Txn> txns, required List<Recurring> recurring, required DateTime now}) {
+Map<String, dynamic> buildWidgetSnapshot({required SafeToSpend? sts, int? cashCents, required List<Txn> txns, required List<Recurring> recurring, required DateTime now}) {
   final today = dayOnly(now);
   final spent = txns.where((t) => t.amountCents < 0 && dayOnly(t.occurredAt) == today).fold<int>(0, (s, t) => s - t.amountCents);
   final upcoming = recurring.where((r) => !r.nextDate.isBefore(today)).toList()..sort((a, b) => a.nextDate.compareTo(b.nextDate));
   final bill = upcoming.isEmpty ? null : upcoming.first;
   final diff = bill == null ? 0 : daysBetween(today, dayOnly(bill.nextDate));
   return {
-    'safeCents': sts?.cents ?? 0,
+    'cashCents': cashCents ?? sts?.cashCents ?? 0,     // the headline, as on Home
+    'safeCents': sts?.cents ?? 0,                       // the second line
     'until': sts == null ? 'payday' : DateFormat('EEEE').format(sts.nextPayday),
     'spentTodayCents': spent,
     'nextBillName': bill?.merchant,

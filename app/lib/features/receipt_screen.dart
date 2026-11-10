@@ -15,6 +15,7 @@ import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../domain/balances.dart';
 import '../domain/money.dart';
 import '../domain/receipt.dart';
 import '../services/api.dart';
@@ -140,6 +141,12 @@ class _ReceiptScreenState extends ConsumerState<ReceiptScreen> {
                         Flexible(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: Text(formatCents(r.totalCents), style: context.ts(TickType.hero, color: ink, size: 44)))),
                       ]),
                       const SizedBox(height: 8),
+                      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('Cash', style: context.ts(TickType.monoS, color: TickPalette.graphite)),
+                        const SizedBox(width: 8),
+                        Flexible(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: Text(formatCents(homeBalances(ref.watch(ledgerProvider).accounts).cashCents), style: context.ts(TickType.monoL, color: ink)))),
+                      ]),
+                      const SizedBox(height: 6),
                       Row(crossAxisAlignment: CrossAxisAlignment.center, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                         Flexible(child: Text('Safe to spend', style: context.ts(TickType.monoS, color: TickPalette.graphite))),
                         const SizedBox(width: 8),
