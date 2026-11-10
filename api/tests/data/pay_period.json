@@ -15,5 +15,5 @@
  {"name": "Labor Day Monday pays Friday", "rule": {"frequency": "semimonthly", "next_date": "2026-09-07", "days": [7, 22]}, "on": "2026-09-05", "prev": "2026-09-04", "next": "2026-09-22"},
  {"name": "A Sunday 2nd before a Saturday New Year: back past the Friday it's observed on", "rule": {"frequency": "semimonthly", "next_date": "2028-01-02", "days": [2, 17]}, "on": "2027-12-29", "prev": "2027-12-17", "next": "2027-12-30"},
  {"name": "July 4th on a Saturday is observed Friday the 3rd", "rule": {"frequency": "semimonthly", "next_date": "2026-07-03", "days": [3, 18]}, "on": "2026-06-30", "prev": "2026-06-18", "next": "2026-07-02"},
- {"name": "A Saturday 15th pays Friday the 14th", "rule": {"frequency": "semimonthly", "next_date": "2026-11-14", "days": [15, 30]}, "on": "2026-08-10", "prev": "2026-07-31", "next": "2026-08-14"}
+ {"name": "A Saturday 15th pays Friday the 14th", "rule": {"frequency": "semimonthly", "next_date": "2026-11-14", "days": [15, 30]}, "on": "2026-08-10", "prev": "2026-07-30", "next": "2026-08-14"}
 ]
