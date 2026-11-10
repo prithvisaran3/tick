@@ -29,9 +29,16 @@ begin
   select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-09-07", "days": [7, 22]}'::jsonb, '2026-09-05');
   if r.prev_payday is distinct from '2026-09-04'::date or r.next_payday is distinct from '2026-09-22'::date then fails := fails || format('Labor Day Monday pays Friday: %s %s; ', r.prev_payday, r.next_payday); end if;
   select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2028-01-02", "days": [2, 17]}'::jsonb, '2027-12-29');
-  if r.prev_payday is distinct from '2027-12-17'::date or r.next_payday is distinct from '2027-12-31'::date then fails := fails || format('Sunday New Year observed Monday: %s %s; ', r.prev_payday, r.next_payday); end if;
+  if r.prev_payday is distinct from '2027-12-17'::date or r.next_payday is distinct from '2027-12-30'::date then fails := fails || format('Sunday New Year observed Monday: %s %s; ', r.prev_payday, r.next_payday); end if;
   select * into r from public.pay_dates('{"frequency":"weekly","next_date":"2026-11-13"}'::jsonb, '2026-10-20');
   if r.next_payday <> '2026-11-13' then fails := fails || 'far-off anchor; '; end if;
+  select * into r from public.pay_dates('{"frequency":"semimonthly","next_date":"2026-07-03","days":[3,18]}'::jsonb, '2026-06-30');
+  if r.next_payday <> '2026-07-02' then fails := fails || format('July 4th observed %s; ', r.next_payday); end if;
+  if not public.is_bank_holiday('2026-07-03') or public.is_bank_holiday('2026-07-02') then fails := fails || 'observed holiday; '; end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-07-03", "days": [3, 18]}'::jsonb, '2026-06-30');
+  if r.prev_payday is distinct from '2026-06-18'::date or r.next_payday is distinct from '2026-07-02'::date then fails := fails || format('July 4th on a Saturday is observed Friday the 3rd: %s %s; ', r.prev_payday, r.next_payday); end if;
+  select * into r from public.pay_dates('{"frequency": "semimonthly", "next_date": "2026-11-14", "days": [15, 30]}'::jsonb, '2026-08-10');
+  if r.prev_payday is distinct from '2026-07-30'::date or r.next_payday is distinct from '2026-08-14'::date then fails := fails || format('A Saturday 15th pays Friday the 14th: %s %s; ', r.prev_payday, r.next_payday); end if;
   -- pay_period reads the owner's rule; another user sees nothing of it
   insert into auth.users (id, aud, role, email) values (u, 'authenticated', 'authenticated', 'p@test.local'), (s, 'authenticated', 'authenticated', 's@test.local');
   insert into public.settings (user_id, payday_rule) values (u, '{"frequency":"biweekly","next_date":"2026-11-13"}') on conflict (user_id) do update set payday_rule = excluded.payday_rule;

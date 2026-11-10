@@ -27,7 +27,7 @@
     "swipe_reveal": {"spring": "sheet", "thresholdRatio": 0.4},
     "splash": {"spring": "pop", "totalMs": 1200, "drawMs": 620, "fadeMs": 220},
     "cinematic": {"sceneMs": 5400},
-    "avatar": {"idleMs": 4200, "winkMs": 380},
+    "avatar": {"idleMs": 4200, "winkMs": 380, "tiltMaxDeg": 3, "bobPx": 1.2, "parallaxPx": 3, "reactMs": 900},
     "card_tilt": {"spring": "standard", "maxDeg": 3},
     "keypad_digit": {"spring": "pop", "fromOffsetY": 0.5, "durationMs": 220}
   },

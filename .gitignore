@@ -21,3 +21,4 @@ supabase/.temp/
 .railway/
 app/ios/Flutter/Local.xcconfig
 app/test/failures/
+imports/

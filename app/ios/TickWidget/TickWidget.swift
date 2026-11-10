@@ -8,6 +8,7 @@ import WidgetKit
 private let appGroup = "group.com.prithvi.tick"
 
 struct TickSnapshot: Codable {
+  var cashCents: Int = 0
   var safeCents: Int = 0
   var until: String = "payday"
   var spentTodayCents: Int = 0
@@ -31,7 +32,7 @@ struct Entry: TimelineEntry {
 
 struct Provider: TimelineProvider {
   func placeholder(in context: Context) -> Entry {
-    Entry(date: .now, snap: TickSnapshot(safeCents: 21400, until: "Friday", spentTodayCents: 2415, nextBillName: "Internet", nextBillCents: 6400, nextBillDay: "tomorrow", hasData: true))
+    Entry(date: .now, snap: TickSnapshot(cashCents: 154645, safeCents: 21400, until: "Friday", spentTodayCents: 2415, nextBillName: "Internet", nextBillCents: 6400, nextBillDay: "tomorrow", hasData: true))
   }
   func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) { completion(Entry(date: .now, snap: TickSnapshot.load())) }
   func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
@@ -72,10 +73,10 @@ struct SmallView: View {
   let snap: TickSnapshot
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text("Safe to spend").font(.system(size: 12, weight: .bold)).foregroundColor(.mist)
+      Text("Cash").font(.system(size: 12, weight: .bold)).foregroundColor(.mist)
       if snap.hasData {
-        StickerAmount(cents: snap.safeCents, size: 30)
-        Text("until \(snap.until)").font(.system(size: 12, weight: .medium)).foregroundColor(.paper)
+        StickerAmount(cents: snap.cashCents, size: 30)
+        Text("\(dollars(snap.safeCents)) safe until \(snap.until)").font(.system(size: 12, weight: .medium)).foregroundColor(.paper).lineLimit(1)
       } else {
         Text("Open Tick").font(.system(size: 16, weight: .bold)).foregroundColor(.paper)
       }

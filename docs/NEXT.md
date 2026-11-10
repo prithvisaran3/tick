@@ -1,5 +1,12 @@
 # NEXT: resume here
 
+## UX v4 (`feat/ux-v4`, 2026-11-09): local commits only, not pushed or deployed
+Phases 1–5 and 8–11 are done (see docs/UX_V4.md). Phases 6 and 7 (Apple Pay "Was this for Tally?", Apple Card online capture) were skipped
+on request; nothing was built for them. New migrations: `20261119000001_profile`, `20261120000001_pay_statements`,
+`20261121000001_splitwise_tags`, `20261122000001_ask_reflection`. New pod: `sensors_plus` (avatar tilt), so let Xcode re-run `pod install`.
+Deploy order: `supabase db push --remote`, `python3 tools/run_rls_tests.py`, `cd api && railway up --service tick-api --ci`, then the release
+run on the iPhone (DEVELOPMENT_TEAM grep count in project.pbxproj must be 3).
+
 _Updated by the cards, ideas and security branch (`feat/cards-ideas-security`, 2026-11-06)._
 Fresh session? Read CLAUDE.md, this file, docs/DECISIONS.md, docs/SECURITY.md and docs/IDEAS.md.
 

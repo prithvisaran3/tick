@@ -108,6 +108,49 @@ def accept(body: AcceptBody, user_id: str = Depends(current_user)):
     rest().insert("category_rules", {**row, "category_id": _cat(user_id, "Rent" if body.kind == "rent" else "Other")}, returning=False)
     return {"applied": apply(user_id)}
 
+class RuleEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount_cents: int = Field(gt=0, lt=100_000_000)
+
+def _own(user_id: str, rule_id: str) -> dict:
+    if not UUID.fullmatch(rule_id):
+        raise HTTPException(404, "not found")
+    rows = rest().select("category_rules", id=f"eq.{rule_id}", user_id=f"eq.{user_id}")
+    if not rows:
+        raise HTTPException(404, "not found")
+    return rows[0]
+
+@router.post("/rules/{rule_id}/amount")
+def edit_rule(rule_id: str, body: RuleEdit, user_id: str = Depends(current_user)):
+    """Profile > Category rules: about how much. Re-applies, so rows move in or out of the rule at once."""
+    user_limiter.check(f"rules-w:{user_id}", 30, 60)
+    _own(user_id, rule_id)
+    rest().update("category_rules", {"id": rule_id, "user_id": user_id}, {"amount_cents": body.amount_cents})
+    return {"applied": apply(user_id)}
+
+@router.post("/rules/{rule_id}/delete")
+def delete_rule(rule_id: str, user_id: str = Depends(current_user)):
+    """Returns the rule so Undo can put it back exactly."""
+    user_limiter.check(f"rules-w:{user_id}", 30, 60)
+    row = _own(user_id, rule_id)
+    rest().delete("category_rules", {"id": rule_id, "user_id": user_id})
+    apply(user_id)
+    return {"rule": row}
+
+class RestoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule: dict
+
+@router.post("/rules/restore")
+def restore_rule(body: RestoreBody, user_id: str = Depends(current_user)):
+    user_limiter.check(f"rules-w:{user_id}", 30, 60)
+    keep = {"person_key", "aliases", "display_name", "amount_cents", "band_pct", "day_of_month", "day_window", "keywords", "category_id", "priority", "ignored", "source"}
+    row = {k: v for k, v in body.rule.items() if k in keep}
+    if not row.get("person_key") or (row.get("category_id") and not rest().select("categories", id=f"eq.{row['category_id']}", user_id=f"eq.{user_id}", select="id")):
+        raise HTTPException(422, "Check the details and try again.")
+    rest().insert("category_rules", {**row, "user_id": user_id}, returning=False)
+    return {"applied": apply(user_id)}
+
 class FromTxnBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     txn_id: str

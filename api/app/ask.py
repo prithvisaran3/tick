@@ -2,6 +2,7 @@
 the tool list, never transaction text or results, so nothing in a bank line can steer them. Sentences come from templates."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -44,7 +45,13 @@ def load_ledger(user_id: str) -> B.Ledger:
     cats = {c["name"]: c["id"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
     bal, names = _tally(user_id)
     names += [r.get("display_name") or r["person_key"] for r in rest().select("category_rules", user_id=f"eq.{user_id}", select="person_key,display_name")]
-    return B.Ledger(txns, today, rec, acc, goals, per, prev, 0, bal, sorted(set(names)), cats)
+    stubs = rest().select("pay_statements", user_id=f"eq.{user_id}", select="id,pay_date,gross_cents,net_cents,taxes_cents,deductions_cents", order="pay_date.desc", limit="60")
+    lines: dict = {}
+    if stubs:
+        for x in rest().select("pay_statement_lines", user_id=f"eq.{user_id}", select="statement_id,kind,label,cents"):
+            lines.setdefault(x["statement_id"], []).append(x)
+    paystubs = [{"pay_date": date.fromisoformat(p["pay_date"]), "gross": p["gross_cents"], "net": p["net_cents"], "taxes": p["taxes_cents"], "deductions": p["deductions_cents"], "lines": lines.get(p["id"], [])} for p in stubs]
+    return B.Ledger(txns, today, rec, acc, goals, per, prev, 0, bal, sorted(set(names)), cats, paystubs)
 
 def _tally(user_id: str) -> tuple[list[dict], list[str]]:
     """What each person and I owe each other, from the same simplified moves the app shows."""
@@ -181,6 +188,31 @@ def feedback(body: FeedbackBody, user_id: str = Depends(current_user)):
         rest().insert("ask_memory", {"user_id": user_id, "kind": "alias", "key": body.term.lower().strip(), "value": v}, upsert_on="user_id,kind,key")
     return {"saved": True}
 
+class MemoryKey(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=60)
+
+@router.post("/ask/memory/delete")
+def forget(body: MemoryKey, user_id: str = Depends(current_user)):
+    """Profile > What Ask Tick learned: forget one word. Returns it, for Undo."""
+    rows = rest().select("ask_memory", user_id=f"eq.{user_id}", kind="eq.alias", key=f"eq.{body.key}", select="kind,key,value")
+    if not rows:
+        raise HTTPException(404, "not found")
+    rest().delete("ask_memory", {"user_id": user_id, "kind": "alias", "key": body.key})
+    return {"row": rows[0]}
+
+class MemoryRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row: dict
+
+@router.post("/ask/memory/restore")
+def remember(body: MemoryRow, user_id: str = Depends(current_user)):
+    r = body.row
+    if r.get("kind") != "alias" or not isinstance(r.get("key"), str) or not isinstance(r.get("value"), dict):
+        raise HTTPException(422, "Check the details and try again.")
+    rest().insert("ask_memory", {"user_id": user_id, "kind": "alias", "key": r["key"][:60], "value": r["value"]}, upsert_on="user_id,kind,key")
+    return {"saved": True}
+
 @router.get("/ask/stats")
 def stats(user_id: str = Depends(current_user)):
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
@@ -229,9 +261,94 @@ def nightly(user_id: str) -> int:
             n += 1
     return n
 
+# ---------- reflection: the week's thumbs-down, grouped into proposals ----------
+
+REFLECT_DAYS = 7
+
+def _proposal_key(shape: str, tool: str, params: dict) -> str:
+    return "p:" + hashlib.sha256(json.dumps([shape, tool, params], sort_keys=True).encode()).hexdigest()[:16]
+
+def _label(tool: str, params: dict) -> str:
+    bits = [B.TOOL_LABELS.get(tool, tool.replace("_", " "))]
+    if params.get("range_phrase"):
+        bits.append(f"for {params['range_phrase']}")
+    return " ".join(bits)
+
+def propose(rows: list[dict], existing: dict[str, dict], rules: set[str]) -> list[dict]:
+    """Groups thumbs-down answers that came with a correction by question shape and corrected tool. Unrated or uncorrected ones say nothing
+    about what the right answer was, so they make no proposal. A shape that's already a rule, or a proposal I approved or dismissed, isn't proposed again."""
+    groups: dict[str, dict] = {}
+    for r in rows:
+        c = r.get("correction") or {}
+        tool = c.get("tool")
+        if r.get("rating") != -1 or not tool or tool not in B.TOOL_NAMES or not r.get("normalised"):
+            continue
+        params = {k: v for k, v in (c.get("params") or {}).items() if k == "range_phrase"}
+        key = _proposal_key(r["normalised"], tool, params)
+        g = groups.setdefault(key, {"key": key, "shape": r["normalised"], "tool": tool, "params": params, "questions": [], "log_ids": [], "count": 0, "label": _label(tool, params)})
+        g["count"] += 1
+        g["log_ids"].append(r["id"])
+        if r["question"] not in g["questions"] and len(g["questions"]) < 5:
+            g["questions"].append(r["question"])
+    out = []
+    for k, g in groups.items():
+        old = existing.get(k)
+        if g["shape"] in rules or (old and old.get("status") in ("approved", "dismissed")):
+            continue
+        out.append({**g, "status": "open"})
+    return sorted(out, key=lambda g: (-g["count"], g["key"]))
+
+def reflect(user_id: str, now: datetime | None = None) -> int:
+    since = ((now or datetime.now(timezone.utc)) - timedelta(days=REFLECT_DAYS)).isoformat()
+    rows = rest().select("ask_log", user_id=f"eq.{user_id}", rating="eq.-1", created_at=f"gte.{since}", select="id,question,normalised,tool,params,rating,correction", limit="500")
+    mem = rest().select("ask_memory", user_id=f"eq.{user_id}", kind="in.(proposal,rule)", select="kind,key,value")
+    existing = {m["key"]: m["value"] for m in mem if m["kind"] == "proposal"}
+    rules = {m["key"] for m in mem if m["kind"] == "rule"}
+    props = propose(rows, existing, rules)
+    for p in props:
+        rest().insert("ask_memory", {"user_id": user_id, "kind": "proposal", "key": p["key"], "value": {k: v for k, v in p.items() if k != "key"}}, upsert_on="user_id,kind,key")
+    return len(props)
+
 @router.post("/jobs/ask-nightly", dependencies=[Depends(require_cron)])
 def nightly_job():
-    n = 0
+    n = p = 0
     for u in {r["user_id"] for r in rest().select("ask_log", rating="eq.1", select="user_id", limit="5000")}:
         n += nightly(u)
-    return {"promoted": n}
+    since = (datetime.now(timezone.utc) - timedelta(days=REFLECT_DAYS)).isoformat()
+    for u in {r["user_id"] for r in rest().select("ask_log", rating="eq.-1", created_at=f"gte.{since}", select="user_id", limit="5000")}:
+        p += reflect(u)
+    return {"promoted": n, "proposed": p}
+
+def _open(user_id: str, key: str) -> dict:
+    if not re.fullmatch(r"p:[0-9a-f]{16}", key):
+        raise HTTPException(404, "not found")
+    rows = rest().select("ask_memory", user_id=f"eq.{user_id}", kind="eq.proposal", key=f"eq.{key}", select="key,value")
+    if not rows or rows[0]["value"].get("status") != "open":
+        raise HTTPException(404, "not found")
+    return rows[0]["value"]
+
+@router.get("/ask/proposals")
+def proposals(user_id: str = Depends(current_user)):
+    user_limiter.check(f"ask-prop:{user_id}", 30, 60)
+    rows = rest().select("ask_memory", user_id=f"eq.{user_id}", kind="eq.proposal", select="key,value")
+    open_ = [{"key": r["key"], **{k: r["value"].get(k) for k in ("label", "tool", "questions", "count", "shape")}} for r in rows if r["value"].get("status") == "open"]
+    return {"proposals": sorted(open_, key=lambda p: (-(p["count"] or 0), p["key"]))}
+
+@router.post("/ask/proposals/{key}/approve")
+def approve(key: str, user_id: str = Depends(current_user)):
+    """Approve: the shape becomes a rule Ask Tick follows, and its questions join the eval (kind 'eval'; tools/export_ask_eval.py writes them out)."""
+    user_limiter.check(f"ask-prop-w:{user_id}", 30, 60)
+    p = _open(user_id, key)
+    rest().insert("ask_memory", {"user_id": user_id, "kind": "rule", "key": p["shape"], "value": {"tool": p["tool"], "params": p.get("params") or {}, "source": "reflection"}}, upsert_on="user_id,kind,key")
+    for q in p.get("questions") or []:
+        rest().insert("ask_memory", {"user_id": user_id, "kind": "eval", "key": hashlib.sha256(q.lower().encode()).hexdigest()[:16],
+                                     "value": {"question": q, "tool": p["tool"], "params": p.get("params") or {}}}, upsert_on="user_id,kind,key")
+    rest().update("ask_memory", {"user_id": user_id, "kind": "proposal", "key": key}, {"value": {**p, "status": "approved"}})
+    return {"approved": True}
+
+@router.post("/ask/proposals/{key}/dismiss")
+def dismiss(key: str, user_id: str = Depends(current_user)):
+    user_limiter.check(f"ask-prop-w:{user_id}", 30, 60)
+    p = _open(user_id, key)
+    rest().update("ask_memory", {"user_id": user_id, "kind": "proposal", "key": key}, {"value": {**p, "status": "dismissed"}})
+    return {"dismissed": True}

@@ -21,7 +21,6 @@ import '../services/api.dart';
 import '../services/auth.dart';
 import '../services/session.dart';
 import '../services/haptics.dart';
-import 'tally_people.dart';
 
 enum SettingsPage { root, appearance, data, labs, about }
 
@@ -34,7 +33,6 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsProvider);
     final n = ref.read(settingsProvider.notifier);
-    final l = ref.watch(ledgerProvider);
     final c = context.c;
     Widget chevron() => TickIcon('chevron-right', size: 20, color: c.textSecondary);
     Widget row(String icon, String title, Widget right, {VoidCallback? onTap, String? sub}) => Pressable(
@@ -64,7 +62,6 @@ class SettingsScreen extends ConsumerWidget {
             ]),
             if (Env.hasSupabase && !signedIn) ...[const SizedBox(height: 12), PillButton('Sign in with Google', height: 48, onTap: () => _signIn(context, ref))],
           ])),
-          if (signedIn) ...[const SectionLabel('Finding you on Tick'), const HandleSettings()],
           const SectionLabel('Security'),
           group([
             row('lock', 'Face ID lock', TickToggle(label: 'Face ID lock', on: s.faceIdLock, onChanged: (v) async {
@@ -76,17 +73,9 @@ class SettingsScreen extends ConsumerWidget {
           ]),
           if (s.faceIdLock) Padding(padding: const EdgeInsets.only(top: 8), child: Segmented(options: const ['Always', '1 min', '5 min', '15 min'], index: const [0, 60, 300, 900].indexOf(s.lockAfterSeconds).clamp(0, 3),
               onChanged: (i) => n.update((x) => x.copyWith(lockAfterSeconds: const [0, 60, 300, 900][i])))),
-          const SectionLabel('Banks and cards'),
-          group([
-            row('bank', 'Bank connections', val(l.connections.isEmpty ? 'None' : '${l.connections.length} linked'), onTap: () => context.push('/banks')),
-            row('receipt', 'Capture token and Shortcuts', chevron(), onTap: () => _tokenSheet(context, ref)),
-            row('import', 'Import statements', chevron(), onTap: () => context.push('/import')),
-          ]),
           const SectionLabel('More'),
           group([
-            row('heart-check', 'Your avatar', chevron(), onTap: () => context.push('/avatar')),
             row('ask', 'Ask Tick', chevron(), onTap: () => context.push('/settings/ask')),
-            row('calendar', 'Payday', chevron(), onTap: () => context.push('/settings/payday')),
             row('sliders', 'Appearance and feel', val('${s.theme[0].toUpperCase()}${s.theme.substring(1)}'), onTap: () => context.push('/settings/appearance')),
             row('goal', 'Data', chevron(), onTap: () => context.push('/settings/data')),
             row('heart-check', 'Labs', val('${featureFlags.where((f) => s.flag(f.$1)).length} on'), onTap: () => context.push('/settings/labs')),
@@ -167,25 +156,8 @@ class SettingsScreen extends ConsumerWidget {
 
   static String _lockLabel(int s) => s == 0 ? 'every time' : s < 120 ? '${s ~/ 60} min' : '${s ~/ 60} min';
 
-  Future<void> _signIn(BuildContext context, WidgetRef ref) async {
-    String? message;
-    try {
-      await ref.read(authServiceProvider).signInWithGoogle();
-      final name = ref.read(authServiceProvider).displayName;
-      ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
-    } on AuthFailure catch (f) {
-      message = f.message;
-    } catch (_) {
-      message = const AuthFailure(AuthFailureKind.failed).message;
-    }
-    if (message != null && context.mounted) {
-      await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Sign-in', style: ctx.ts(TickType.displayM)), const SizedBox(height: 8),
-        Text(message!, style: ctx.ts(TickType.body, color: ctx.c.textSecondary)), const SizedBox(height: 16),
-        ActionButton('Try again', onPressed: () async { Navigator.of(ctx).pop(); await _signIn(context, ref); }),
-      ]));
-    }
-  }
+  Future<void> _signIn(BuildContext context, WidgetRef ref) => signInWithGoogle(context, ref);
+
 
   Future<void> _aiSheet(BuildContext context, WidgetRef ref) {
     final a = ref.read(aiStatusProvider).asData?.value ?? AiStatus.off();
@@ -265,10 +237,30 @@ class SettingsScreen extends ConsumerWidget {
     if (context.mounted) context.go('/onboarding');
   }
 
-  Future<void> _tokenSheet(BuildContext context, WidgetRef ref) {
-    return showTickSheet<void>(context, builder: (ctx) => _TokenSheet(ref: ref));
+}
+
+/// Google sign-in, with a calm explanation when it doesn't work. Used by Profile and Settings.
+Future<void> signInWithGoogle(BuildContext context, WidgetRef ref) async {
+  String? message;
+  try {
+    await ref.read(authServiceProvider).signInWithGoogle();
+    final name = ref.read(authServiceProvider).displayName;
+    ref.read(settingsProvider.notifier).update((s) => s.copyWith(name: name));
+  } on AuthFailure catch (f) {
+    message = f.message;
+  } catch (_) {
+    message = const AuthFailure(AuthFailureKind.failed).message;
+  }
+  if (message != null && context.mounted) {
+    await showTickSheet<void>(context, builder: (ctx) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Sign-in', style: ctx.ts(TickType.displayM)), const SizedBox(height: 8),
+      Text(message!, style: ctx.ts(TickType.body, color: ctx.c.textSecondary)), const SizedBox(height: 16),
+      ActionButton('Try again', onPressed: () async { Navigator.of(ctx).pop(); await signInWithGoogle(context, ref); }),
+    ]));
   }
 }
+
+Future<void> showTokenSheet(BuildContext context, WidgetRef ref) => showTickSheet<void>(context, builder: (ctx) => _TokenSheet(ref: ref));
 
 class _TokenSheet extends StatefulWidget {
   const _TokenSheet({required this.ref});

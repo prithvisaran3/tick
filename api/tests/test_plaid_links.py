@@ -229,3 +229,17 @@ def test_new_google_account_tapping_link_gets_403_before_any_plaid_call_or_sessi
     assert r.status_code == 403 and r.json()["detail"] == "Bank linking is limited to 10 accounts right now."
     assert len(db.rows("plaid_link_sessions")) == before
     assert _as(OTHER, lambda c: c.get("/plaid/links")).json()["can_link"] is False
+
+def test_a_paycheck_that_varies_lands_when_the_deposit_names_the_employer(db):
+    from datetime import datetime as _dt, timezone as _tz
+    exp = [{"id": "e1", "amount_cents": 231000, "expected_date": "2026-11-13", "label": "Institute Payroll"}]
+    db.insert("expected", {"id": "e1", "user_id": U, "status": "expected", "amount_cents": 231000, "expected_date": "2026-11-13", "label": "Institute Payroll"})
+    P._landed_in(list(exp), U, "t1", 190000, _dt(2026, 11, 13, 13, tzinfo=_tz.utc), "INSTITUTE OF NUC PAYROLL")
+    assert db.rows("expected")[0]["status"] == "landed"
+
+def test_a_far_off_amount_from_someone_else_does_not_land(db):
+    from datetime import datetime as _dt, timezone as _tz
+    exp = [{"id": "e1", "amount_cents": 231000, "expected_date": "2026-11-13", "label": "Institute Payroll"}]
+    db.insert("expected", {"id": "e1", "user_id": U, "status": "expected", "amount_cents": 231000, "expected_date": "2026-11-13", "label": "Institute Payroll"})
+    P._landed_in(list(exp), U, "t1", 190000, _dt(2026, 11, 13, 13, tzinfo=_tz.utc), "VENMO CASHOUT")
+    assert db.rows("expected")[0]["status"] == "expected"

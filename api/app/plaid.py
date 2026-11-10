@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from datetime import date, datetime, timedelta, timezone
@@ -433,9 +434,16 @@ def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
         # the first payday on or after four days ago (a deposit can post late), and the first on or after today
         dates = {p["next_payday"] for p in (pay_period(user_id, today - timedelta(days=5)), pay_period(user_id, today - timedelta(days=1))) if p}
         have = {e["expected_date"] for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", select="expected_date")}
+        second = (rule or {}).get("second") or {}
+        if second.get("next_date") and int(second.get("amount_cents") or 0) > 0:           # a second income: its own dates from the same SQL
+            for d in (today - timedelta(days=5), today - timedelta(days=1)):
+                got = rest().rpc("pay_dates", {"p_rule": second, "p_date": d.isoformat()})
+                if got and got[0].get("next_payday") and got[0]["next_payday"] not in have and date.fromisoformat(got[0]["next_payday"]) <= today + timedelta(days=45):
+                    rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": (second.get("employer") or "Second income")[:60], "amount_cents": int(second["amount_cents"]), "expected_date": got[0]["next_payday"]}, returning=False)
+                    have.add(got[0]["next_payday"])
         for d in sorted(dates):
             if d.isoformat() not in have and d <= today + timedelta(days=45):
-                rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": "Paycheck", "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
+                rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": ((rule or {}).get("employer") or "Paycheck")[:60], "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
     except Exception:
         pass                                                   # a sync must never fail because of the paycheck helper
 
@@ -460,14 +468,19 @@ def _is_income_deposit(cand, accts: dict[str, dict]) -> bool:
     acct = next((a for a in accts.values() if a.get("id") == getattr(cand, "account_id", None)), None)
     return not (acct and acct.get("type") in ("credit", "loan"))
 
-def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime) -> None:
+def _employer_named(label: str | None, text: str) -> bool:
+    words = [w for w in re.findall(r"[a-z]{3,}", (label or "").lower()) if w not in ("paycheck", "payroll", "second", "income")]
+    return bool(words) and all(w in (text or "").lower() for w in words[:3])
+
+def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime, text: str = "") -> None:
     """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit)."""
     if cents <= 0:
         return
     best = None
     for e in expected:
         days = abs((datetime.fromisoformat(e["expected_date"]).date() - when.date()).days)
-        if days <= 4 and abs(e["amount_cents"] - cents) <= max(500, e["amount_cents"] * 0.1) and (best is None or days < best[0]):
+        named = _employer_named(e.get("label"), text)          # the deposit names who pays me: a paycheck that varies still lands
+        if days <= 4 and (named or abs(e["amount_cents"] - cents) <= max(500, e["amount_cents"] * 0.1)) and (best is None or days < best[0]):
             best = (days, e)
     if best:
         expected.remove(best[1])
@@ -581,7 +594,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
     ensure_expected_paycheck(user_id)
-    expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date")
+    expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date,label")
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
@@ -635,7 +648,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
                 for cand, _ in cands:
                     row = next((t for t in txns if getattr(t, "plaid_transaction_id", None) == cand.plaid_transaction_id), None)
                     if row is not None and cand.amount_cents > 0 and _is_income_deposit(cand, accts):
-                        _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at)
+                        _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at, getattr(cand, "merchant_raw", "") or "")
             rem = [r["transaction_id"] for r in page.get("removed", [])]
             if rem:
                 gone = store.by_plaid_ids(user_id, rem)

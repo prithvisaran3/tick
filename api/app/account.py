@@ -23,7 +23,7 @@ log = logging.getLogger("tick.account")
 
 # Rows that belong to the user and go away on "Delete all my data". plaid_items (the lifetime slot counter) and audit_log stay:
 # neither holds financial data, and removing an Item never returns its slot anyway.
-USER_TABLES = ["ask_log", "ask_memory", "splitwise_events", "category_rules", "messages", "chats", "insights", "expected", "recurring", "ingest_logs", "transactions", "rules", "budgets", "goals", "tally_groups", "people",
+USER_TABLES = ["pay_statement_lines", "pay_statements", "ask_log", "ask_memory", "splitwise_events", "category_rules", "messages", "chats", "insights", "expected", "recurring", "ingest_logs", "transactions", "rules", "budgets", "goals", "tally_groups", "people",
                "snapshots", "ai_usage", "paydays", "accounts", "connections", "plaid_link_sessions", "ingest_tokens", "categories", "plaid_slots"]
 
 def mint_token() -> str:

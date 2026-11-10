@@ -154,8 +154,23 @@ class _HandleSheetState extends ConsumerState<_HandleSheet> {
   final _h = TextEditingController();
   bool _busy = false, _seeded = false;
   String? _error;
+  String? _check;          // "Available" / "Taken", as you type
+  Timer? _debounce;
   @override
-  void dispose() { _h.dispose(); super.dispose(); }
+  void dispose() { _debounce?.cancel(); _h.dispose(); super.dispose(); }
+
+  void _typed(String v) {
+    setState(() => _check = null);
+    _debounce?.cancel();
+    final h = v.trim().replaceFirst('@', '').toLowerCase();
+    if (!RegExp(r'^[a-z0-9_]{3,20}$').hasMatch(h)) { if (h.isNotEmpty) setState(() => _check = 'Use 3 to 20 letters, numbers or underscores.'); return; }
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      try {
+        final j = await ref.read(apiProvider).get('/people/handle/check?h=${Uri.encodeQueryComponent(h)}');
+        if (mounted && _h.text.trim().replaceFirst('@', '').toLowerCase() == h) setState(() => _check = j['available'] == true ? 'Available' : 'That handle is taken.');
+      } catch (_) {/* the save still checks */}
+    });
+  }
   Future<void> _save() async {
     setState(() { _busy = true; _error = null; });
     try {
@@ -176,10 +191,11 @@ class _HandleSheetState extends ConsumerState<_HandleSheet> {
       const SizedBox(height: 4),
       Text('Friends use it to add you to a tally. Nobody can browse who is on Tick.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       const SizedBox(height: 12),
-      TallyField(controller: _h, hint: 'your_handle', label: 'Handle', onChanged: (_) => setState(() {})),
+      TallyField(controller: _h, hint: 'your_handle', label: 'Handle', onChanged: _typed),
+      if (_check != null) Padding(padding: const EdgeInsets.only(top: 6), child: Semantics(liveRegion: true, child: Text(_check!, style: context.ts(TickType.bodyS, color: _check == 'Available' ? c.textSecondary : c.alert)))),
       if (_error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_error!, style: context.ts(TickType.bodyS, color: c.alert))),
       const SizedBox(height: 12),
-      PillButton('Save', busy: _busy, onTap: _h.text.trim().length < 3 ? null : _save),
+      PillButton('Save', busy: _busy, onTap: _h.text.trim().length < 3 || (_check != null && _check != 'Available') ? null : _save),
       const SizedBox(height: 6),
       PillButton('Not now', style: PillStyle.quiet, onTap: () => Navigator.of(context).pop()),
     ]);

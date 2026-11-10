@@ -55,3 +55,10 @@ def test_handle_rules(api, h, code):
     assert c.post("/people/handle", json={"handle": h}).status_code == code
     if code == 200:
         assert f.rows("profiles")[0]["handle"] == "new_one"
+
+def test_handle_check_as_you_type(api):
+    f, c = api
+    assert c.get("/people/handle/check", params={"h": "asha"}).json() == {"available": False}
+    assert c.get("/people/handle/check", params={"h": "@Free_One"}).json() == {"available": True}
+    assert c.get("/people/handle/check", params={"h": "ab"}).json() == {"available": False}
+    assert c.get("/people/handle/check", params={"h": "admin"}).json() == {"available": False}

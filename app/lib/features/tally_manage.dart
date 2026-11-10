@@ -26,7 +26,7 @@ import 'tally_people.dart';
 import 'tally_square.dart';
 
 /// Five seconds to take it back, in a bar above the tab bar. Lives in the overlay so it outlasts the sheet or screen that closed.
-void showUndo(OverlayState overlay, String text, Future<void> Function() onUndo) {
+void showUndo(OverlayState overlay, String text, Future<void> Function() onUndo, {String? action = 'Undo'}) {
   late OverlayEntry entry;
   Timer? timer;
   void close() { timer?.cancel(); if (entry.mounted) entry.remove(); }
@@ -37,7 +37,7 @@ void showUndo(OverlayState overlay, String text, Future<void> Function() onUndo)
       decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(TickRadius.card)),
       child: Row(children: [
         Expanded(child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: context.ts(TickType.body))),
-        PillButton('Undo', expand: false, height: 40, style: PillStyle.inverse, onTap: () { TickHaptics.instance.confirm(); close(); onUndo(); }),
+        if (action != null) PillButton(action, expand: false, height: 40, style: PillStyle.inverse, onTap: () { TickHaptics.instance.confirm(); close(); onUndo(); }),
       ]),
     ))));
   });

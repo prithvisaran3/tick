@@ -92,3 +92,5 @@ Format: date · decision · why.
 - **Goldens** at 320 and 430 pt (dark) for Today, Activity, Insights, Tally, Tally group, Settings, besides 393 dark+light for every screen.
 - **120 Hz**: Info.plist already has `CADisableMinimumFrameDurationOnPhone` (what ProMotion iPhones need for Flutter to exceed 60 Hz); nothing to add. Cannot be measured in the sandbox; on-device check listed in NEXT.md.
 - **Reduce Motion**: the square-up marks appear finished, page transitions fade (existing), springs unchanged otherwise. 5,000-row Activity scroll test (existing) still passes with no exceptions.
+- 2026-11-09 Review snoozes ("Not sure") are stored on the phone, not the server: nothing about an unsure answer leaves the device, so it can't train rules.
+  Cost: a reinstall forgets snoozes, so a question may come back early. The review queue pages with swipes but answers only with buttons.

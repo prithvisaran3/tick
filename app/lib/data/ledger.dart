@@ -300,6 +300,19 @@ class LedgerNotifier extends Notifier<LedgerState> {
     if (_live) { try { await ref.read(remoteProvider)!.recordPayday(total); } catch (_) {} }
   }
 
+  /// Which checking accounts count in Cash (Profile > Money setup).
+  Future<void> setIncludeInSafe(String id, bool v) async {
+    state = state.copyWith(accounts: [for (final a in state.accounts) a.id == id ? a.copyWith(includeInSafe: v) : a]);
+    if (_live && !id.startsWith('local-')) { try { await ref.read(remoteProvider)!.setIncludeInSafe(id, v); } catch (_) { state = state.copyWith(offline: true); } }
+  }
+
+  /// Edit a bill's amount or next date; [ended] marks it not recurring (and back).
+  Future<void> updateRecurring(Recurring r, {int? cents, DateTime? next, bool? ended}) async {
+    final edited = Recurring(id: r.id, merchant: r.merchant, cadence: r.cadence, expectedCents: cents ?? r.expectedCents, nextDate: next ?? r.nextDate, categoryId: r.categoryId, priceHistory: r.priceHistory);
+    state = state.copyWith(recurring: ended == true ? [for (final x in state.recurring) if (x.id != r.id) x] : ended == false && !state.recurring.any((x) => x.id == r.id) ? [...state.recurring, edited] : [for (final x in state.recurring) x.id == r.id ? edited : x]);
+    if (_live && !r.id.startsWith('local-')) { try { await ref.read(remoteProvider)!.updateRecurring(r.id, cents: cents, next: next, ended: ended); } catch (_) { state = state.copyWith(offline: true); } }
+  }
+
   Future<void> addRecurring(Recurring r) async {
     state = state.copyWith(recurring: [...state.recurring, r]);
     final remote = ref.read(remoteProvider);
