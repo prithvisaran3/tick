@@ -12,6 +12,7 @@ import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
 import '../design/widgets/scaffold.dart';
 import '../domain/merchant_name.dart';
+import '../domain/money.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
 import '../services/open_file.dart';
@@ -49,7 +50,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
 
   Future<void> _choose() async {
     try {
-      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['csv', 'ofx', 'qfx', 'qbo', 'txt']);
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['csv', 'ofx', 'qfx', 'qbo', 'pdf', 'txt']);
       if (files.isEmpty) return;
       final f = files.first.xFile;
       if (await f.length() > 5 * 1024 * 1024) { setState(() { _step = _Step.failed; _error = 'That file is too big for one statement.'; }); return; }
@@ -116,6 +117,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
           _Step.reading => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary)), const SizedBox(height: 16), const Skeleton(height: 96, radius: 24), const SizedBox(height: 12), const ListSkeleton(rows: 4)]),
           _Step.mapping => _Mapping(p: p!, map: _map, split: _splitCols, onSplit: (v) => setState(() => _splitCols = v), onChanged: () => setState(() {}),
               onContinue: () { _map = {..._map, 'header_row': p.mappingHeaderRow}; _analyse(mapping: _map); }),
+          _Step.preview || _Step.importing when p!.isPaystub => PaystubPreview(p: p, busy: _step == _Step.importing, onImport: _commit),
           _Step.preview || _Step.importing when p!.isSplitwise => _SplitwisePreview(p: p, me: _me ?? p.meGuess, busy: _step == _Step.importing, onMe: (m) => setState(() => _me = m), onImport: _commit),
           _Step.preview || _Step.importing => _Preview(p: p!, accountId: _accountId, busy: _step == _Step.importing, onAccount: (id) { setState(() => _accountId = id); _analyse(mapping: _p?.source == 'generic' ? _map : null); }, onImport: _commit),
           _Step.done => _Done(p: p!, error: _error, onUndo: _undo, onDone: () => context.pop()),
@@ -261,6 +263,37 @@ class _SplitwisePreview extends StatelessWidget {
       if (p.unreadable > 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('${p.unreadable} ${p.unreadable == 1 ? 'row' : 'rows'} couldn\'t be read and will be skipped.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 16),
       PillButton(p.fresh == 0 ? 'Nothing new to add' : 'Add to Tally', busy: busy, onTap: p.fresh == 0 || me == null ? null : onImport),
+    ]);
+  }
+}
+
+/// A pay statement before it's saved: the four numbers, and whether they add up.
+class PaystubPreview extends StatelessWidget {
+  const PaystubPreview({super.key, required this.p, required this.busy, required this.onImport});
+  final ImportPreview p;
+  final bool busy;
+  final VoidCallback onImport;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final j = p.paystub!;
+    int n(String k) => (j[k] as num).toInt();
+    Widget line(String l, int cents) => Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(children: [Expanded(child: Text(l, style: context.ts(TickType.body))), Text(formatCents(cents, sign: true), style: context.ts(TickType.mono))]));
+    final date = DateTime.parse(j['pay_date'] as String);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Pay statement · ${j['employer']}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+      Text('${formatCents(n('net_cents'))} net', style: context.ts(TickType.hero, size: 44)),
+      Text('Paid ${DateFormat('EEE, MMM d').format(date)}', style: context.ts(TickType.body, color: c.textSecondary)),
+      const SizedBox(height: 12),
+      TickCard(child: Column(children: [
+        line('Gross', n('gross_cents')), line('Taxes', -n('taxes_cents')), line('Deductions', -n('deductions_cents')), const Hairline(), line('Net', n('net_cents')),
+      ])),
+      if (j['adds_up'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text('These don\'t add up to the cent, so Tick will save it for you to check.', style: context.ts(TickType.bodyS, color: c.alert))),
+      if (p.already > 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Tick already has this one.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+      const SizedBox(height: 16),
+      PillButton(p.already > 0 ? 'Already imported' : 'Save pay statement', busy: busy, onTap: p.already > 0 ? null : onImport),
+      const SizedBox(height: 8),
+      Text('Tick keeps the numbers, not your name, address or ID. The PDF itself is only kept if you turn that on.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
     ]);
   }
 }

@@ -38,6 +38,7 @@ class Ledger:
     balances: list[dict] = field(default_factory=list)    # {name, group, cents} positive = they owe me
     people: list[str] = field(default_factory=list)       # names Tick knows: Tally people, rule names, aliases
     category_ids: dict[str, str] = field(default_factory=dict)
+    paystubs: list[dict] = field(default_factory=list)    # {pay_date, gross, net, taxes, deductions, lines: [{kind, label, cents}]}, newest first
 
 # ---------------- dates ----------------
 def _month_end(y: int, m: int) -> date:
@@ -319,10 +320,34 @@ class Tools:
         tail = f" until {pay:%A}" if pay else ""
         return Result(f"Yes. {money(s.amount)} leaves {money(left)} safe to spend{tail}." if left >= 0 else f"Not comfortably. {money(s.amount)} puts you {money(left)} past safe to spend{tail}.", {"cents": left})
 
-TOOL_NAMES = ["spend_summary", "category_breakdown", "top_merchants", "compare_periods", "balance_now", "upcoming_bills", "subscriptions", "safe_to_spend", "payday_info", "tally_balances", "find_transactions", "what_if", "biggest"]
+    def pay_statements(self, s: Slots, metric: str = "net") -> Result:
+        """From imported pay statements. "Last" questions read the newest; totals default to this year."""
+        ps = self.l.paystubs
+        if not ps:
+            return Result("No pay statements yet. Import one from myADP in Profile > Pay.", {})
+        if metric == "last":
+            p = ps[0]
+            return Result(f"{money(p['net'])} net on {p['pay_date']:%b} {p['pay_date'].day}, from {money(p['gross'])} gross.", {"cents": p["net"]})
+        r = s.range if s.range.explicit else Range(date(self.l.today.year, 1, 1), self.l.today, "this year")
+        rows = [p for p in ps if r.has(p["pay_date"])]
+        if metric == "tax":
+            v = sum(p["taxes"] for p in rows); word = "in tax"
+        elif metric == "401k":
+            v = sum(l["cents"] for p in rows for l in p["lines"] if l["kind"] == "deduction" and re.search(r"401|403|retire", l["label"], re.I)); word = "to your 401(k)"
+        elif metric == "gross":
+            v = sum(p["gross"] for p in rows); word = "gross"
+        else:
+            v = sum(p["net"] for p in rows); word = "net pay"
+        return Result(f"{money(v)} {word} {r.label}, from {len(rows)} pay {'statement' if len(rows) == 1 else 'statements'}.", {"cents": v, "count": len(rows)}, r)
+
+TOOL_NAMES = ["pay_statements", "spend_summary", "category_breakdown", "top_merchants", "compare_periods", "balance_now", "upcoming_bills", "subscriptions", "safe_to_spend", "payday_info", "tally_balances", "find_transactions", "what_if", "biggest"]
 
 # ---------------- rules ----------------
 INTENTS: list[tuple[str, str, dict]] = [
+    (r"\b(401 ?\(?k\)?|403 ?\(?b\)?|retirement contributions?)\b", "pay_statements", {"metric": "401k"}),
+    (r"\b(how much )?(tax|taxes)\b.*\b(paid|pay|withheld|taken)\b|\btax(es)? (have i|did i)\b|\bwithholding\b", "pay_statements", {"metric": "tax"}),
+    (r"\b(last|latest|most recent) (net )?(pay(?! ?period)|paycheck|pay ?stub|pay statement)\b|\blast net pay\b", "pay_statements", {"metric": "last"}),
+    (r"\bgross (pay|income|salary)\b", "pay_statements", {"metric": "gross"}),
     (r"\b(can i afford|what if|if i (spend|buy)|could i (buy|spend)|am i ok(ay)? to)\b", "what_if", {}),
     (r"\b(safe to spend|how much can i spend|what can i spend|spending money left|left to spend)\b", "safe_to_spend", {}),
     (r"^(?!.*\b(spent|spend|spending|sent|send|earn|earned|made)\b).*\b(pay ?day|paid next|get paid|next paycheck|pay ?period)\b", "payday_info", {}),
@@ -408,7 +433,7 @@ def run(tool: str, params: dict, s: Slots, l: Ledger) -> Result:
     t = Tools(l)
     if params.get("range_phrase"):                      # a correction said which period: still parsed fresh, never stored as dates
         s.range = parse_range(params["range_phrase"], l.today, l.period, l.prev_period)
-    return getattr(t, tool)(s, **{k: v for k, v in params.items() if k in ("kind", "days")})
+    return getattr(t, tool)(s, **{k: v for k, v in params.items() if k in ("kind", "days", "metric")})
 
 def apply_context(s: Slots, q: str, ctx: dict | None) -> Slots:
     """"and last month?": keep what the last answer was about, change what this question names."""

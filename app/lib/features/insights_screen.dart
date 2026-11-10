@@ -19,6 +19,7 @@ import '../domain/safe_to_spend.dart';
 import '../services/api.dart';
 import 'ask_button.dart';
 import 'common.dart';
+import 'pay_screens.dart';
 import 'safe_card.dart';
 
 /// Insights answers two questions: "Where is my money going?" and "Am I on track?". Everything here comes from the shared money rules:
@@ -36,6 +37,7 @@ class InsightsScreen extends ConsumerWidget {
       children: [
         if (l.offline) OfflineBanner(onRetry: refresh),
         const SafeToSpendCard(),
+        const PayInsightsCard(),
         const SizedBox(height: TickSpace.x3),
         switch (data) {
           AsyncData(:final value) => _Body(d: value, ledger: l, sts: sts),

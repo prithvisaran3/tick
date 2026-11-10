@@ -44,7 +44,13 @@ def load_ledger(user_id: str) -> B.Ledger:
     cats = {c["name"]: c["id"] for c in rest().select("categories", user_id=f"eq.{user_id}", select="id,name")}
     bal, names = _tally(user_id)
     names += [r.get("display_name") or r["person_key"] for r in rest().select("category_rules", user_id=f"eq.{user_id}", select="person_key,display_name")]
-    return B.Ledger(txns, today, rec, acc, goals, per, prev, 0, bal, sorted(set(names)), cats)
+    stubs = rest().select("pay_statements", user_id=f"eq.{user_id}", select="id,pay_date,gross_cents,net_cents,taxes_cents,deductions_cents", order="pay_date.desc", limit="60")
+    lines: dict = {}
+    if stubs:
+        for x in rest().select("pay_statement_lines", user_id=f"eq.{user_id}", select="statement_id,kind,label,cents"):
+            lines.setdefault(x["statement_id"], []).append(x)
+    paystubs = [{"pay_date": date.fromisoformat(p["pay_date"]), "gross": p["gross_cents"], "net": p["net_cents"], "taxes": p["taxes_cents"], "deductions": p["deductions_cents"], "lines": lines.get(p["id"], [])} for p in stubs]
+    return B.Ledger(txns, today, rec, acc, goals, per, prev, 0, bal, sorted(set(names)), cats, paystubs)
 
 def _tally(user_id: str) -> tuple[list[dict], list[str]]:
     """What each person and I owe each other, from the same simplified moves the app shows."""

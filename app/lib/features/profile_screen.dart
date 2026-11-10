@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../data/link_info.dart';
+import '../data/paystubs.dart';
 import '../data/profile_data.dart';
 import '../data/remote.dart';
 import '../data/settings.dart';
@@ -136,7 +137,7 @@ class ProfileScreen extends ConsumerWidget {
 }
 
 /// "Latest: Nov 13 · $X net" once pay statements arrive (Phase 3); a quiet line until then.
-final payStatementSummaryProvider = Provider<String>((ref) => 'None yet');
+final payStatementSummaryProvider = Provider<String>((ref) => payStatementSummary(ref.watch(payStatementsProvider).value ?? const []));
 
 class ProfileGroup extends StatelessWidget {
   const ProfileGroup({super.key, required this.title, required this.rows});

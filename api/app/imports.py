@@ -7,13 +7,14 @@ import csv
 import json
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from . import applecard as AC
 from . import splitwise as SW
 from . import rules as category_rules
+from . import paystubs as PS
 from . import statements as ST
 from . import store
 from .audit import audit
@@ -91,6 +92,60 @@ def _splitwise(user_id: str, raw: bytes, mode: str, filename: str, me: str | Non
     audit(user_id, "import_batch", {"count": len(fresh), "scope": "splitwise"})
     return {**out, "batch_id": batch["id"], "imported": len(fresh), "group_id": res.get("group_id")}
 
+def _paystub(user_id: str, raw: bytes, mode: str, filename: str) -> dict:
+    """A PDF is a pay statement (bank statements come as CSV or OFX). Preview reads it; commit saves it once, links its deposit, and sets the expected pay."""
+    prof = rest().select("profiles", user_id=f"eq.{user_id}", select="display_name")
+    names = [prof[0]["display_name"]] if prof and prof[0].get("display_name") else []
+    try:
+        text = PS.pdf_text(raw)
+        if text.strip() and not PS.looks_like_paystub(text):
+            raise HTTPException(422, "That PDF isn't a pay statement Tick can read. Bank statements come in as CSV or OFX.")
+        st = PS.read(user_id, raw, names)
+    except PS.PaystubError as e:
+        raise HTTPException(422, str(e))
+    out = {"source": "paystub", "label": "Pay statement", "employer": st.employer, "pay_date": st.pay_date.isoformat(), "gross_cents": st.gross_cents, "taxes_cents": st.taxes_cents,
+           "deductions_cents": st.deductions_cents, "net_cents": st.net_cents, "adds_up": st.adds_up, "via": st.source, "new": 1, "duplicates": 0, "already_imported": 0, "unreadable": 0,
+           "accounts": [], "needs_account": False, "empty": False, "sample": []}
+    dupe = [s for s in rest().select("pay_statements", user_id=f"eq.{user_id}", pay_date=f"eq.{st.pay_date.isoformat()}", net_cents=f"eq.{st.net_cents}", select="id,employer")
+            if s["employer"].lower() == st.employer.lower()]
+    if dupe:
+        return {**out, "new": 0, "already_imported": 1, "statement_id": dupe[0]["id"], "imported": 0}
+    if mode == "preview":
+        return out
+    row = rest().insert("pay_statements", {"user_id": user_id, "employer": st.employer, "pay_date": st.pay_date.isoformat(), "period_start": st.period_start.isoformat() if st.period_start else None,
+                                           "period_end": st.period_end.isoformat() if st.period_end else None, "gross_cents": st.gross_cents, "taxes_cents": st.taxes_cents,
+                                           "deductions_cents": st.deductions_cents, "net_cents": st.net_cents, "ytd": st.ytd, "status": "ok" if st.adds_up else "review",
+                                           "source": st.source, "matched_txn": None})[0]
+    rest().insert("pay_statement_lines", [{"statement_id": row["id"], "user_id": user_id, "kind": l.kind, "label": l.label, "cents": l.cents, "ytd_cents": l.ytd_cents, "sort": i}
+                                          for i, l in enumerate(st.lines)], returning=False)
+    keep = rest().select("settings", user_id=f"eq.{user_id}", select="keep_pay_pdfs")
+    if keep and keep[0].get("keep_pay_pdfs"):
+        path = f"{user_id}/{row['id']}.pdf"
+        if PS.keep_pdf(path, raw):
+            rest().update("pay_statements", {"id": row["id"], "user_id": user_id}, {"pdf_path": path})
+    link_paystubs(user_id)
+    audit(user_id, "import_batch", {"count": 1, "scope": "paystub"})
+    return {**out, "statement_id": row["id"], "imported": 1}
+
+def link_paystubs(user_id: str) -> int:
+    """Each unlinked statement to its net-pay deposit; the deposit reads "Paycheck · Nov 13", and later expected paychecks follow the latest net."""
+    rule = ((rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule") or [{}])[0].get("payday_rule")) or {}
+    n = 0
+    for s in rest().select("pay_statements", user_id=f"eq.{user_id}", matched_txn="is.null", select="id,employer,pay_date,net_cents"):
+        d = date.fromisoformat(s["pay_date"])
+        rows = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{(d - timedelta(days=4)).isoformat()}T00:00:00+00:00", select="id,amount_cents,occurred_at,account_id")
+        hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=s["net_cents"]), rows, rule.get("account_id"))
+        if hit:
+            rest().update("pay_statements", {"id": s["id"], "user_id": user_id}, {"matched_txn": hit["id"]})
+            rest().update("transactions", {"id": hit["id"], "user_id": user_id}, {"note": f"Paycheck · {d:%b} {d.day}"})
+            n += 1
+    latest = rest().select("pay_statements", user_id=f"eq.{user_id}", select="net_cents,pay_date", order="pay_date.desc", limit="1")
+    if latest:
+        for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", status="eq.expected", select="id,expected_date"):
+            if e["expected_date"] > latest[0]["pay_date"]:
+                rest().update("expected", {"id": e["id"]}, {"amount_cents": latest[0]["net_cents"]})
+    return n
+
 @router.post("/import/statement")
 def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), account_id: str | None = Form(None), mapping: str | None = Form(None),
                      me_member: str | None = Form(None, max_length=120), group_name: str | None = Form(None, max_length=60), user_id: str = Depends(current_user)):
@@ -98,6 +153,8 @@ def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), 
     if mode not in ("preview", "commit"):
         raise HTTPException(422, "mode must be preview or commit")
     raw = file.file.read(ST.MAX_BYTES + 1)
+    if len(raw) <= ST.MAX_BYTES and raw[:5] == b"%PDF-":
+        return _paystub(user_id, raw, mode, file.filename or "")
     if len(raw) <= ST.MAX_BYTES and SW.looks_like(raw):
         return _splitwise(user_id, raw, mode, file.filename or "", me_member, group_name)
     try:

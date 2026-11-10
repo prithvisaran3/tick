@@ -49,3 +49,32 @@ checks the plan.
 | Your handle (sheet at the end) | Profile > You > Handle |
 | Link a bank / import / skip | Profile > Banks and cards, and Import from Activity |
 | The intro | Profile > Help > Watch the intro |
+
+## Phase 3: Pay statements
+Done, files only (no ADP sign-in).
+- In: a PDF through the same paths as statements: share sheet "Open in Tick" (PDF is now a document type), Files, Mail, the Import screen, and the "Import
+  statement to Tick" Shortcut (accepts PDF). A PDF is treated as a pay statement; bank statements stay CSV or OFX, and a PDF that isn't a pay statement says so.
+- Reading: `pypdf` takes the text layer. `api/app/paystubs.py` reads ADP's earnings statement deterministically (pay date, period, every earning, tax and
+  deduction with YTD, net). **The ADP layout is assumed**: `imports/paystubs/` had no real statement, so the fixture (`tools/make_paystub_fixture.py`,
+  made-up values and person) follows the standard layout. Anything else goes to the AI provider as text with name, address, SSN fragments, employee ID and long
+  numbers stripped first, strict JSON back. A PDF with no text layer is refused with a reason rather than sent as an image, because personal details can't be
+  removed from an image first. If gross − taxes − deductions ≠ net within a cent, the statement is saved as "Check this one" instead of silently.
+- Stored: `pay_statements` + `pay_statement_lines` (owner-only RLS, app can read and delete, only the server writes), deduped on pay date + net + employer.
+  The PDF is kept only with "Keep the PDF" on (private `paystubs` bucket, owner folder).
+- Matching: the net-pay deposit within $1 and 3 days, in the pay account; it reads "Paycheck · Nov 13" and its detail shows the breakdown. Later expected
+  paychecks (Landed) take the latest net. Profile > Pay shows "Latest: Nov 13 · $X net".
+- UI: the statements list and a waterfall per statement (groups open to lines, YTD toggle); Insights has one Pay card, collapsed, opening to this year's gross,
+  taxes, 401(k), net and "You keep N% of gross", with a by-month view. Ask Tick: "how much tax have I paid this year", "what was my last net pay", "how much
+  went to 401k", "gross pay last year" (eval now 54/54 on rules).
+
+### Plaid Payroll Income (investigated, not built)
+- Your Items today hold `transactions` (Chase) and `liabilities` + `transactions` (Bank of America, SoFi, Discover, Capital One), from the read-only doctor.
+  Income isn't among them; whether your plan has it enabled for production can only be seen in the Plaid Dashboard (Team settings > Products), which I can't
+  open. Plaid's pricing lists Income as included on Pay as You Go, Growth and Custom plans; Payroll Income is a one-time fee per connection.
+- It's a separate Link session with the `income_verification` product (`income_source_types: payroll`) and can't share a session with other products. It
+  covers roughly 80% of US workers through payroll providers; Plaid's sample responses show ADP as an institution, but I couldn't confirm ADP is supported for
+  every employer.
+- Item slots: the payroll response carries an `item_id`, so it most likely creates an Item and would use one of your 10 lifetime slots. Ask Plaid support
+  before relying on that.
+- Plaid now steers new customers to Consumer Report Income instead, which reads bank deposits, so it doesn't need ADP at all.
+Sources: https://plaid.com/docs/income/payroll-income/ · https://plaid.com/docs/account/billing/ · https://plaid.com/pricing/ · https://plaid.com/docs/income/

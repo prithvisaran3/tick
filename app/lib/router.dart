@@ -23,6 +23,7 @@ import 'features/tally_manage.dart';
 import 'domain/balances.dart';
 import 'features/ask_screen.dart';
 import 'features/avatar_builder.dart';
+import 'features/pay_screens.dart';
 import 'features/payday_editor.dart';
 import 'features/profile_screen.dart';
 import 'features/tally_expense_screen.dart';
@@ -93,6 +94,9 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/landed', pageBuilder: (c, s) => _page(s, IncomingScreen(landed: s.extra as Expected?))),
         GoRoute(path: '/settings', pageBuilder: (c, s) => _page(s, const SettingsScreen())),
         GoRoute(path: '/avatar', pageBuilder: (c, s) => _page(s, AvatarBuilderScreen(member: s.uri.queryParameters['member']))),
+        GoRoute(path: '/pay-statements', pageBuilder: (c, s) => _page(s, const PayStatementsScreen())),
+        GoRoute(path: '/pay-statements/:id', pageBuilder: (c, s) => _page(s, PayStatementScreen(id: s.pathParameters['id']!))),
+        GoRoute(path: '/pay', pageBuilder: (c, s) => _page(s, const PayByMonthScreen())),
         GoRoute(path: '/profile', pageBuilder: (c, s) => _page(s, const ProfileScreen())),
         GoRoute(path: '/settings/ask', pageBuilder: (c, s) => _page(s, const AskSettingsScreen())),
         GoRoute(path: '/settings/payday', pageBuilder: (c, s) => _page(s, const PaydayScreen())),

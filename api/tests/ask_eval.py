@@ -15,7 +15,10 @@ def ledger() -> B.Ledger:
     rec = [{"merchant": "Netflix", "cadence": "monthly", "expected_cents": 1599, "next_date": date(2026, 11, 5 + 3)}, {"merchant": "Comcast", "cadence": "monthly", "expected_cents": 6400, "next_date": date(2026, 11, 20)}]
     acc = [{"name": "Chase Checking", "type": "checking", "balance_cents": 500000, "available_cents": 480000, "include_in_safe": True}, {"name": "SoFi Savings", "type": "savings", "balance_cents": 1200000},
            {"name": "Discover", "type": "credit", "balance_cents": 90000, "statement_balance_cents": 60000, "due_date": date(2026, 11, 10)}]
-    return B.Ledger(D.rows(), D.TODAY, rec, acc, 10000, PERIOD, PREV, 231000, [{"name": "Asha Rao", "cents": 4000}, {"name": "Jo Lee", "cents": -2500}], ["Kaarthik Roshan", "Asha Rao", "Jo Lee"], {c: f"id-{c}" for c in D.CATS})
+    stubs = [{"pay_date": date(2026, 10, 30), "gross": 373500, "net": 247707, "taxes": 87883, "deductions": 37910, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 22410}, {"kind": "deduction", "label": "Medical", "cents": 9500}]},
+             {"pay_date": date(2026, 10, 16), "gross": 373500, "net": 247707, "taxes": 87883, "deductions": 37910, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 22410}]},
+             {"pay_date": date(2025, 12, 31), "gross": 300000, "net": 200000, "taxes": 70000, "deductions": 30000, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 18000}]}]
+    return B.Ledger(D.rows(), D.TODAY, rec, acc, 10000, PERIOD, PREV, 231000, [{"name": "Asha Rao", "cents": 4000}, {"name": "Jo Lee", "cents": -2500}], ["Kaarthik Roshan", "Asha Rao", "Jo Lee"], {c: f"id-{c}" for c in D.CATS}, stubs)
 
 R = D.rows()
 def s(pred) -> int:
@@ -84,11 +87,15 @@ CASES = [
  ("how much do I owe Jo", -2500),
  ("show me zelle payments to Kaarthik last month", None),
  ("how much did I spend on friends and family last month", s(both(OCT, cat("Friends and family")))),
+ ("how much tax have I paid this year", 87883 * 2),
+ ("what was my last net pay", 247707),
+ ("how much went to 401k", 22410 * 2),
+ ("what was my gross pay last year", 300000),
 ]
 
 def main() -> int:
     l = ledger()
-    assert len(CASES) == 50, len(CASES)
+    assert len(CASES) == 54, len(CASES)
     paths: dict = {}
     wrong = []
     for q, want in CASES:

@@ -51,6 +51,22 @@ begin
     if (select friends_c from public.tick_classified(a, null, null) where id = t1) <> -4500 then fails := fails || 'Splitwise not in friends net; '; end if;
     if (select out_c from public.tick_classified(a, null, null) where id = t2) <> 3000 then fails := fails || 'my share wrong; '; end if;
   end;
+  -- pay statements: owner reads and deletes, nobody writes from the app, nobody else sees them
+  declare ps uuid; begin
+    insert into public.pay_statements (user_id, employer, pay_date, gross_cents, taxes_cents, deductions_cents, net_cents, source) values (a, 'ACME', '2026-11-13', 100, 10, 10, 80, 'adp') returning id into ps;
+    insert into public.pay_statement_lines (statement_id, user_id, kind, label, cents) values (ps, a, 'tax', 'Federal', 10);
+    begin insert into public.pay_statements (user_id, employer, pay_date, gross_cents, taxes_cents, deductions_cents, net_cents, source) values (a, 'ACME', '2026-11-13', 100, 10, 10, 80, 'adp'); fails := fails || 'duplicate statement; ';
+    exception when unique_violation then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true); set local role authenticated;
+    if (select count(*) from public.pay_statements) + (select count(*) from public.pay_statement_lines) <> 0 then fails := fails || 'B reads A pay; '; end if;
+    begin insert into public.pay_statements (user_id, employer, pay_date, gross_cents, taxes_cents, deductions_cents, net_cents, source) values (b, 'X', '2026-11-13', 1, 0, 0, 1, 'adp'); fails := fails || 'app wrote a statement; ';
+    exception when insufficient_privilege then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+    if (select count(*) from public.pay_statement_lines) <> 1 then fails := fails || 'A cannot read own lines; '; end if;
+    delete from public.pay_statements where id = ps;
+    if (select count(*) from public.pay_statement_lines) <> 0 then fails := fails || 'lines outlived the statement; '; end if;
+    reset role;
+  end;
   -- removing the rule puts rows back
   delete from public.category_rules where id = rule;
   perform public.tick_apply_category_rules(a);

@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 1108 >>
+stream
+BT /F1 10 Tf 40 760 Td 12 TL (ACME ROBOTICS INC) Tj T* (Company: ACME ROBOTICS INC) Tj T* (Earnings Statement) Tj T* (Period Starting: 10/26/2026) Tj T* (Period Ending: 11/08/2026) Tj T* (Pay Date: 11/13/2026) Tj T* (Taxable Marital Status: Single) Tj T* (Employee ID: 004512) Tj T* (Social Security Number: XXX-XX-1234) Tj T* (JORDAN SAMPLE) Tj T* (123 MAPLE STREET APT 4) Tj T* (ALBANY, NY 12207) Tj T* (Earnings rate hours this period year to date) Tj T* (Regular 45.0000 80.00 3,600.00 72,000.00) Tj T* (Overtime 67.5000 2.00 135.00 810.00) Tj T* (Gross Pay $3,735.00 72,810.00) Tj T* (Statutory Deductions this period year to date) Tj T* (Federal Income Tax -412.50 8,250.00) Tj T* (Social Security Tax -231.57 4,514.22) Tj T* (Medicare Tax -54.16 1,055.75) Tj T* (NY State Income Tax -180.00 3,600.00) Tj T* (NY SDI Tax -0.60 12.00) Tj T* (Other Deductions) Tj T* (401\(K\) -224.10 4,368.60) Tj T* (Medical -95.00 1,900.00) Tj T* (Dental -8.00 160.00) Tj T* (Vision -2.00 40.00) Tj T* (HSA -50.00 1,000.00) Tj T* (Net Pay $2,477.07) Tj T* (Your federal taxable wages this period are $3,206.90) Tj T* ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001401 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1471
+%%EOF

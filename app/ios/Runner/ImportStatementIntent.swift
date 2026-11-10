@@ -9,7 +9,7 @@ struct ImportStatementIntent: AppIntent {
   static var description = IntentDescription("Open a bank or Apple Card statement (CSV or OFX) in Tick to import it.")
   static var openAppWhenRun: Bool = true
 
-  @Parameter(title: "Statement file", supportedTypeIdentifiers: ["public.comma-separated-values-text", "public.plain-text", "public.data"])
+  @Parameter(title: "Statement file", supportedTypeIdentifiers: ["public.comma-separated-values-text", "public.plain-text", "com.adobe.pdf", "public.data"])
   var file: IntentFile
 
   static var parameterSummary: some ParameterSummary {
