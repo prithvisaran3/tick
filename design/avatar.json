@@ -1,7 +1,9 @@
 {
-  "$comment": "Source of truth for avatar layers. Palettes are colours people have, so they live apart from the brand tokens; backgrounds are the brand's.",
-  "skin": ["#F7D7C4", "#EFC3A0", "#D9A06E", "#B97A4B", "#8A5433", "#5C3921"],
-  "hair": ["#1F1A17", "#4A2F1E", "#8C5A2B", "#D9B36A", "#B4B4BC", "#C8452E"],
+  "$comment": "Source of truth for avatar layers. Palettes are colours people have, so they live apart from the brand tokens; backgrounds are the brand's. Lists only ever grow at the end, so a saved index keeps meaning the same thing.",
+  "skin": ["#F7D7C4", "#EFC3A0", "#D9A06E", "#B97A4B", "#8A5433", "#5C3921", "#FBE3D6", "#E3B48C", "#A86A3D", "#3F2716"],
+  "hair": ["#1F1A17", "#4A2F1E", "#8C5A2B", "#D9B36A", "#B4B4BC", "#C8452E", "#F2F0EA", "#E58FB0"],
   "background": ["#C8FF2E", "#7AA7FF", "#FF6B4A", "#F5F3EC", "#222229", "#5B5B66"],
-  "options": {"face": 3, "skin": 6, "hair": 8, "hairColor": 6, "eyes": 4, "brows": 3, "mouth": 5, "glasses": 3, "hat": 4, "beard": 3, "background": 6}
+  "cloth": ["#5B5B66", "#7AA7FF", "#FF6B4A", "#222229", "#F5F3EC", "#2F7D6B", "#8C5AD9", "#E8B73A"],
+  "options": {"face": 3, "skin": 10, "hair": 12, "hairColor": 8, "eyes": 4, "brows": 3, "mouth": 5, "glasses": 4, "hat": 7, "beard": 4, "background": 6, "cloth": 8, "earrings": 3, "mark": 3},
+  "addedInV2": ["cloth", "earrings", "mark"]
 }

@@ -117,3 +117,20 @@ the widget extension isn't in the Xcode project yet (free account, no App Groups
   them (with Undo). Springs for the tooltip, a plain fade under Reduce Motion.
 - First run is now splash, sign in, essential setup, then Home with the first tip. The cinematic is no longer on first run; it lives at Profile > Help >
   Watch the intro.
+
+## Phase 9: Avatars 2.0
+- Style: soft clay drawn in 2D. Each shape gets a radial gradient (light up-left, darker rim down-right), a gloss on hair and lenses, blush, a soft nose
+  bump and a contact shadow under the head. Chunky rounded shapes and flat colour fields keep it apart from Memoji (no 3D render, no realism).
+- More options (all lists grow at the end, so saved indexes keep their meaning): 10 skin tones, 12 hair styles (adds braids, locs, afro, buzz),
+  8 hair colours, headwear (cap, beanie, top hat, **hijab**, **turban**, headwrap) in 8 fabric colours that also colour the top, 4 facial hair, sunglasses,
+  earrings (studs, hoops), and freckles or a bindi. Defaults from an id never add headwear beyond the old three, earrings or a mark.
+- Motion (`design/motion.json` avatar): live avatars blink, bob and tilt their head; three layers (background, head, features) shift by different
+  amounts with the phone's tilt (accelerometer via `sensors_plus`, low-passed, only while a live avatar is on screen, iPhone only). A tap reacts: wink,
+  smile then surprise, a spring bounce and a light haptic. Moods: neutral, happy, surprised, thinking, sad. Reduce Motion: still, no tilt, no bounce.
+- Ask Tick has a non-human mascot: a Volt clay blob with a check on its head. It's the Ask button now, so the Ask tip points at it.
+- Studio: big live preview, Randomise, a category row (Face, Skin, Hair, Headwear, Extras, Background), then a grid per layer: mini avatars with that option,
+  or colour swatches for colour layers. 4 per row at 320 pt, 5 at 430.
+- Migration: a face saved before v2 keeps every choice and gets the plain option for each new layer (never random); saves now carry `"v": 2`.
+- Caching: the background and head layers are recorded once per face as a `Picture` (LRU, 160) and replayed, so lists only redraw eyes and mouth.
+- Golden matrix: `app/test/goldens/avatars/matrix-{24,48,120}.{dark,light}.png` (every skin tone × every hair style, accessories across the
+  columns, mascot moods on the last row).

@@ -3,8 +3,10 @@
 import 'dart:ui';
 
 abstract final class TickAvatarPalette {
-  static const List<Color> skin = [Color(0xFFF7D7C4), Color(0xFFEFC3A0), Color(0xFFD9A06E), Color(0xFFB97A4B), Color(0xFF8A5433), Color(0xFF5C3921)];
-  static const List<Color> hair = [Color(0xFF1F1A17), Color(0xFF4A2F1E), Color(0xFF8C5A2B), Color(0xFFD9B36A), Color(0xFFB4B4BC), Color(0xFFC8452E)];
+  static const List<Color> skin = [Color(0xFFF7D7C4), Color(0xFFEFC3A0), Color(0xFFD9A06E), Color(0xFFB97A4B), Color(0xFF8A5433), Color(0xFF5C3921), Color(0xFFFBE3D6), Color(0xFFE3B48C), Color(0xFFA86A3D), Color(0xFF3F2716)];
+  static const List<Color> hair = [Color(0xFF1F1A17), Color(0xFF4A2F1E), Color(0xFF8C5A2B), Color(0xFFD9B36A), Color(0xFFB4B4BC), Color(0xFFC8452E), Color(0xFFF2F0EA), Color(0xFFE58FB0)];
   static const List<Color> background = [Color(0xFFC8FF2E), Color(0xFF7AA7FF), Color(0xFFFF6B4A), Color(0xFFF5F3EC), Color(0xFF222229), Color(0xFF5B5B66)];
-  static const Map<String, int> options = {'face': 3, 'skin': 6, 'hair': 8, 'hairColor': 6, 'eyes': 4, 'brows': 3, 'mouth': 5, 'glasses': 3, 'hat': 4, 'beard': 3, 'background': 6};
+  static const List<Color> cloth = [Color(0xFF5B5B66), Color(0xFF7AA7FF), Color(0xFFFF6B4A), Color(0xFF222229), Color(0xFFF5F3EC), Color(0xFF2F7D6B), Color(0xFF8C5AD9), Color(0xFFE8B73A)];
+  static const Map<String, int> options = {'face': 3, 'skin': 10, 'hair': 12, 'hairColor': 8, 'eyes': 4, 'brows': 3, 'mouth': 5, 'glasses': 4, 'hat': 7, 'beard': 4, 'background': 6, 'cloth': 8, 'earrings': 3, 'mark': 3};
+  static const Set<String> addedInV2 = {'cloth', 'earrings', 'mark'};
 }

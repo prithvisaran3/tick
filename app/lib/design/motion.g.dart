@@ -39,6 +39,10 @@ abstract final class TickMotion {
   static const int digitMs = 220;
   static const int avatarIdleMs = 4200;
   static const int avatarWinkMs = 380;
+  static const double avatarTiltMaxDeg = 3.0;
+  static const double avatarBobPx = 1.2;
+  static const double avatarParallaxPx = 3.0;
+  static const int avatarReactMs = 900;
   static const int sceneMs = 5400;
   static const int undoWindowMs = 5000;
   static const double swipeThresholdRatio = 0.4;
