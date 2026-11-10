@@ -88,8 +88,6 @@ class _Body extends ConsumerWidget {
               const SizedBox(height: 12),
               Text('On pace for ${formatDollars(d.projectedCents!)}${d.prevFull.outCents > 0 ? '. Last month ended at ${formatDollars(d.prevFull.outCents)}.' : '.'}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
             ],
-            const SizedBox(height: 4),
-            Text('In ${formatDollars(d.cur.inCents)} · Out ${formatDollars(d.cur.outCents)}. ${d.cur.friendsIncluded ? 'Transfers and card payments aren\'t counted.' : 'Transfers, card payments and money with friends aren\'t counted.'}', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
           ]),
         ),
       ),
@@ -221,7 +219,8 @@ class _CatRow extends StatelessWidget {
     final c = context.c;
     final delta = before == 0 ? null : (now - before) / before;
     final hot = delta != null && delta > 0.25 && now - before > 2000;
-    final deltaText = delta == null ? (now > 0 ? 'New this month' : '') : '${delta <= 0 ? '−' : '+'}${(delta.abs() * 100).round()}% vs last month';
+    // Only a change worth noticing gets a line: up a lot, or new. Small moves and drops stay quiet.
+    final deltaText = delta == null ? (now > 0 ? 'New this month' : '') : hot ? '+${(delta * 100).round()}% vs last month' : '';
     return Pressable(
       onTap: onTap, scale: 0.99, semanticLabel: '$name ${formatCents(now)}${deltaText.isEmpty ? '' : ', $deltaText'}. Show in Activity',
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

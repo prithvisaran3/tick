@@ -146,3 +146,13 @@ the widget extension isn't in the Xcode project yet (free account, no App Groups
 - Eval: `api/tests/ask_eval.py` now also runs `api/tests/data/ask_eval_approved.json` (approved 2/2 on the two made-up seed cases).
   `python3 tools/export_ask_eval.py` (read-only, needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) adds your approved questions to that file.
 - Migration `20261122000001_ask_reflection.sql`: kinds `proposal` and `eval`, and an index for thumbs-down.
+
+## Phase 11: Declutter (no new features)
+| Screen | Before | After |
+|---|---|---|
+| Home | Savings card: a "Savings $8,400" header, then a "SoFi ••9921 $8,400" row: the same number twice with one account. | One line, "Savings / SoFi ••9921 … $8,400.00", tapping opens that account's activity. Two or more accounts still list each. |
+| Insights | "Spent in November" had a fourth text level: "In $0 · Out $175. Transfers, card payments and money with friends aren't counted." | Gone; In/Out lives in Activity's month header, and the card keeps number, comparison and bars. |
+| Insights | Every category carried a "−59% vs last month" line, three lines a row. | Only a change worth noticing gets a line: up more than 25% and $20, or new this month. Bars stay. |
+| Tally | Two full-width buttons stacked: "Settle everything" and "New tally". | "Settle everything ›" is a quiet link inside the owed/owe card; New tally is the screen's one button. |
+| Activity | Already one question card plus "N more to review" after Phase 5. | Unchanged. |
+Goldens regenerated (today, insights, tally at 320/393/430, dark and light) and checked.

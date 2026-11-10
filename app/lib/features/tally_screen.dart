@@ -36,13 +36,12 @@ class TallyScreen extends ConsumerWidget {
         else if (t.groups.isEmpty)
           const EmptyState('No tallies yet', 'Split a purchase with a friend and it shows up here.', icon: 'tally')
         else ...[
-          _Summary(owed: s.owedToMe, owe: s.iOwe, square: t.allSquare),
+          _Summary(owed: s.owedToMe, owe: s.iOwe, square: t.allSquare, onSettle: t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1) ? () => context.push('/tally/plan') : null),
           const SizedBox(height: 20),
           for (final (i, g) in t.groups.where((g) => !g.archived).indexed) StaggerIn(scope: 'tally', index: i, child: _GroupRow(g: g, t: t)),
           for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t)),
         ],
         if (t.offline && t.groups.isNotEmpty) OfflineBanner(onRetry: () => ref.read(tallyProvider.notifier).refresh()),
-        if (t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1)) ...[const SizedBox(height: 8), PillButton('Settle everything', icon: 'check', style: PillStyle.quiet, onTap: () => context.push('/tally/plan'))],
         const SizedBox(height: 16),
         TipTarget(id: 'tally-new', child: PillButton('New tally', icon: 'plus', style: t.groups.isEmpty ? PillStyle.primary : PillStyle.quiet, onTap: () => showNewGroupSheet(context))),
       ],
@@ -51,7 +50,8 @@ class TallyScreen extends ConsumerWidget {
 }
 
 class _Summary extends StatelessWidget {
-  const _Summary({required this.owed, required this.owe, required this.square});
+  const _Summary({required this.owed, required this.owe, required this.square, this.onSettle});
+  final VoidCallback? onSettle;     // more than one move to square up: a quiet link, so New tally stays the one button
   final int owed;
   final int owe;
   final bool square;
@@ -74,6 +74,10 @@ class _Summary extends StatelessWidget {
         Expanded(child: Text('You owe', style: context.ts(TickType.body, color: c.textSecondary))),
         RollingNumber(value: owe, semanticLabel: formatCents(owe), builder: (_, v) => Text(formatCents(v), style: context.ts(TickType.monoL))),
       ]),
+      if (onSettle != null) Pressable(
+        onTap: onSettle, semanticLabel: 'Settle everything',
+        child: Padding(padding: const EdgeInsets.only(top: 12), child: Text('Settle everything  ›', style: context.ts(TickType.body, color: c.text))),
+      ),
     ]));
   }
 }

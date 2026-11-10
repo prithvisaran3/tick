@@ -143,11 +143,23 @@ class _AccountRow extends ConsumerWidget {
       );
 }
 
-class _Savings extends StatelessWidget {
+class _Savings extends ConsumerWidget {
   const _Savings({required this.b});
   final HomeBalances b;
   @override
-  Widget build(BuildContext context) => TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+  Widget build(BuildContext context, WidgetRef ref) => b.savings.length == 1
+      // One account: one line, not the same number twice.
+      ? TickCard(
+          onTap: () { TickHaptics.instance.selection(); openActivity(ref, ActivityQuery(accounts: {b.savings.first.$1.id})); },
+          padding: const EdgeInsets.symmetric(horizontal: TickSpace.x4, vertical: TickSpace.x3),
+          child: _Split(
+            lead: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Savings', style: context.ts(TickType.body)),
+              Text(b.savings.first.$1.shortLabel, style: context.ts(TickType.bodyS, color: context.c.textSecondary)),
+            ]),
+            amount: Text(formatCents(b.savingsCents), style: context.ts(TickType.mono)),
+          ))
+      : TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _Split(lead: Text('Savings', style: context.ts(TickType.bodyS, color: context.c.textSecondary)), amount: Text(formatCents(b.savingsCents), style: context.ts(TickType.monoL))),
         for (final (a, cents) in b.savings) _AccountRow(a: a, cents: cents),
       ]));
