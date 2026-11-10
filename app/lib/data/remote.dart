@@ -32,7 +32,7 @@ class Remote {
       txns: _each(r[2], Txn.fromJson),
       recurring: _each(r[3], _rec),
       expected: _each(r[4], _exp),
-      goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt())],
+      goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt(), paused: j['paused'] == true)],
       linksUsed: (r[9] as List).length > (r[6] as List).length ? (r[9] as List).length : (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
       budgets: [for (final j in r[7]) Budget(id: j['id'] as String, categoryId: j['category_id'] as String, capCents: (j['monthly_cap_cents'] as num).toInt())],
@@ -95,9 +95,9 @@ class Remote {
   Future<void> deleteBudget(String id) => db.from('budgets').delete().eq('id', id);
 
   Future<Goal> upsertGoal(Goal g) async {
-    final row = {'name': g.name, 'target_cents': g.targetCents, 'saved_cents': g.savedCents, 'per_payday_cents': g.perPaydayCents};
+    final row = {'name': g.name, 'target_cents': g.targetCents, 'saved_cents': g.savedCents, 'per_payday_cents': g.perPaydayCents, 'paused': g.paused};
     final j = _isUuid(g.id) ? await db.from('goals').update(row).eq('id', g.id).select().single() : await db.from('goals').insert(row).select().single();
-    return Goal(id: j['id'] as String, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents, perPaydayCents: g.perPaydayCents);
+    return g.copyWith().id == j['id'] ? g : Goal(id: j['id'] as String, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents, perPaydayCents: g.perPaydayCents, paused: g.paused);
   }
 
   Future<void> deleteGoal(String id) => db.from('goals').delete().eq('id', id);
@@ -120,15 +120,7 @@ class Remote {
   /// The payday rule saved by an earlier install, if any (so a reinstall does not ask again).
   Future<PaydayRule?> loadPaydayRule() async {
     final j = await db.from('settings').select('payday_rule').maybeSingle();
-    final r = j?['payday_rule'];
-    if (r is! Map) return null;
-    try {
-      return PaydayRule(
-        frequency: PayFrequency.values.firstWhere((f) => f.name == r['frequency'], orElse: () => PayFrequency.biweekly),
-        anchor: DateTime.parse(r['next_date'] as String), amountCents: (r['amount_cents'] as num).toInt(), days: (r['days'] as List?)?.cast<int>());
-    } catch (_) {
-      return null;
-    }
+    return PaydayRule.fromMap(j?['payday_rule']);
   }
 
   /// The pay period from SQL, the one definition. Null when there's no rule yet.
@@ -149,6 +141,11 @@ class Remote {
   }
 
   Future<void> markUserEdited(String id, List<String> fields) => db.from('transactions').update({'user_edited': fields}).eq('id', id);
+
+  Future<void> updateRecurring(String id, {int? cents, DateTime? next, bool? ended}) => db.from('recurring').update({
+        'expected_cents': ?cents, if (next != null) 'next_date': next.toIso8601String().substring(0, 10), if (ended == true) 'status': 'ended', if (ended == false) 'status': 'active', 'is_manual': true}).eq('id', id);
+  Future<void> setIncludeInSafe(String accountId, bool v) => db.from('accounts').update({'include_in_safe': v}).eq('id', accountId);
+  Future<void> setDisplayName(String name) => db.from('profiles').update({'display_name': name}).eq('user_id', db.auth.currentUser!.id);
 
   Future<void> insertRecurring(Recurring r) => db.from('recurring').insert({
         'merchant': r.merchant, 'cadence': r.cadence.name, 'expected_cents': r.expectedCents, 'next_date': r.nextDate.toIso8601String().substring(0, 10),

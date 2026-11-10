@@ -44,6 +44,11 @@ class Account {
   final int? lastPaymentCents;
   final DateTime? lastPaymentDate;
 
+  Account copyWith({bool? includeInSafe}) => Account(id: id, name: name, mask: mask, type: type, balanceCents: balanceCents, availableCents: availableCents, includeInSafe: includeInSafe ?? this.includeInSafe,
+      manual: manual, institution: institution, subtype: subtype, creditLimitCents: creditLimitCents, statementBalanceCents: statementBalanceCents, minimumPaymentCents: minimumPaymentCents,
+      dueDate: dueDate, lastStatementDate: lastStatementDate, aprBps: aprBps, interestRateBps: interestRateBps, nextPaymentCents: nextPaymentCents, lastPaymentCents: lastPaymentCents,
+      lastPaymentDate: lastPaymentDate, connectionId: connectionId);
+
   bool get isCard => type == 'credit';
   bool get isLoan => type == 'loan';
   bool get isCash => type == 'checking' || type == 'savings' || type == 'cash';
@@ -188,7 +193,11 @@ class Expected {
 
 @immutable
 class Goal {
-  const Goal({required this.id, required this.name, required this.targetCents, required this.savedCents, required this.perPaydayCents});
+  const Goal({required this.id, required this.name, required this.targetCents, required this.savedCents, required this.perPaydayCents, this.paused = false});
+  /// Paused goals keep their amount but plan nothing until resumed.
+  final bool paused;
+  Goal copyWith({String? name, int? targetCents, int? savedCents, int? perPaydayCents, bool? paused}) => Goal(id: id, name: name ?? this.name, targetCents: targetCents ?? this.targetCents,
+      savedCents: savedCents ?? this.savedCents, perPaydayCents: perPaydayCents ?? this.perPaydayCents, paused: paused ?? this.paused);
   final String id;
   final String name;
   final int targetCents;
@@ -200,7 +209,37 @@ enum PayFrequency { weekly, biweekly, semimonthly, monthly }
 
 @immutable
 class PaydayRule {
-  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents, this.days});
+  const PaydayRule({required this.frequency, required this.anchor, required this.amountCents, this.days, this.varies = false, this.accountId, this.employer, this.second});
+  /// Take-home changes paycheck to paycheck; [amountCents] is then the typical amount.
+  final bool varies;
+  /// The checking account the pay lands in.
+  final String? accountId;
+  /// Who pays me, as the deposit names them ("INSTITUTE OF NUC PAYROLL"): how Landed recognises the paycheck.
+  final String? employer;
+  /// An optional second income with its own schedule.
+  final PaydayRule? second;
+
+  PaydayRule copyWith({PayFrequency? frequency, DateTime? anchor, int? amountCents, List<int>? days, bool? varies, String? accountId, String? employer, PaydayRule? second, bool clearSecond = false}) => PaydayRule(
+      frequency: frequency ?? this.frequency, anchor: anchor ?? this.anchor, amountCents: amountCents ?? this.amountCents, days: days ?? this.days, varies: varies ?? this.varies,
+      accountId: accountId ?? this.accountId, employer: employer ?? this.employer, second: clearSecond ? null : (second ?? this.second));
+
+  /// The settings.payday_rule JSON the SQL reads (frequency, next_date, days) plus what the app keeps with it.
+  Map<String, dynamic> toMap() => {
+        'frequency': frequency.name, 'next_date': anchor.toIso8601String().substring(0, 10), 'amount_cents': amountCents, 'days': ?days,
+        if (varies) 'varies': true, 'account_id': ?accountId, 'employer': ?employer, if (second != null) 'second': second!.toMap(),
+      };
+
+  static PaydayRule? fromMap(Object? m) {
+    if (m is! Map) return null;
+    try {
+      return PaydayRule(
+          frequency: PayFrequency.values.firstWhere((f) => f.name == m['frequency'], orElse: () => PayFrequency.biweekly), anchor: DateTime.parse(m['next_date'] as String),
+          amountCents: (m['amount_cents'] as num?)?.toInt() ?? 0, days: (m['days'] as List?)?.cast<int>(), varies: m['varies'] == true,
+          accountId: m['account_id'] as String?, employer: m['employer'] as String?, second: fromMap(m['second']));
+    } catch (_) {
+      return null;
+    }
+  }
   /// Twice a month: the two days of the month, like [15, 30].
   final List<int>? days;
   final PayFrequency frequency;

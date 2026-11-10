@@ -59,7 +59,7 @@ SafeToSpend computeSafeToSpend({
   final debts = debtLines(accounts: accounts, recurring: recurring, today: t, payday: payday);
   lines.addAll(debts.lines);
   for (final g in goals) {
-    if (g.savedCents < g.targetCents && g.perPaydayCents > 0) lines.add(SafeLine('goal', g.name, -g.perPaydayCents));
+    if (!g.paused && g.savedCents < g.targetCents && g.perPaydayCents > 0) lines.add(SafeLine('goal', g.name, -g.perPaydayCents));
   }
   int sum(String g) => lines.where((l) => l.group == g).fold<int>(0, (s, l) => s + l.cents);
   final cash = sum('cash'), bills = -sum('bill'), cardsDue = -sum('card'), loansDue = -sum('loan'), goalsPlanned = -sum('goal');

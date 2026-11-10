@@ -46,6 +46,16 @@ def my_handle(user_id: str = Depends(current_user)):
     return {"handle": me.get("handle"), "discoverable": me.get("discoverable", True), "zelle": me.get("zelle"),
             "suggestion": None if me.get("handle") else suggestion(me.get("display_name"), lambda h: bool(rest().select("profiles", handle=f"eq.{h}", select="user_id")))}
 
+@router.get("/people/handle/check")
+def check_handle(h: str = Query(min_length=1, max_length=21), user_id: str = Depends(current_user)):
+    """As you type. Rate-limited like search, so it can't be used to list who's on Tick."""
+    user_limiter.check(f"handle-check:{user_id}", 40, 60)
+    h = _norm(h)
+    if not HANDLE.fullmatch(h) or h in RESERVED:
+        return {"available": False}
+    clash = rest().select("profiles", handle=f"eq.{h}", select="user_id")
+    return {"available": not clash or clash[0]["user_id"] == user_id}
+
 @router.post("/people/handle")
 def set_handle(body: HandleBody, user_id: str = Depends(current_user)):
     user_limiter.check(f"handle:{user_id}", 10, 60)

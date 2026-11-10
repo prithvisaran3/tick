@@ -31,7 +31,9 @@ bool isBankHoliday(DateTime day) {
   const fixed = {(1, 1), (6, 19), (7, 4), (11, 11), (12, 25)};
   final prev = addDays(d, -1);
   if (fixed.contains((d.month, d.day))) return true;
-  if (d.weekday == DateTime.monday && fixed.contains((prev.month, prev.day))) return true;
+  if (d.weekday == DateTime.monday && fixed.contains((prev.month, prev.day))) return true;              // Sunday holiday, observed Monday
+  final next = addDays(d, 1);
+  if (d.weekday == DateTime.friday && fixed.contains((next.month, next.day))) return true;              // Saturday holiday, observed Friday
   final y = d.year;
   final memorial = () { var x = DateTime(y, 5, 31); while (x.weekday != DateTime.monday) { x = addDays(x, -1); } return x; }();
   return d == _nth(y, 1, DateTime.monday, 3) || d == _nth(y, 2, DateTime.monday, 3) || d == memorial || d == _nth(y, 9, DateTime.monday, 1) ||

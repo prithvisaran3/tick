@@ -181,6 +181,31 @@ def feedback(body: FeedbackBody, user_id: str = Depends(current_user)):
         rest().insert("ask_memory", {"user_id": user_id, "kind": "alias", "key": body.term.lower().strip(), "value": v}, upsert_on="user_id,kind,key")
     return {"saved": True}
 
+class MemoryKey(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=60)
+
+@router.post("/ask/memory/delete")
+def forget(body: MemoryKey, user_id: str = Depends(current_user)):
+    """Profile > What Ask Tick learned: forget one word. Returns it, for Undo."""
+    rows = rest().select("ask_memory", user_id=f"eq.{user_id}", kind="eq.alias", key=f"eq.{body.key}", select="kind,key,value")
+    if not rows:
+        raise HTTPException(404, "not found")
+    rest().delete("ask_memory", {"user_id": user_id, "kind": "alias", "key": body.key})
+    return {"row": rows[0]}
+
+class MemoryRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row: dict
+
+@router.post("/ask/memory/restore")
+def remember(body: MemoryRow, user_id: str = Depends(current_user)):
+    r = body.row
+    if r.get("kind") != "alias" or not isinstance(r.get("key"), str) or not isinstance(r.get("value"), dict):
+        raise HTTPException(422, "Check the details and try again.")
+    rest().insert("ask_memory", {"user_id": user_id, "kind": "alias", "key": r["key"][:60], "value": r["value"]}, upsert_on="user_id,kind,key")
+    return {"saved": True}
+
 @router.get("/ask/stats")
 def stats(user_id: str = Depends(current_user)):
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()

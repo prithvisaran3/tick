@@ -78,7 +78,7 @@ PaydayPlan buildPaydayPlan({
   for (final r in recurring) {
     bills += r.expectedCents * occurrencesBetween(r.cadence, r.nextDate, t, next).length;
   }
-  final moves = goals.where((g) => g.savedCents < g.targetCents && g.perPaydayCents > 0).toList();
+  final moves = goals.where((g) => !g.paused && g.savedCents < g.targetCents && g.perPaydayCents > 0).toList();
   final move = moves.fold<int>(0, (s, g) => s + g.perPaydayCents);
   final safe = cash - owed + (paycheckLanded ? 0 : paycheck) - bills - move;
   return PaydayPlan(paycheckCents: paycheck, moves: moves, billsCents: bills, safeAfterCents: safe, nextPayday: next);
