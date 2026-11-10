@@ -20,6 +20,7 @@ import 'ask_button.dart';
 import 'common.dart';
 import 'payback_card.dart';
 import 'rule_cards.dart';
+import 'splitwise_detail.dart';
 
 /// Activity: ONE continuous list across every month (keyset pages of 40, prefetched ahead). A pinned month header carries that month's
 /// in, out and net under the active filters and hands over to the next month as you scroll (light tick). Day headers carry the day's net.
@@ -314,6 +315,7 @@ Future<void> showCategorySheet(BuildContext context, WidgetRef ref, Txn t) {
                 Navigator.of(ctx).pop();
                 final who = p2pName(t.merchant);
                 if (who != null && c.name == 'Rent' && t.amountCents < 0 && root.mounted) showRuleOffer(root, ref, t, c, who);
+                if (c.name == 'Splitwise' && root.mounted) askSplitwiseWho(root, ref, t);
               }),
           ]),
         ]),

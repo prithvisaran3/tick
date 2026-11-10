@@ -12,6 +12,7 @@ import 'activity_screen.dart';
 import 'common.dart';
 import 'pay_screens.dart';
 import 'payback_card.dart';
+import 'splitwise_detail.dart';
 
 class TxnDetailScreen extends ConsumerWidget {
   const TxnDetailScreen({super.key, required this.id});
@@ -52,6 +53,7 @@ class TxnDetailScreen extends ConsumerWidget {
           Expanded(child: PillButton(t.isBusiness ? 'Business ✓' : 'Mark Business', style: t.isBusiness ? PillStyle.primary : PillStyle.quiet, icon: 'briefcase', onTap: () => ref.read(ledgerProvider.notifier).toggleBusiness(t.id))),
         ]),
         PaybackDetail(t: t),
+        if (SplitwiseDetail.appliesTo(t, cat)) SplitwiseDetail(t: t),
         if (t.amountCents > 0) PaycheckDetail(txnId: t.id),
         if (t.amountCents < 0 && !t.isTransfer) ...[
           const SizedBox(height: 8),

@@ -137,7 +137,7 @@ def likely_route(user_id: str = Depends(current_user)):
     types = {a["id"]: a["type"] for a in rest().select("accounts", user_id=f"eq.{user_id}", select="id,type")}
     mine = [m["group_id"] for m in rest().select("tally_members", member_user_id=f"eq.{user_id}", status="eq.active", select="group_id")]
     friends = [m["name"] for m in rest().select("tally_members", group_id=f"in.({','.join(mine)})", select="name,member_user_id") if m.get("member_user_id") != user_id and m.get("name")] if mine else []
-    rejected = {e["matched_txn"] for e in rest().select("splitwise_events", user_id=f"eq.{user_id}", kind="eq.rejected", select="matched_txn")}
+    rejected = {e["matched_txn"] for e in rest().select("splitwise_events", user_id=f"eq.{user_id}", kind="eq.rejected", select="matched_txn,description") if not e.get("description")}
     return {"suggestions": likely(rows, types, sorted(set(friends)), rejected)}
 
 class AnswerBody(BaseModel):

@@ -78,3 +78,16 @@ Done, files only (no ADP sign-in).
   before relying on that.
 - Plaid now steers new customers to Consumer Report Income instead, which reads bank deposits, so it doesn't need ADP at all.
 Sources: https://plaid.com/docs/income/payroll-income/ · https://plaid.com/docs/account/billing/ · https://plaid.com/pricing/ · https://plaid.com/docs/income/
+
+## Phase 4: Splitwise as a real category
+- Picking Splitwise in "Fix category" now asks "Which group or friend?": your Tally groups and the friends in them as chips, plus "Not sure". The answer is a
+  tag (`splitwise_events` kind `tag`, one per row, migration `20261121000001_splitwise_tags.sql`); it only steers the guess, it never moves money.
+- A Splitwise row's detail (and a Zelle to a friend under Friends and family) shows "Most likely": a Splitwise email's expense or settle-up, a Tally expense
+  you paid that day, or an open Tally balance with that friend, with a confidence in words (Very likely / Likely / Maybe) and "N more". "Not this one" hides
+  that one answer for that row (`kind rejected` with the ref) and the next one moves up; it doesn't stop the row's other suggestions.
+- A Zelle to a friend lists the expenses they paid that your share could be settling, newest first; when the newest run adds up to the amount exactly it says
+  "Settles these with Asha", otherwise "Could settle these" with the total.
+- Gmail is still not connected (needs your Google Cloud step, docs/POLISH_V3.md). Until it is, the detail has one quiet "Connect Gmail to match Splitwise
+  emails" line that explains this; nothing is enabled from the app.
+- Loading is a skeleton card, an error says why with Try again (silent provider retry is off for these two), no match says "No match yet".
+- API: `GET /splitwise/explain/{txn}`, `GET /splitwise/options`, `POST /splitwise/tag`, `POST /splitwise/not`, all owner-checked (other people's rows 404).

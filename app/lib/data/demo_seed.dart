@@ -32,6 +32,7 @@ const defaultCategories = [
   Category(id: 'cat-health', name: 'Health', colorKey: 'shop', icon: 'goal'),
   Category(id: 'cat-fun', name: 'Fun', colorKey: 'shop', icon: 'card'),
   Category(id: 'cat-friends', name: 'Friends and family', colorKey: 'shop', icon: 'arrow-out'),
+  Category(id: 'cat-splitwise', name: 'Splitwise', colorKey: 'shop', icon: 'tally'),
   Category(id: 'cat-loan', name: 'Loan payment', colorKey: 'home', icon: 'bank'),
   Category(id: 'cat-fees', name: 'Fees and interest', colorKey: 'shop', icon: 'card'),
   Category(id: 'cat-transfer', name: 'Transfer', colorKey: 'shop', icon: 'repeat', kind: 'transfer'),
