@@ -27,6 +27,8 @@ import 'settings_screen.dart' show showTokenSheet, signInWithGoogle;
 import 'tally_expense_sheet.dart' show TallyField;
 import 'tally_manage.dart' show showUndo;
 import 'tally_people.dart' show HandleSettings;
+import '../data/pay_splits.dart';
+import '../domain/pay_splits.dart';
 
 const _every = {PayFrequency.weekly: 'Every week', PayFrequency.biweekly: 'Every two weeks', PayFrequency.semimonthly: 'Twice a month', PayFrequency.monthly: 'Every month'};
 
@@ -48,6 +50,7 @@ class ProfileScreen extends ConsumerWidget {
     final counted = checking.where((a) => a.includeInSafe).length;
     final rules = ref.watch(categoryRulesProvider).value ?? const <RuleRow>[];
     final memory = ref.watch(askMemoryProvider).value;
+    final splits = ref.watch(paySplitsProvider).value ?? const <PaySplit>[];
     final link = ref.watch(linkInfoProvider).value;
     final owner = s.demoMode || link == null || link.canLink;
     return TickPage(title: 'Profile', onBack: () => context.pop(), bottomPad: 40,
@@ -64,7 +67,8 @@ class ProfileScreen extends ConsumerWidget {
         ProfileGroup(title: 'Pay', rows: [
           ProfileRow(title: 'Schedule', summary: rule == null ? 'Not set' : scheduleLine(rule, now), onTap: () => showPaySchedule(context, ref)),
           ProfileRow(title: 'Take-home', summary: rule == null || rule.amountCents == 0 ? 'Not set' : '${rule.varies ? 'About ' : ''}${formatCents(rule.amountCents)}${rule.varies ? ' · it varies' : ''}', onTap: () => showTakeHome(context, ref)),
-          ProfileRow(title: 'Lands in', summary: l.account(rule?.accountId)?.shortLabel ?? 'Not set', onTap: () => _pickAccount(context, ref)),
+          if (splits.isEmpty) ProfileRow(title: 'Lands in', summary: l.account(rule?.accountId)?.shortLabel ?? 'Not set', onTap: () => _pickAccount(context, ref)),
+          ProfileRow(title: 'Where it goes', summary: splits.isEmpty ? 'One account' : '${splits.length} accounts', onTap: () => context.push('/profile/pay-splits')),
           ProfileRow(title: 'Who pays you', summary: rule?.employer ?? 'Not set', onTap: () => _editEmployer(context, ref)),
           ProfileRow(title: 'Second income', summary: rule?.second == null ? 'None' : scheduleLine(rule!.second!, now), onTap: () => showSecondIncome(context, ref)),
           ProfileRow(title: 'Pay statements', summary: ref.watch(payStatementSummaryProvider), onTap: () => context.push('/pay-statements')),

@@ -441,9 +441,28 @@ def ensure_expected_paycheck(user_id: str, today: date | None = None) -> None:
                 if got and got[0].get("next_payday") and got[0]["next_payday"] not in have and date.fromisoformat(got[0]["next_payday"]) <= today + timedelta(days=45):
                     rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": (second.get("employer") or "Second income")[:60], "amount_cents": int(second["amount_cents"]), "expected_date": got[0]["next_payday"]}, returning=False)
                     have.add(got[0]["next_payday"])
+        from . import splits as SP
+        lines = [(s, c) for s, c in SP.per_account(amount, SP.load(user_id, rest())) if s.get("account_id")]          # split lines into accounts Tick can see
+        label = ((rule or {}).get("employer") or "Paycheck")[:60]
         for d in sorted(dates):
-            if d.isoformat() not in have and d <= today + timedelta(days=45):
-                rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": ((rule or {}).get("employer") or "Paycheck")[:60], "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
+            if d > today + timedelta(days=45):
+                continue
+            if not lines:
+                if d.isoformat() not in have:
+                    rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": label, "amount_cents": amount, "expected_date": d.isoformat()}, returning=False)
+                continue
+            # One expected deposit per account. A whole-paycheck row still waiting for that day is replaced, never doubled.
+            day = rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", expected_date=f"eq.{d.isoformat()}", select="id,status,account_id,label")
+            mine = [e for e in day if e.get("label") == label]
+            if any(e["status"] != "expected" and not e.get("account_id") for e in mine):
+                continue                                                  # that paycheck already landed whole: leave it
+            for e in mine:
+                if e["status"] == "expected" and not e.get("account_id"):
+                    rest().delete("expected", {"id": e["id"], "user_id": user_id})
+            got = {e.get("account_id") for e in mine if e.get("account_id")}
+            for s, c in lines:
+                if s["account_id"] not in got:
+                    rest().insert("expected", {"user_id": user_id, "kind": "paycheck", "label": label, "amount_cents": c, "expected_date": d.isoformat(), "account_id": s["account_id"]}, returning=False)
     except Exception:
         pass                                                   # a sync must never fail because of the paycheck helper
 
@@ -472,15 +491,20 @@ def _employer_named(label: str | None, text: str) -> bool:
     words = [w for w in re.findall(r"[a-z]{3,}", (label or "").lower()) if w not in ("paycheck", "payroll", "second", "income")]
     return bool(words) and all(w in (text or "").lower() for w in words[:3])
 
-def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime, text: str = "") -> None:
-    """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit)."""
+def _landed_in(expected: list[dict], user_id: str, txn_id: str, cents: int, when: datetime, text: str = "", account_id: str | None = None) -> None:
+    """Like _landed, but against an expected-rows list loaded once per sync (no query per deposit).
+    A split paycheck has one expected row per account: a deposit lands only the row for the account it arrived in, and each row lands once."""
     if cents <= 0:
         return
     best = None
     for e in expected:
+        if e.get("account_id") and e["account_id"] != account_id:
+            continue
         days = abs((datetime.fromisoformat(e["expected_date"]).date() - when.date()).days)
         named = _employer_named(e.get("label"), text)          # the deposit names who pays me: a paycheck that varies still lands
-        if days <= 4 and (named or abs(e["amount_cents"] - cents) <= max(500, e["amount_cents"] * 0.1)) and (best is None or days < best[0]):
+        close = abs(e["amount_cents"] - cents) <= max(500, e["amount_cents"] * 0.1)
+        # a split line needs the amount too: the same employer pays every line, so the name alone can't tell them apart
+        if days <= 4 and (close or (named and not e.get("account_id"))) and (best is None or days < best[0]):
             best = (days, e)
     if best:
         expected.remove(best[1])
@@ -594,7 +618,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
     name_to_id, id_to_name = store.category_maps(user_id)
     rules = store.learned_rules(user_id)
     ensure_expected_paycheck(user_id)
-    expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date,label")
+    expected = rest().select("expected", user_id=f"eq.{user_id}", status="eq.expected", select="id,amount_cents,expected_date,label,account_id")
     counts = {"added": 0, "modified": 0, "removed": 0, "merged": 0}
     uncategorised: dict[str, str] = {}      # merchant -> txn id (inserted this sync, category fell through to Other)
     try:
@@ -648,7 +672,7 @@ def _sync_pages(conn: dict, prov: BankProvider | None = None) -> dict:
                 for cand, _ in cands:
                     row = next((t for t in txns if getattr(t, "plaid_transaction_id", None) == cand.plaid_transaction_id), None)
                     if row is not None and cand.amount_cents > 0 and _is_income_deposit(cand, accts):
-                        _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at, getattr(cand, "merchant_raw", "") or "")
+                        _landed_in(expected, user_id, row.id, cand.amount_cents, cand.occurred_at, getattr(cand, "merchant_raw", "") or "", getattr(cand, "account_id", None))
             rem = [r["transaction_id"] for r in page.get("removed", [])]
             if rem:
                 gone = store.by_plaid_ids(user_id, rem)

@@ -24,6 +24,7 @@ import 'domain/balances.dart';
 import 'features/ask_screen.dart';
 import 'features/avatar_builder.dart';
 import 'features/pay_screens.dart';
+import 'features/pay_splits_screen.dart';
 import 'features/review.dart';
 import 'features/suggested_rules.dart';
 import 'features/payday_editor.dart';
@@ -102,6 +103,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/pay', pageBuilder: (c, s) => _page(s, const PayByMonthScreen())),
         GoRoute(path: '/review', pageBuilder: (c, s) => _page(s, const ReviewQueueScreen())),
         GoRoute(path: '/profile', pageBuilder: (c, s) => _page(s, const ProfileScreen())),
+        GoRoute(path: '/profile/pay-splits', pageBuilder: (c, s) => _page(s, const PaySplitsScreen())),
         GoRoute(path: '/profile/suggested-rules', pageBuilder: (c, s) => _page(s, const SuggestedRulesScreen())),
         GoRoute(path: '/settings/ask', pageBuilder: (c, s) => _page(s, const AskSettingsScreen())),
         GoRoute(path: '/settings/payday', pageBuilder: (c, s) => _page(s, const PaydayScreen())),

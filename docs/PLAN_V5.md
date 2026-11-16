@@ -69,3 +69,14 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
 - **Not done:** `private/paystub.pdf` wasn't in the repo folder, so the real file was never opened. The fixtures (`tools/make_paystub_fixture.py`)
   mirror ADP's layout with made-up values in five variants: drawn row by row, drawn column by column with a Symbol font, two pages, no
   year-to-date column with one deposit, two statements in one file.
+### Phase 2: paycheck splits
+- `pay_splits` (migration `20261124000001`): a line is a percent, a fixed amount or "the rest". Written only through `save_pay_splits`, which
+  checks the whole set (exactly one rest, percents within 100%, each account once and mine) and replaces it atomically.
+- One arithmetic in three places with one vector file (`api/tests/data/pay_splits.json`): SQL `pay_split_amounts`, Python `split_amounts`,
+  Dart `splitAmounts`. Fixed first, then percents of the whole net (floored), the rest line takes the remainder, so lines always sum to net.
+- Profile > Pay > **Where it goes**: each line shows its dollars as you type, problems are named in one line and Save is off until it's valid.
+  "Use my last pay statement" pre-fills from the statement's deposit lines, tied to accounts by their last digits; the biggest line becomes the rest.
+- Payday: one expected deposit **per account** Tick can see (`expected.account_id`); a whole-paycheck row still waiting is replaced, never doubled.
+  A deposit lands only the line for the account it arrived in, and needs the amount to match (the employer's name alone can't tell lines apart).
+  A statement with several deposits links each one to its own bank row, each row used once.
+- Safe to spend on payday adds only the lines into checking accounts that count (`paycheckIntoCash`); savings and outside accounts never do.

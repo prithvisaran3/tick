@@ -183,7 +183,9 @@ enum ExpectedKind { paycheck, refund, iou }
 
 @immutable
 class Expected {
-  const Expected({required this.id, required this.kind, required this.label, required this.amountCents, required this.date});
+  const Expected({required this.id, required this.kind, required this.label, required this.amountCents, required this.date, this.accountId});
+  /// A split paycheck has one of these per account: where this part should land.
+  final String? accountId;
   final String id;
   final ExpectedKind kind;
   final String label;

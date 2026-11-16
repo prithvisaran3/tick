@@ -54,7 +54,7 @@ class Remote {
       priceHistory: [for (final p in (j['price_history'] as List? ?? const [])) ((p as Map)['cents'] as num).toInt()]);
   Expected _exp(Map<String, dynamic> j) => Expected(
       id: j['id'] as String, kind: ExpectedKind.values.firstWhere((k) => k.name == j['kind'], orElse: () => ExpectedKind.refund), label: j['label'] as String,
-      amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String));
+      amountCents: (j['amount_cents'] as num).toInt(), date: DateTime.parse(j['expected_date'] as String), accountId: j['account_id'] as String?);
 
   /// Expected money that landed recently. A deposit can land up to 4 days either side of its expected date, so the window is wider than the
   /// match tolerance; `tick.seenLanded` keeps each one from replaying.

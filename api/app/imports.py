@@ -176,23 +176,60 @@ def _paystub(user_id: str, raw: bytes, mode: str, filename: str, fixes: dict | N
     return {**out, "statement_id": row["id"], "imported": 1}
 
 def link_paystubs(user_id: str) -> int:
-    """Each unlinked statement to its net-pay deposit; the deposit reads "Paycheck · Nov 13", and later expected paychecks follow the latest net."""
+    """Each unlinked statement to its deposit(s). A paycheck split across accounts is several deposits: each statement line is matched to its own
+    row (by the account's last digits when the statement gives them), every matched row reads "Paycheck · Nov 13", and none is used twice.
+    Later expected paychecks follow the latest net, through the splits when there are any."""
+    from . import splits as SP
     rule = ((rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule") or [{}])[0].get("payday_rule")) or {}
+    accounts = rest().select("accounts", user_id=f"eq.{user_id}", select="id,mask,type")
+    splits = SP.load(user_id, rest())
     n = 0
-    for s in rest().select("pay_statements", user_id=f"eq.{user_id}", matched_txn="is.null", select="id,employer,pay_date,net_cents"):
+    for s in rest().select("pay_statements", user_id=f"eq.{user_id}", matched_txn="is.null", select="id,employer,pay_date,net_cents,deposits"):
         d = date.fromisoformat(s["pay_date"])
         rows = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{(d - timedelta(days=4)).isoformat()}T00:00:00+00:00", select="id,amount_cents,occurred_at,account_id")
-        hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=s["net_cents"]), rows, rule.get("account_id"))
-        if hit:
-            rest().update("pay_statements", {"id": s["id"], "user_id": user_id}, {"matched_txn": hit["id"]})
-            rest().update("transactions", {"id": hit["id"], "user_id": user_id}, {"note": f"Paycheck · {d:%b} {d.day}"})
+        parts: list[tuple[int, str | None]] = []                     # (cents, account or None for "any")
+        deps = s.get("deposits") or []
+        if len(deps) > 1:
+            for dep in deps:
+                acct = next((a["id"] for a in accounts if dep.get("mask") and a.get("mask") and str(a["mask"])[-2:] == str(dep["mask"])[-2:] and str(a["mask"])[-len(str(dep["mask"])):] == str(dep["mask"])[-len(str(a["mask"])):]), None)
+                parts.append((int(dep["cents"]), acct))
+        elif splits:
+            parts = [(c, sp.get("account_id")) for sp, c in SP.per_account(s["net_cents"], splits) if sp.get("account_id")]
+        if not parts:
+            parts = [(s["net_cents"], rule.get("account_id"))]
+        used, hits = set(), []
+        for cents, acct in sorted(parts, key=lambda p: -p[0]):
+            hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=cents), [r for r in rows if r["id"] not in used], acct)
+            if hit:
+                used.add(hit["id"]); hits.append(hit)
+        if not hits and len(parts) > 1:                              # the statement says split, the bank shows one deposit: fall back to the whole net
+            hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=s["net_cents"]), rows, None)
+            hits = [hit] if hit else []
+        if hits:
+            rest().update("pay_statements", {"id": s["id"], "user_id": user_id}, {"matched_txn": hits[0]["id"]})
+            for h in hits:
+                rest().update("transactions", {"id": h["id"], "user_id": user_id}, {"note": f"Paycheck · {d:%b} {d.day}"})
             n += 1
     latest = rest().select("pay_statements", user_id=f"eq.{user_id}", select="net_cents,pay_date", order="pay_date.desc", limit="1")
     if latest:
-        for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", status="eq.expected", select="id,expected_date"):
+        by_account = {sp["account_id"]: c for sp, c in SP.per_account(latest[0]["net_cents"], splits) if sp.get("account_id")}
+        for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", status="eq.expected", select="id,expected_date,account_id"):
             if e["expected_date"] > latest[0]["pay_date"]:
-                rest().update("expected", {"id": e["id"]}, {"amount_cents": latest[0]["net_cents"]})
+                amount = by_account.get(e.get("account_id")) if e.get("account_id") else latest[0]["net_cents"]
+                if amount:
+                    rest().update("expected", {"id": e["id"]}, {"amount_cents": amount})
     return n
+
+@router.get("/pay/splits/suggested")
+def suggested_splits(user_id: str = Depends(current_user)):
+    """Pre-fill for Profile > Pay > Where it goes: the latest statement's deposit lines as split lines. Nothing is saved."""
+    from . import splits as SP
+    user_limiter.check(f"splits:{user_id}", 30, 60)
+    st = rest().select("pay_statements", user_id=f"eq.{user_id}", select="deposits,net_cents,pay_date", order="pay_date.desc", limit="1")
+    if not st or len(st[0].get("deposits") or []) < 1:
+        return {"splits": [], "net_cents": st[0]["net_cents"] if st else None}
+    accounts = rest().select("accounts", user_id=f"eq.{user_id}", select="id,mask,type")
+    return {"splits": SP.from_deposits(st[0]["deposits"], accounts), "net_cents": st[0]["net_cents"], "pay_date": st[0]["pay_date"]}
 
 @router.post("/import/statement")
 def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), account_id: str | None = Form(None), mapping: str | None = Form(None),
