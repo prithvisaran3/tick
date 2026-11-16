@@ -101,6 +101,89 @@ def test_reimporting_the_same_statement_adds_nothing(api):
 
 def test_a_pdf_that_is_not_a_pay_statement_says_so(api, monkeypatch):
     _, c = api
-    monkeypatch.setattr(P, "pdf_text", lambda raw: "CHASE checking statement Beginning balance")
+    monkeypatch.setattr(P, "pdf_pages", lambda raw: [{"plain": "CHASE checking statement Beginning balance", "rows": "", "layout": ""}])
+    monkeypatch.setattr(P, "parse_with_ai", lambda *a, **k: None)
     r = post(c)
     assert r.status_code == 422 and "isn't a pay statement" in r.json()["detail"]
+
+
+# ---------- ADP's real layout, in the variants its PDFs come in (synthetic: tools/make_paystub_fixture.py, no real values) ----------
+import json
+import logging
+
+WANT = (373500, 87883, 37910, 247707)
+
+@pytest.mark.parametrize("name", ["paystub_adp_rows", "paystub_adp_columns", "paystub_adp_2page", "paystub_adp_noytd", "paystub_adp_two_statements"])
+def test_real_layout_variants_read_to_the_cent(name):
+    s = P.read(U, (D / f"{name}.pdf").read_bytes(), ["Jordan Sample"])
+    assert (s.gross_cents, s.taxes_cents, s.deductions_cents, s.net_cents) == WANT and s.adds_up and s.problems == []
+    assert (s.employer, s.pay_date, s.period_start, s.period_end) == ("ACME ROBOTICS INC", date(2026, 11, 13), date(2026, 10, 26), date(2026, 11, 8))
+    assert [l.label for l in s.lines if l.kind == "earning"] == ["Regular", "Overtime"]          # the year-to-date-only Bonus row isn't this paycheck
+    assert [l.label for l in s.lines if l.kind == "tax"] == ["Federal Income Tax", "Social Security Tax", "Medicare Tax", "NY State Income Tax", "NY SDI Tax"]
+    assert not any("Group Term" in l.label or "Vac" in l.label for l in s.lines)                 # the benefits box on the right is not pay
+
+def test_columns_drawn_out_of_order_need_the_position_view():
+    raw = (D / "paystub_adp_columns.pdf").read_bytes()
+    plain = P.parse_adp(P.pdf_text(raw), [])
+    assert plain is None or not plain.adds_up                # the text stream alone has labels and numbers apart
+    assert P.read(U, raw, []).adds_up
+
+def test_several_direct_deposit_lines_with_their_account_endings():
+    s = P.read(U, (D / "paystub_adp_2page.pdf").read_bytes(), [])
+    assert [(d.label, d.cents, d.mask) for d in s.deposits] == [("Checking", 197707, "1234"), ("Savings", 50000, "5678")]
+    assert sum(d.cents for d in s.deposits) == s.net_cents
+    one = P.read(U, (D / "paystub_adp_noytd.pdf").read_bytes(), [])
+    assert [(d.cents, d.mask) for d in one.deposits] == [(247707, "1234")] and one.ytd.get("gross") is None
+
+def test_a_file_with_two_statements_reads_the_first_and_says_so():
+    s = P.read(U, (D / "paystub_adp_two_statements.pdf").read_bytes(), [])
+    assert s.statements_in_file == 2 and s.pay_date == date(2026, 11, 13) and s.adds_up
+
+def test_amounts_and_hours_are_told_apart():
+    assert P._amounts("Regular 46.6875 80.00 3,735.00 78,435.00") == [8000, 373500, 7843500]       # the rate isn't money
+    assert P._amounts("Federal Income Tax 412.50- (8.00) -$2.00 11/13/2026") == [-41250, -800, -200]
+    t = "Earnings Statement\nPay Date: 11/13/2026\nEarnings\nRegular 46.6875 80.00 3,735.00\nGross Pay $3,735.00\nTaxes\nFederal Income Tax -735.00\nNet Pay $3,000.00"
+    s = P.parse_adp(t)
+    assert (s.gross_cents, s.taxes_cents, s.net_cents) == (373500, 73500, 300000) and s.adds_up       # 80.00 hours never became pay
+
+def test_a_missing_field_is_named_not_guessed():
+    t = "Earnings Statement\nEarnings\nRegular 3,735.00\nGross Pay $3,735.00\nTaxes\nFederal Income Tax -735.00\nNet Pay $3,000.00"
+    assert P.parse_adp(t).problems == ["pay_date"]
+    t2 = "Earnings Statement\nPay Date: Nov 13, 2026\nGross Pay $3,735.00\nTaxes\nFederal Income Tax -700.00\nNet Pay $3,000.00"
+    s = P.parse_adp(t2)
+    assert s.pay_date == date(2026, 11, 13) and s.problems == ["adds_up"] and s.off_by_cents == 3500
+
+def test_logs_carry_field_names_and_counts_never_values(caplog):
+    with caplog.at_level(logging.INFO, logger="tick"):
+        P.read(U, (D / "paystub_adp_columns.pdf").read_bytes(), ["Jordan Sample"])
+    text = caplog.text
+    assert "pay_date=True" in text and "deposits=2" in text
+    for leak in ("3,735", "373500", "2477", "JORDAN", "ACME", "1234", "11/13"):
+        assert leak not in text
+
+def test_preview_names_what_to_fix_and_commit_takes_the_fix(api, monkeypatch):
+    f, c = api
+    pages = P.pdf_pages(RAW)
+    monkeypatch.setattr(P, "pdf_pages", lambda raw: [{k: v.replace("Pay Date: 11/13/2026", "") for k, v in p.items()} for p in pages])
+    j = post(c).json()
+    assert j["pay_date"] is None and [p["field"] for p in j["problems"]] == ["pay_date"] and "pay date" in j["problems"][0]["message"]
+    r = post(c, mode="commit")
+    assert r.status_code == 422 and "pay date" in r.json()["detail"] and f.rows("pay_statements") == []
+    j = post(c, mode="commit", fixes=json.dumps({"pay_date": "2026-11-13"})).json()
+    st = f.rows("pay_statements")[0]
+    assert j["imported"] == 1 and st["pay_date"] == "2026-11-13" and st["problems"] == ["pay_date"] and st["matched_txn"] == "dep"
+
+def test_a_corrected_total_replaces_that_groups_lines(api):
+    f, c = api
+    j = post(c, mode="commit", fixes=json.dumps({"taxes_cents": 87900})).json()
+    st = f.rows("pay_statements")[0]
+    assert (j["taxes_cents"], j["adds_up"], st["status"]) == (87900, False, "review")
+    assert [l["label"] for l in f.rows("pay_statement_lines") if l["kind"] == "tax"] == ["Taxes"]
+    assert post(c, mode="commit", fixes="[1]").status_code == 422
+    assert post(c, mode="commit", fixes=json.dumps({"net_cents": -5})).status_code == 422
+
+def test_deposit_lines_are_saved_with_the_statement(api):
+    f, c = api
+    j = post(c, raw=(D / "paystub_adp_columns.pdf").read_bytes(), mode="commit").json()
+    assert [d["mask"] for d in j["deposits"]] == ["1234", "5678"]
+    assert f.rows("pay_statements")[0]["deposits"] == j["deposits"]

@@ -94,3 +94,12 @@ Format: date · decision · why.
 - **Reduce Motion**: the square-up marks appear finished, page transitions fade (existing), springs unchanged otherwise. 5,000-row Activity scroll test (existing) still passes with no exceptions.
 - 2026-11-09 Review snoozes ("Not sure") are stored on the phone, not the server: nothing about an unsure answer leaves the device, so it can't train rules.
   Cost: a reinstall forgets snoozes, so a question may come back early. The review queue pages with swipes but answers only with buttons.
+
+## Plan v5 (2026-11-15)
+- Commits on this branch use the same steps as `tools/commit.sh` (secret scan, commit, push) but stage by path, because that script's `git add -A`
+  would commit `project.pbxproj` (my DEVELOPMENT_TEAM lines) and `tools/ios_run.sh`.
+- `private/paystub.pdf` did not exist, so Phase 1 was fixed from the Railway logs and synthetic ADP fixtures, not the real file. The first real
+  upload after deploy writes one `paystub read:` log line (field names and counts only) that says what parsed.
+- A pay statement with a field Tick can't read is not refused: preview names the field, the review screen takes the fix, and it is saved as
+  `review` when it still doesn't add up. Only "no pay date, gross or net at all" is refused.
+- Local pypdf was 5.4.0 while production pins 6.21.4; text positions differ between them, so the local install now matches the pin.
