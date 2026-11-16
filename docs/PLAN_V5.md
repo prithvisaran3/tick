@@ -80,3 +80,16 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
   A deposit lands only the line for the account it arrived in, and needs the amount to match (the employer's name alone can't tell lines apart).
   A statement with several deposits links each one to its own bank row, each row used once.
 - Safe to spend on payday adds only the lines into checking accounts that count (`paycheckIntoCash`); savings and outside accounts never do.
+### Phase 3: savings and goals
+- **Balances over time.** `account_balances` gets one row per account per New York day at the end of every bank sync (the sync job already runs;
+  no new schedule). Savings (from Home's Savings card) shows each savings account's balance, its change this month and a small trend line.
+- **Goals from real balances.** A goal has a name, an amount, an optional deadline, a mode ("Save this much" from today, or "Reach a balance") and
+  the accounts it's saved in. It remembers what those accounts held when it started; saved is what they've grown since. Nothing is typed in.
+- **Per paycheck.** Paydays between now and the deadline come from the pay rule (`paydaysBetween`, SQL `paydays_between`); each paycheck carries
+  `ceil(remaining / paychecks left)`. Behind = saved is under the even pace so far, and the catch-up is already folded into the per-paycheck amount.
+  Same arithmetic in Dart and Python with one vector file (`api/tests/data/goal_status.json`). $9,000 in 3 months, biweekly = 6 paychecks of $1,500.
+- **Payday.** Home shows one card, "Move $X to savings", with Done. Done records what the linked savings held (`goal_moves`); the next sync confirms
+  it when the balance has risen by at least 90% of the move, and after two days without a rise the card says Tick hasn't seen it. Safe to spend
+  stops setting the amount aside once it's marked. The old fake "Move to savings" transfer is no longer written for linked goals.
+- Goals made before this have no account: they keep what was typed and say "Link an account to track this from its balance".
+- Profile > Goals now opens Savings; the old goals sheet is gone.

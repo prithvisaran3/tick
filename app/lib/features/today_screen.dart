@@ -21,6 +21,8 @@ import 'ask_button.dart';
 import 'common.dart';
 import 'nudges.dart';
 import 'tips.dart';
+import '../data/savings.dart';
+import 'savings_screen.dart';
 
 /// Home: what you have. Cash in checking leads; savings sits apart; cards are one quiet row and never come off Cash here.
 /// Then the one suggestion that matters most, and the last few purchases. Safe to spend lives in Insights.
@@ -61,7 +63,10 @@ class TodayScreen extends ConsumerWidget {
           if (b.savings.isNotEmpty) ...[const SizedBox(height: TickSpace.x3), _Savings(b: b)],
           if (b.cardsOwedCents > 0 || b.nextCard != null) ...[const SizedBox(height: TickSpace.x3), _Cards(b: b)],
         ],
-        if (paydayNear) ...[
+        if (ref.watch(paydayMoveProvider) != null) ...[
+          const SizedBox(height: TickSpace.x3),
+          const MoveToSavingsCard(),
+        ] else if (paydayNear) ...[
           const SizedBox(height: TickSpace.x3),
           _Suggestion(title: 'Payday plan', body: sts.daysToPayday <= 1 ? 'Payday is here. Plan it in a minute.' : 'Payday is tomorrow. Plan it in a minute.', onTap: () => context.push('/payday-plan')),
         ] else if (nudge != null) ...[
@@ -150,7 +155,7 @@ class _Savings extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => b.savings.length == 1
       // One account: one line, not the same number twice.
       ? TickCard(
-          onTap: () { TickHaptics.instance.selection(); openActivity(ref, ActivityQuery(accounts: {b.savings.first.$1.id})); },
+          onTap: () { TickHaptics.instance.selection(); context.push('/savings'); },
           padding: const EdgeInsets.symmetric(horizontal: TickSpace.x4, vertical: TickSpace.x3),
           child: _Split(
             lead: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -159,7 +164,7 @@ class _Savings extends ConsumerWidget {
             ]),
             amount: Text(formatCents(b.savingsCents), style: context.ts(TickType.mono)),
           ))
-      : TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      : TickCard(onTap: () => context.push('/savings'), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _Split(lead: Text('Savings', style: context.ts(TickType.bodyS, color: context.c.textSecondary)), amount: Text(formatCents(b.savingsCents), style: context.ts(TickType.monoL))),
         for (final (a, cents) in b.savings) _AccountRow(a: a, cents: cents),
       ]));

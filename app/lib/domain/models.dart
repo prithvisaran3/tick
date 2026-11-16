@@ -195,11 +195,23 @@ class Expected {
 
 @immutable
 class Goal {
-  const Goal({required this.id, required this.name, required this.targetCents, required this.savedCents, required this.perPaydayCents, this.paused = false});
+  const Goal({required this.id, required this.name, required this.targetCents, required this.savedCents, required this.perPaydayCents, this.paused = false,
+      this.mode = 'balance', this.startCents = 0, this.startDate, this.dueDate, this.accountIds = const []});
   /// Paused goals keep their amount but plan nothing until resumed.
   final bool paused;
-  Goal copyWith({String? name, int? targetCents, int? savedCents, int? perPaydayCents, bool? paused}) => Goal(id: id, name: name ?? this.name, targetCents: targetCents ?? this.targetCents,
-      savedCents: savedCents ?? this.savedCents, perPaydayCents: perPaydayCents ?? this.perPaydayCents, paused: paused ?? this.paused);
+  /// 'balance': the linked accounts reach [targetCents]. 'save_more': they grow by [targetCents] from [startCents].
+  final String mode;
+  /// What the linked accounts held on [startDate]. Progress is measured from here, from real balances.
+  final int startCents;
+  final DateTime? startDate;
+  final DateTime? dueDate;
+  final List<String> accountIds;
+  /// Tied to accounts: saved and the per-paycheck amount are worked out, never typed.
+  bool get linked => accountIds.isNotEmpty;
+  Goal copyWith({String? name, int? targetCents, int? savedCents, int? perPaydayCents, bool? paused, String? mode, int? startCents, DateTime? startDate, DateTime? dueDate, bool clearDue = false, List<String>? accountIds}) =>
+      Goal(id: id, name: name ?? this.name, targetCents: targetCents ?? this.targetCents, savedCents: savedCents ?? this.savedCents, perPaydayCents: perPaydayCents ?? this.perPaydayCents,
+          paused: paused ?? this.paused, mode: mode ?? this.mode, startCents: startCents ?? this.startCents, startDate: startDate ?? this.startDate, dueDate: clearDue ? null : dueDate ?? this.dueDate,
+          accountIds: accountIds ?? this.accountIds);
   final String id;
   final String name;
   final int targetCents;

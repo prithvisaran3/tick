@@ -32,7 +32,7 @@ class Remote {
       txns: _each(r[2], Txn.fromJson),
       recurring: _each(r[3], _rec),
       expected: _each(r[4], _exp),
-      goals: [for (final j in r[5]) Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(), perPaydayCents: (j['per_payday_cents'] as num).toInt(), paused: j['paused'] == true)],
+      goals: [for (final j in r[5]) _goal(j)],
       linksUsed: (r[9] as List).length > (r[6] as List).length ? (r[9] as List).length : (r[6] as List).length,
       connections: [for (final j in r[6]) Connection.fromJson(j)].where((c) => c.status != 'removed').toList(),
       budgets: [for (final j in r[7]) Budget(id: j['id'] as String, categoryId: j['category_id'] as String, capCents: (j['monthly_cap_cents'] as num).toInt())],
@@ -94,10 +94,16 @@ class Remote {
 
   Future<void> deleteBudget(String id) => db.from('budgets').delete().eq('id', id);
 
+  static String _day(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  Goal _goal(Map<String, dynamic> j) => Goal(id: j['id'] as String, name: j['name'] as String, targetCents: (j['target_cents'] as num).toInt(), savedCents: (j['saved_cents'] as num).toInt(),
+      perPaydayCents: (j['per_payday_cents'] as num).toInt(), paused: j['paused'] == true, mode: (j['mode'] ?? 'balance') as String, startCents: (j['start_cents'] as num?)?.toInt() ?? 0,
+      startDate: DateTime.tryParse('${j['start_date']}'), dueDate: DateTime.tryParse('${j['due_date']}'), accountIds: [for (final a in (j['account_ids'] as List? ?? const [])) '$a']);
+
   Future<Goal> upsertGoal(Goal g) async {
-    final row = {'name': g.name, 'target_cents': g.targetCents, 'saved_cents': g.savedCents, 'per_payday_cents': g.perPaydayCents, 'paused': g.paused};
+    final row = {'name': g.name, 'target_cents': g.targetCents, 'saved_cents': g.savedCents, 'per_payday_cents': g.perPaydayCents, 'paused': g.paused, 'mode': g.mode, 'start_cents': g.startCents,
+        if (g.startDate != null) 'start_date': _day(g.startDate!), 'due_date': g.dueDate == null ? null : _day(g.dueDate!), 'account_ids': g.accountIds};
     final j = _isUuid(g.id) ? await db.from('goals').update(row).eq('id', g.id).select().single() : await db.from('goals').insert(row).select().single();
-    return g.copyWith().id == j['id'] ? g : Goal(id: j['id'] as String, name: g.name, targetCents: g.targetCents, savedCents: g.savedCents, perPaydayCents: g.perPaydayCents, paused: g.paused);
+    return _goal(j);
   }
 
   Future<void> deleteGoal(String id) => db.from('goals').delete().eq('id', id);

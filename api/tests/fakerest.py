@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-UNIQUE = {"ask_memory": [("user_id", "kind", "key")], "connections": [("provider", "item_id")], "plaid_items": [("item_id",)], "plaid_link_sessions": [("link_token",)],
+UNIQUE = {"account_balances": [("account_id", "day")], "goal_moves": [("user_id", "pay_date")], "ask_memory": [("user_id", "kind", "key")], "connections": [("provider", "item_id")], "plaid_items": [("item_id",)], "plaid_link_sessions": [("link_token",)],
           "plaid_slots": [("user_id",)], "accounts": [("user_id", "provider_account_id")], "ingest_tokens": [("token_hash",)]}
 PK = {"plaid_items": "item_id", "plaid_link_sessions": "link_token", "plaid_slots": "user_id"}
 

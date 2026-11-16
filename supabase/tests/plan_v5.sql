@@ -36,6 +36,26 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
   if (select count(*) from public.pay_splits) <> 2 then fails := fails || 'B cleared A splits; '; end if;
   reset role;
+  -- ---------- phase 3: balances, goals, moves ----------
+  insert into public.account_balances (user_id, account_id, day, balance_cents) values (a, sav, '2026-11-14', 500000), (b, other, '2026-11-14', 1);
+  insert into public.goal_moves (user_id, pay_date, cents, balance_before_cents) values (a, '2026-11-13', 150000, 500000);
+  begin insert into public.goal_moves (user_id, pay_date, cents, balance_before_cents) values (a, '2026-11-13', 1, 1); fails := fails || 'two moves for one payday; ';
+  exception when unique_violation then null; end;
+  if (select count(*) from public.paydays_between('{"frequency": "biweekly", "next_date": "2026-11-27"}'::jsonb, '2026-11-15', '2027-02-15')) <> 6 then
+    fails := fails || format('paydays in 3 months: %s; ', (select array_agg(d) from public.paydays_between('{"frequency": "biweekly", "next_date": "2026-11-27"}'::jsonb, '2026-11-15', '2027-02-15') d)); end if;
+  if (select count(*) from public.paydays_between('{"frequency": "biweekly", "next_date": "2026-11-27"}'::jsonb, '2026-11-27', '2026-11-27')) <> 0 then fails := fails || 'paydays_between includes its start; '; end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true); set local role authenticated;
+  if (select count(*) from public.account_balances) <> 1 or (select count(*) from public.goal_moves) <> 1 then fails := fails || 'A reads own balances and moves; '; end if;
+  begin insert into public.account_balances (user_id, account_id, day, balance_cents) values (a, sav, '2026-11-15', 9); fails := fails || 'app wrote a balance; ';
+  exception when insufficient_privilege then null; end;
+  begin update public.goal_moves set status = 'confirmed'; fails := fails || 'app confirmed its own move; ';
+  exception when insufficient_privilege then null; end;
+  insert into public.goals (name, target_cents, mode, start_cents, account_ids, due_date) values ('Move', 900000, 'save_more', 500000, array[sav], '2027-02-15');
+  begin insert into public.goals (name, target_cents, mode) values ('Bad', 1, 'someday'); fails := fails || 'unknown goal mode; ';
+  exception when check_violation then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  if (select count(*) from public.account_balances) <> 1 or (select count(*) from public.goal_moves) <> 0 or (select count(*) from public.goals) <> 0 then fails := fails || 'B reads A balances, moves or goals; '; end if;
+  reset role;
   -- ---------- more phases append above this line ----------
   if fails <> '' then raise exception 'PLAN_V5_TESTS_FAILED: %', fails; end if;
   raise exception 'PLAN_V5_TESTS_PASSED';

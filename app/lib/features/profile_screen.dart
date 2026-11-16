@@ -133,7 +133,7 @@ class ProfileScreen extends ConsumerWidget {
     if (v != null && context.mounted) await saveRule(context, ref, rule.copyWith(employer: v.trim()));
   }
 
-  void _goals(BuildContext context) => showTickSheet<void>(context, full: true, builder: (_) => const _GoalsSheet());
+  void _goals(BuildContext context) => context.push('/savings');
   void _bills(BuildContext context) => showTickSheet<void>(context, full: true, builder: (_) => const _BillsSheet());
   void _cashAccounts(BuildContext context) => showTickSheet<void>(context, builder: (_) => const _CashAccountsSheet());
   void _rules(BuildContext context) => showTickSheet<void>(context, full: true, builder: (_) => const _RulesSheet());
@@ -310,73 +310,6 @@ Future<void> showSecondIncome(BuildContext context, WidgetRef ref) async {
     if (context.mounted) showUndo(Overlay.of(context, rootOverlay: true), 'Second income removed', () => saveRule(context, ref, rule));
   } else if (res == 'save' && draft != null) {
     await saveRule(context, ref, rule.copyWith(second: PaydayRule(frequency: draft!.frequency, anchor: draft!.anchor, days: draft!.days, amountCents: parseCents(amount.text) ?? 0, employer: who.text.trim().isEmpty ? null : who.text.trim())));
-  }
-}
-
-class _GoalsSheet extends ConsumerWidget {
-  const _GoalsSheet();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final goals = ref.watch(ledgerProvider).goals;
-    final c = context.c;
-    return SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-      Text('Goals', style: context.ts(TickType.title)),
-      const SizedBox(height: TickSpace.x3),
-      if (goals.isEmpty) const EmptyState('No goals yet', 'Name one, set a target, and choose what you move each payday.', icon: 'goal'),
-      for (final g in goals) ProfileRow(title: g.paused ? '${g.name} · paused' : g.name, summary: '${formatCents(g.savedCents)} of ${formatCents(g.targetCents)} · ${formatCents(g.perPaydayCents)} each payday', onTap: () => _editGoal(context, ref, g)),
-      const SizedBox(height: TickSpace.x3),
-      PillButton('Add a goal', icon: 'plus', style: PillStyle.quiet, onTap: () => _editGoal(context, ref, null)),
-      Padding(padding: const EdgeInsets.only(top: TickSpace.x2), child: Text('Paused goals plan nothing until you resume them.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
-    ]));
-  }
-}
-
-Future<void> _editGoal(BuildContext context, WidgetRef ref, Goal? g) async {
-  final name = TextEditingController(text: g?.name ?? '');
-  final target = TextEditingController(text: g == null ? '' : formatCents(g.targetCents, symbol: false, raw: true));
-  final per = TextEditingController(text: g == null ? '' : formatCents(g.perPaydayCents, symbol: false, raw: true));
-  String? error;
-  final res = await showTickSheet<String>(context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-    Text(g == null ? 'New goal' : 'Edit goal', style: ctx.ts(TickType.title)),
-    const SizedBox(height: TickSpace.x3),
-    TallyField(controller: name, hint: 'Name, like Japan trip', label: 'Goal name'),
-    const SizedBox(height: TickSpace.x2),
-    TallyField(controller: target, hint: 'Target', label: 'Target in dollars', keyboard: const TextInputType.numberWithOptions(decimal: true)),
-    const SizedBox(height: TickSpace.x2),
-    TallyField(controller: per, hint: 'Each payday', label: 'Each payday in dollars', keyboard: const TextInputType.numberWithOptions(decimal: true)),
-    if (error != null) Padding(padding: const EdgeInsets.only(top: TickSpace.x2), child: Text(error!, style: ctx.ts(TickType.bodyS, color: ctx.c.alert))),
-    const SizedBox(height: TickSpace.x3),
-    PillButton('Save', onTap: () {
-      if (name.text.trim().isEmpty || (parseCents(target.text) ?? 0) <= 0) { set(() => error = 'A name and a target, please.'); return; }
-      Navigator.of(ctx).pop('save');
-    }),
-    if (g != null) ...[
-      const SizedBox(height: TickSpace.x2),
-      PillButton(g.paused ? 'Resume' : 'Pause', style: PillStyle.quiet, onTap: () => Navigator.of(ctx).pop('pause')),
-      const SizedBox(height: TickSpace.x2),
-      PillButton('Delete goal', style: PillStyle.quiet, onTap: () => Navigator.of(ctx).pop('delete')),
-    ],
-  ])));
-  if (!context.mounted || res == null) return;
-  final n = ref.read(ledgerProvider.notifier);
-  final overlay = Overlay.of(context, rootOverlay: true);
-  switch (res) {
-    case 'save':
-      await n.saveGoal(Goal(id: g?.id ?? 'local-g-${DateTime.now().microsecondsSinceEpoch}', name: name.text.trim(), targetCents: parseCents(target.text)!, savedCents: g?.savedCents ?? 0, perPaydayCents: parseCents(per.text) ?? 0, paused: g?.paused ?? false));
-    case 'pause':
-      await n.saveGoal(g!.copyWith(paused: !g.paused));
-    case 'delete':
-      final ok = await showTickSheet<bool>(context, builder: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
-        Text('Delete ${g!.name}?', style: ctx.ts(TickType.title)),
-        const SizedBox(height: TickSpace.x3),
-        PillButton('Delete', onTap: () => Navigator.of(ctx).pop(true)),
-        const SizedBox(height: TickSpace.x2),
-        PillButton('Keep it', style: PillStyle.quiet, onTap: () => Navigator.of(ctx).pop(false)),
-      ]));
-      if (ok == true) {
-        await n.deleteGoal(g!.id);
-        showUndo(overlay, '${g.name} deleted', () => n.saveGoal(Goal(id: 'local-g-${DateTime.now().microsecondsSinceEpoch}', name: g.name, targetCents: g.targetCents, savedCents: g.savedCents, perPaydayCents: g.perPaydayCents, paused: g.paused)));
-      }
   }
 }
 

@@ -23,6 +23,7 @@ from .people import router as people_router
 from .rules import router as rules_router
 from .splitwise_mail import router as splitwise_router
 from .splitwise_explain import router as splitwise_explain_router
+from .goals import router as goals_router
 from .tally_bills import router as bills_router
 
 log = logging.getLogger("tick")
@@ -47,6 +48,7 @@ app.include_router(bills_router)
 app.include_router(rules_router)
 app.include_router(splitwise_router)
 app.include_router(splitwise_explain_router)
+app.include_router(goals_router)
 
 CALM = "That didn't go through. Try again, nothing was lost."
 

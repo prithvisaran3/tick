@@ -927,6 +927,8 @@ def _safe_sync(conn: dict, refresh: bool = False) -> None:
             except Exception:
                 pass                                                           # not allowed or rate limited: sync what we already can
         sync_connection(conn)
+        from .goals import after_sync
+        after_sync(conn["user_id"])                                            # today's balance snapshot, and any "moved to savings" to confirm
     except Exception:
         pass                                                                   # state already recorded by sync_connection
 
