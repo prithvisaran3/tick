@@ -18,7 +18,8 @@ jobs:
           if git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$'; then echo ".env file committed"; exit 1; fi
   migrations:
     # Every migration + the RLS and totals tests on a throwaway Postgres (no Supabase project, no secrets).
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to an image without postgresql-16 in its package list (CI failed "Unable to locate package").
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with: { persist-credentials: false }
