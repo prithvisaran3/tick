@@ -114,6 +114,18 @@ void main() {
     expect(c.read(reviewQuestionsProvider).where((q) => q.kind == 'Planned'), isEmpty);
   });
 
+  testWidgets('a one-off already bought is not set aside twice while it waits for Yes', (t) async {
+    final c = await demoContainer(now: today);
+    addTearDown(c.dispose);
+    await c.read(plannedProvider.future);
+    final before = c.read(safeToSpendProvider)!.cents;
+    final tx = c.read(ledgerProvider).txns.firstWhere((x) => x.amountCents < -1500 && !x.isTransfer);
+    await c.read(plannedProvider.notifier).add('Night out', -tx.amountCents, dayOnlyOf(tx.occurredAt));
+    expect(c.read(safeToSpendProvider)!.cents, before);                  // it posted already: the purchase is in Cash, not set aside again
+    await c.read(plannedProvider.notifier).add('Later thing', 4200, DateTime(2026, 11, 18));
+    expect(c.read(safeToSpendProvider)!.cents, before - 4200);
+  });
+
   testWidgets('largest text at 320', (t) async {
     final c = await demoContainer(now: today);
     addTearDown(c.dispose);

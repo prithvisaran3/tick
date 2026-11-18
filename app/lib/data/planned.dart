@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../domain/dates.dart';
 import '../domain/goals.dart';
 import '../domain/models.dart';
 import '../domain/payday.dart';
@@ -73,7 +74,12 @@ SafeToSpend? computeSafeFor(Ref ref, {bool withRelief = true}) {
   final now = dayOnly(ref.watch(clockProvider)());
   if (demo) rule = demoPaydayRule(now);
   if (rule == null) return null;
-  final planned = ref.watch(plannedProvider).value ?? const <PlannedExpense>[];
+  // A one-off whose purchase has most likely already posted isn't set aside again while it waits for my Yes: that would count it twice.
+  final all = ref.watch(plannedProvider).value ?? const <PlannedExpense>[];
+  // Only a purchase from two days before its date on counts here; the Yes/No card still asks about the wider week.
+  final bought = {for (final (p, t) in plannedMatches(all, l.txns.where((t) => !dayOnly(t.occurredAt).isAfter(now)).toList()))
+    if (!dayOnly(t.occurredAt).isBefore(addDays(dayOnly(p.due), -2))) p.id};
+  final planned = [for (final p in all) if (!bought.contains(p.id)) p];
   final (start, payday) = payDates(rule, now);
   final moved = ref.watch(goalMovesProvider).value?[_iso(start)];
   final relief = withRelief ? goalRelief(planned, start, payday) : 0;

@@ -108,3 +108,9 @@ Format: date · decision · why.
   and keeps relieving that period even after the purchase is matched, so the money isn't asked for twice.
 - The SQL suite (`supabase/tests/plan_v5.sql`) could not run on this Mac: there is no local Postgres, and installing one in the scratch folder was
   blocked. It runs with `python3 tools/run_rls_tests.py` after `supabase db push --remote`.
+- Review fixes before the PR: (1) Ask Tick counted a goal tied to accounts twice (its old typed per-payday amount plus the amount worked out from
+  balances) and didn't skip paused goals; now it matches the app. (2) A planned one-off that had already been bought but not yet confirmed on the
+  Yes/No card stayed set aside for up to a week, counting it twice. Now a likely purchase dated from two days before the plan's date on stops it
+  being set aside (app and Ask Tick, same rule); the Yes/No card still asks about a wider week. Purchases well before the date never count.
+- Phase 8 built three of the candidates (overdraft-before-payday line, stale-balance note, Tally open-since); the others are in NEXT.md with why.
+- Release builds weren't part of this finish (the brief asked for analyze, tests, pytest, contrast, RLS and the eval); no Swift or pod changed.

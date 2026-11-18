@@ -143,3 +143,6 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
 3. **Tally: how long a balance has been open.** A group row now reads "You owe $70.00 · since Oct 2": the first expense after the last
    confirmed settle-up, shown once it's two weeks old. Pending settle-ups don't reset it.
 All three are pure functions in `app/lib/domain/runway.dart` with tests, and goldens of the Cash card at 320 and 430.
+### Finish
+analyze clean · flutter test 712 · pytest 532 · contrast 28/28 · Ask eval 60/60 rules, 2/2 learned, 2/2 approved · secret scan clean.
+`supabase/tests/plan_v5.sql` has not run anywhere yet: no local Postgres on this Mac. It runs with `python3 tools/run_rls_tests.py` after the push.

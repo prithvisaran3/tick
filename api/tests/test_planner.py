@@ -53,3 +53,19 @@ def test_paycheck_plan_planned_and_savings_trend():
     assert tool == "savings_trend" and "starts tracking" in r.text
     r = ask("did my savings go down", ledger(savings=[{"name": "SoFi", "balance": 1150000, "month_start": 1200000}]))[1]
     assert r.text == "$11,500 in savings, down $500 this month."
+
+def test_a_goal_tied_to_accounts_is_never_counted_twice():
+    from app.ask import typed_goal_cents
+    goals = [{"per_payday_cents": 40000, "saved_cents": 0, "target_cents": 900000, "account_ids": ["sav"], "paused": False},     # worked out from balances instead
+             {"per_payday_cents": 5000, "saved_cents": 0, "target_cents": 100000, "account_ids": [], "paused": False},          # typed: counts
+             {"per_payday_cents": 7000, "saved_cents": 0, "target_cents": 100000, "account_ids": None, "paused": True},          # paused: nothing
+             {"per_payday_cents": 9000, "saved_cents": 100000, "target_cents": 100000, "account_ids": [], "paused": False}]      # done: nothing
+    assert typed_goal_cents(goals) == 5000
+
+def test_a_one_off_already_bought_is_not_set_aside_twice():
+    gift = {"name": "Gift", "cents": 5000, "due": date(2026, 11, 4), "status": "planned"}
+    bought = {"id": "t1", "merchant": "Shop", "amount_cents": -4800, "out_cents": 4800, "in_cents": 0, "date": date(2026, 11, 5), "category": "Shopping", "tags": [], "person": None}
+    l = ledger(planned=[gift])
+    assert ask("what's safe to spend", l)[1].numbers["cents"] == 100000 - 75000 - 5000
+    l.txns = [bought]
+    assert ask("what's safe to spend", l)[1].numbers["cents"] == 100000 - 75000                 # the purchase already lowered checking

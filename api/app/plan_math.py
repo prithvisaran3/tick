@@ -41,3 +41,23 @@ def goal_relief(planned: list[dict], period_start: date, payday: date) -> int:
     """What goals give up this period for one-offs I already decided about. Stays for the whole period, matched or not."""
     return sum(int(p.get("shortfall_cents") or 0) for p in planned
                if p.get("resolution") and p.get("status") != "dismissed" and period_start - timedelta(days=PLANNED_GRACE_DAYS) <= _d(p["due"]) < payday)
+
+def likely_bought(planned: list[dict], txns: list[dict], today: date) -> set[str]:
+    """Names of planned one-offs whose purchase has most likely posted already (money out within 20% or $20, within a week). The same rule as
+    the app's plannedMatches; such a one-off stops being set aside while it waits for a Yes, so it's never counted twice."""
+    used, out = set(), set()
+    for p in sorted((p for p in planned if p.get("status", "planned") == "planned"), key=lambda p: _d(p["due"])):
+        slack = max(int(p["cents"]) // 5, 2000)
+        best = None
+        for t in txns:
+            if t.get("amount_cents", 0) >= 0 or t.get("id") in used or not t.get("out_cents") or _d(t["date"]) > today:
+                continue
+            off, days = abs(-int(t["amount_cents"]) - int(p["cents"])), abs((_d(t["date"]) - _d(p["due"])).days)
+            if off <= slack and days <= 7 and (best is None or off + days * 500 < best[0]):
+                best = (off + days * 500, t["id"])
+        if best:
+            used.add(best[1])
+            t = next(x for x in txns if x.get("id") == best[1])
+            if _d(t["date"]) >= _d(p["due"]) - timedelta(days=2):          # a purchase well before its date isn't it
+                out.add(p["name"])
+    return out

@@ -297,7 +297,8 @@ class Tools:
         cards = sum(a.get("statement_balance_cents") or 0 for a in l.accounts if a["type"] == "credit" and a.get("due_date") and a["due_date"] <= end)
         moves = 0 if l.goal_moved else sum(st["per_paycheck"] for g, st in self._goal_rows() if not g.get("paused") and st["status"] != "done")
         moves = max(0, moves - PM.goal_relief(l.planned, start, end))
-        planned = sum(int(p["cents"]) for p in l.planned if PM.counts_this_period(p, l.today, end))
+        bought = PM.likely_bought(l.planned, l.txns, l.today)
+        planned = sum(int(p["cents"]) for p in l.planned if PM.counts_this_period(p, l.today, end) and p["name"] not in bought)
         return {"cash": cash, "bills": bills, "cards": cards, "goals": l.goals_cents + moves, "planned": planned, "payday": pay,
                 "safe": cash - bills - cards - l.goals_cents - moves - planned}
 
