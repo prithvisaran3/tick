@@ -24,8 +24,8 @@ void main() {
     GoalStatus st(GoalState s, {int per = 150000, int behind = 0, int left = 4, int remaining = 600000}) =>
         GoalStatus(state: s, savedCents: 300000, remainingCents: remaining, paychecksLeft: left, perPaycheckCents: per, behindByCents: behind, amountCents: 900000);
     final g = Goal(id: 'g', name: 'Move', targetCents: 900000, savedCents: 0, perPaydayCents: 0, mode: 'save_more', dueDate: DateTime(2027, 2, 15), accountIds: const ['sav']);
-    expect(goalLine(GoalPlan(g, st(GoalState.onTrack))), 'On track · \$1,500.00 a paycheck until Feb 15');
-    expect(goalLine(GoalPlan(g, st(GoalState.behind, per: 187500, behind: 150000))), 'Behind by \$1,500.00 · \$1,875.00 a paycheck catches up by Feb 15');
+    expect(goalLine(GoalPlan(g, st(GoalState.onTrack))), 'On track · \$1,500.00 a paycheck until Feb\u00a015');
+    expect(goalLine(GoalPlan(g, st(GoalState.behind, per: 187500, behind: 150000))), 'Behind by \$1,500.00 · \$1,875.00 a paycheck catches up by Feb\u00a015');
     expect(goalLine(GoalPlan(g, st(GoalState.done, remaining: 0))), 'Done');
     expect(goalLine(GoalPlan(g.copyWith(paused: true), st(GoalState.onTrack))), 'Paused');
     expect(goalLine(GoalPlan(const Goal(id: 'o', name: 'Old', targetCents: 1, savedCents: 0, perPaydayCents: 0), st(GoalState.onTrack))), 'Link an account to track this from its balance');
@@ -41,7 +41,7 @@ void main() {
       expect(find.text('Emergency fund'), findsOneWidget);
       expect(find.textContaining('a paycheck'), findsOneWidget);
       expect(find.text('New goal'), findsOneWidget);
-      await expectLater(find.byType(SavingsScreen), matchesGoldenFile('goldens/savings.${w.toInt()}.${dark ? 'dark' : 'light'}.png'));
+      await expectLater(find.byType(SavingsScreen), matchesGoldenFile('goldens/savings-screen.${w.toInt()}.${dark ? 'dark' : 'light'}.png'));
     });
   }
 

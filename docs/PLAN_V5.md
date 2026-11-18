@@ -117,3 +117,11 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
   spare. At most two. The model rewrites the template and the rewrite is kept only if it has exactly the same dollar amounts and no new numbers.
   Accept and dismiss go to `ask_memory` (kind `suggestion`); a kind dismissed twice rests for 30 days; accepting resets it.
 - App: one card, "Suggested", up to two rows (tap acts and opens the right screen), "Not now" dismisses both. It shows only when there is one.
+### Phase 6: Insights, simplified
+- Insights is exactly four blocks, in order: **Safe to spend this pay period** (with "How it's calculated", planned one-offs and the trade-off
+  line); **the top goal** (behind first, then nearest deadline; "All goals" opens Savings); **the suggestion card** (only when there is one);
+  **spent this pay period** against the same number of days of the last one, top 4 categories, "See all".
+- "See all" (`/insights/more`, "Spending") holds what used to be on Insights: the month against last month and its projection, every category,
+  money with friends, top merchants, subscriptions and the Pay card. Nothing was deleted; nothing on Insights repeats it.
+- "0% less" now reads "About the same as the last one". Goal dates use a non-breaking space so "Dec 28" never splits.
+- Goldens: insights, insights-more and savings at 320 and 430 (dark) plus 393 dark and light, checked by eye.

@@ -29,7 +29,7 @@ String goalLine(GoalPlan p) {
   if (s.state == GoalState.done) return 'Done';
   if (!g.linked) return 'Link an account to track this from its balance';
   if (g.dueDate == null) return '${formatCents(s.remainingCents)} to go · no deadline';
-  final by = DateFormat('MMM d').format(g.dueDate!);
+  final by = DateFormat('MMM d').format(g.dueDate!).replaceAll(' ', '\u00a0');          // "Dec 28" never splits across lines
   if (s.paychecksLeft == 0) return '${formatCents(s.remainingCents)} short · the deadline was $by';
   if (s.state == GoalState.behind) return 'Behind by ${formatCents(s.behindByCents)} · ${formatCents(s.perPaycheckCents)} a paycheck catches up by $by';
   return 'On track · ${formatCents(s.perPaycheckCents)} a paycheck until $by';
@@ -89,9 +89,11 @@ class SavingsScreen extends ConsumerWidget {
 
 /// A goal: name, how far, a bar, and one line on where it stands.
 class GoalCard extends StatelessWidget {
-  const GoalCard({super.key, required this.p, this.onTap});
+  const GoalCard({super.key, required this.p, this.onTap, this.trailing});
   final GoalPlan p;
   final VoidCallback? onTap;
+  /// A quiet link under the line, like "All goals" on Insights.
+  final String? trailing;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -111,6 +113,7 @@ class GoalCard extends StatelessWidget {
       )),
       const SizedBox(height: TickSpace.x2),
       Text(goalLine(p), style: context.ts(TickType.bodyS, color: behind ? c.alert : c.textSecondary)),
+      if (trailing != null) Padding(padding: const EdgeInsets.only(top: TickSpace.x2), child: Text('$trailing  ›', style: context.ts(TickType.body))),
     ])));
   }
 }

@@ -105,6 +105,7 @@ GoRouter buildRouter(WidgetRef ref, {String initial = '/'}) => GoRouter(
         GoRoute(path: '/pay', pageBuilder: (c, s) => _page(s, const PayByMonthScreen())),
         GoRoute(path: '/review', pageBuilder: (c, s) => _page(s, const ReviewQueueScreen())),
         GoRoute(path: '/profile', pageBuilder: (c, s) => _page(s, const ProfileScreen())),
+        GoRoute(path: '/insights/more', pageBuilder: (c, s) => _page(s, const InsightsMoreScreen())),
         GoRoute(path: '/planned', pageBuilder: (c, s) => _page(s, const PlannedScreen())),
         GoRoute(path: '/savings', pageBuilder: (c, s) => _page(s, const SavingsScreen())),
         GoRoute(path: '/profile/pay-splits', pageBuilder: (c, s) => _page(s, const PaySplitsScreen())),
