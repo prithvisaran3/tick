@@ -106,8 +106,8 @@ Format: date · decision · why.
 - A planned one-off that leaves the plan short takes the gap out of this paycheck's goal move only (never more than that move); anything beyond
   that is plain overspending and shows as a negative Safe to spend. The choice I make is stored on the one-off (`shortfall_cents`, `resolution`),
   and keeps relieving that period even after the purchase is matched, so the money isn't asked for twice.
-- The SQL suite (`supabase/tests/plan_v5.sql`) could not run on this Mac: there is no local Postgres, and installing one in the scratch folder was
-  blocked. It runs with `python3 tools/run_rls_tests.py` after `supabase db push --remote`.
+- The SQL suites couldn't run on this Mac (no local Postgres; installing one was blocked), so CI is where they ran: the `migrations` job is pinned to
+  ubuntu-24.04 because ubuntu-latest no longer ships postgresql-16. All suites pass there, `plan_v5.sql` included.
 - Review fixes before the PR: (1) Ask Tick counted a goal tied to accounts twice (its old typed per-payday amount plus the amount worked out from
   balances) and didn't skip paused goals; now it matches the app. (2) A planned one-off that had already been bought but not yet confirmed on the
   Yes/No card stayed set aside for up to a week, counting it twice. Now a likely purchase dated from two days before the plan's date on stops it

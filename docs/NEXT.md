@@ -3,8 +3,8 @@
 ## Plan v5 (`feat/plan-v5`, 2026-11-17)
 Phases 1–8 are done (docs/PLAN_V5.md has a log per phase). New migrations, in order: `20261123000001_pay_statement_review`,
 `20261124000001_pay_splits`, `20261125000001_savings_goals`, `20261126000001_planned_expenses`, `20261127000001_plan_suggestions`.
-**By hand:** run the SQL suite after `supabase db push --remote` (`python3 tools/run_rls_tests.py`): it includes `plan_v5.sql`, which could not run on
-this Mac (no local Postgres). Import `private/paystub.pdf` once after deploy; the API logs one `paystub read:` line with which fields parsed.
+**By hand:** after `supabase db push --remote`, run `python3 tools/run_rls_tests.py` against the project (CI already ran every suite, `plan_v5.sql`
+included, on a throwaway Postgres). Import `private/paystub.pdf` once after deploy; the API logs one `paystub read:` line with which fields parsed.
 Existing goals have no account, so they show "Link an account to track this from its balance" until edited in Savings.
 
 ### Considered in Phase 8, not built

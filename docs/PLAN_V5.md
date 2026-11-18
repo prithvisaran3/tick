@@ -145,4 +145,5 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
 All three are pure functions in `app/lib/domain/runway.dart` with tests, and goldens of the Cash card at 320 and 430.
 ### Finish
 analyze clean · flutter test 712 · pytest 532 · contrast 28/28 · Ask eval 60/60 rules, 2/2 learned, 2/2 approved · secret scan clean.
-`supabase/tests/plan_v5.sql` has not run anywhere yet: no local Postgres on this Mac. It runs with `python3 tools/run_rls_tests.py` after the push.
+CI (`migrations` job, real Postgres 16): all 32 migrations apply and every SQL suite passes, `plan_v5.sql` included. The job had to be pinned to
+ubuntu-24.04 (ubuntu-latest dropped postgresql-16), and `save_pay_splits` was added to the reviewed list of app-callable definer functions.
