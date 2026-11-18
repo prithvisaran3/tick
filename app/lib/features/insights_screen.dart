@@ -21,11 +21,84 @@ import 'ask_button.dart';
 import 'common.dart';
 import 'pay_screens.dart';
 import 'safe_card.dart';
+import 'package:go_router/go_router.dart';
+import '../data/savings.dart';
+import '../data/suggestions.dart';
+import 'savings_screen.dart';
+import 'suggestion_card.dart';
 
-/// Insights answers two questions: "Where is my money going?" and "Am I on track?". Everything here comes from the shared money rules:
-/// cards included, transfers and Tally settle-ups excluded. Nothing is shown that can't be tapped through to the rows behind it.
+/// Insights is four things, in this order: Safe to spend this pay period; the top goal; a suggestion when there is one; spending this pay period
+/// against the last. Everything else (the month, merchants, subscriptions, money with friends, pay) is one tap away in "See all".
 class InsightsScreen extends ConsumerWidget {
   const InsightsScreen({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l = ref.watch(ledgerProvider);
+    final plans = ref.watch(goalPlansProvider);
+    Future<void> refresh() async { await ref.read(ledgerProvider.notifier).refresh(); ref.invalidate(periodSpendProvider); ref.invalidate(insightsProvider); ref.invalidate(suggestionsProvider); }
+    final top = plans.where((p) => !p.goal.paused).firstOrNull;
+    return TickPage(
+      title: 'Insights', trailing: const AskButton(), onRefresh: refresh, bottomPad: 130,
+      children: [
+        if (l.offline) OfflineBanner(onRetry: refresh),
+        const SafeToSpendCard(),
+        const SizedBox(height: TickSpace.x3),
+        if (top != null) GoalCard(p: top, onTap: () => context.push('/savings'), trailing: plans.length > 1 ? 'All goals' : null)
+        else TickCard(onTap: () => context.push('/savings'), child: Row(children: [
+          Expanded(child: Text('Set a savings goal and Tick works out each paycheck\'s share.', style: context.ts(TickType.body))),
+          TickIcon('chevron-right', size: 18, color: context.c.textSecondary),
+        ])),
+        if ((ref.watch(suggestionsProvider).value ?? const []).isNotEmpty) ...[const SizedBox(height: TickSpace.x3), const SuggestionCard()],
+        const SizedBox(height: TickSpace.x3),
+        const _PeriodSpend(),
+      ],
+    );
+  }
+}
+
+/// This pay period so far against the same days of the last one, and the top four categories. "See all" opens the rest.
+class _PeriodSpend extends ConsumerWidget {
+  const _PeriodSpend();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    final l = ref.watch(ledgerProvider);
+    return switch (ref.watch(periodSpendProvider)) {
+      AsyncData(value: null) => const SizedBox.shrink(),
+      AsyncData(value: final PeriodSpend d) => () {
+        final cats = d.categories.take(4).toList();
+        final maxCat = cats.isEmpty ? 1 : cats.map((r) => r.$2 > r.$3 ? r.$2 : r.$3).reduce((a, b) => a > b ? a : b);
+        final vs = d.vsLast;
+        return TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Spent this pay period', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: RollingNumber(value: d.cur.outCents, builder: (_, v) => Text(formatCents(v), style: context.ts(TickType.displayM)))),
+          Text(vs == null ? 'The last pay period isn\'t there to compare yet.'
+              : (vs.abs() * 100).round() == 0 ? 'About the same as the last one, ${d.days} ${d.days == 1 ? 'day' : 'days'} in'
+              : '${(vs.abs() * 100).round()}% ${vs <= 0 ? 'less' : 'more'} than the last one, ${d.days} ${d.days == 1 ? 'day' : 'days'} in',
+              style: context.ts(TickType.bodyS, color: vs != null && vs > 0.15 ? c.alert : c.textSecondary)),
+          if (cats.isNotEmpty) ...[
+            const SizedBox(height: TickSpace.x2),
+            for (final (i, r) in cats.indexed) ...[
+              if (i > 0) const Hairline(),
+              _CatRow(name: r.$1 == 'none' ? 'Other' : (l.category(r.$1)?.name ?? 'Other'), now: r.$2, before: r.$3, max: maxCat,
+                  onTap: r.$1 == 'none' ? null : () => openActivity(ref, ActivityQuery(categories: {r.$1}))),
+            ],
+          ],
+          Pressable(
+            onTap: () => context.push('/insights/more'), semanticLabel: 'See all spending insights',
+            child: ConstrainedBox(constraints: const BoxConstraints(minHeight: 44), child: Align(alignment: Alignment.centerLeft, child: Text('See all  ›', style: context.ts(TickType.body)))),
+          ),
+        ]));
+      }(),
+      AsyncError(:final error) => ErrorState(title: 'Spending didn\'t load', body: describeError(error, action: 'load spending'), onRetry: () async => ref.invalidate(periodSpendProvider)),
+      _ => const Skeleton(height: 220, radius: 24),
+    };
+  }
+}
+
+/// "See all": the month against last month, every category, money with friends, top merchants, subscriptions and pay.
+class InsightsMoreScreen extends ConsumerWidget {
+  const InsightsMoreScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = ref.watch(ledgerProvider);
@@ -33,17 +106,15 @@ class InsightsScreen extends ConsumerWidget {
     final sts = ref.watch(safeToSpendProvider);
     Future<void> refresh() async { await ref.read(ledgerProvider.notifier).refresh(); ref.invalidate(insightsProvider); }
     return TickPage(
-      title: 'Insights', trailing: const AskButton(), onRefresh: refresh, bottomPad: 130,
+      title: 'Spending', onBack: () => context.pop(), onRefresh: refresh, bottomPad: 60,
       children: [
-        if (l.offline) OfflineBanner(onRetry: refresh),
-        const SafeToSpendCard(),
-        const PayInsightsCard(),
-        const SizedBox(height: TickSpace.x3),
         switch (data) {
           AsyncData(:final value) => _Body(d: value, ledger: l, sts: sts),
           AsyncError(:final error) => ErrorState(title: 'Insights didn\'t load', body: describeError(error, action: 'load Insights'), onRetry: refresh),
           _ => const Column(children: [Skeleton(height: 150, radius: 24), SizedBox(height: 12), Skeleton(height: 220, radius: 24), SizedBox(height: 12), Skeleton(height: 160, radius: 24)]),
         },
+        const SizedBox(height: TickSpace.x3),
+        const PayInsightsCard(),
       ],
     );
   }
@@ -62,7 +133,7 @@ class _Body extends ConsumerWidget {
     }
     final month = DateFormat('MMMM').format(d.now);
     final vs = d.vsLast;
-    final cats = d.categories.take(6).toList();
+    final cats = d.categories.toList();
     final maxCat = cats.isEmpty ? 1 : cats.map((r) => r.$2 > r.$3 ? r.$2 : r.$3).reduce((a, b) => a > b ? a : b);
     final up = vs != null && vs > 0.15;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

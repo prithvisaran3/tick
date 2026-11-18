@@ -88,7 +88,7 @@ def ask(c, q, **kw):
 def test_answer_logs_numbers_and_the_path(api):
     f, c = api
     ev, text, meta = ask(c, "what's safe to spend")
-    assert text.startswith("$4") and meta["path"] == "rules"
+    assert text.startswith(B.money(E.SAFE)) and meta["path"] == "rules"
     row = f.rows("ask_log")[0]
     assert row["tool"] == "safe_to_spend" and row["summary"] == {"cents": E.SAFE}
 
@@ -100,7 +100,7 @@ def test_a_paraphrase_is_answered_after_one_thumbs_up(api, monkeypatch):
     assert c.post("/ask/feedback", json={"log_id": _uuid(f), "rating": 1}).status_code == 200
     monkeypatch.setattr(A, "cloud_route", lambda u, q, m, a: pytest.fail("called the model"))
     _, text, meta = ask(c, "hit me with the runway till my next pay")
-    assert meta["path"] == "learned" and text.startswith("$4")
+    assert meta["path"] == "learned" and text.startswith(B.money(E.SAFE))
 
 def _uuid(f):
     row = f.rows("ask_log")[-1]

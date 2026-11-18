@@ -1,0 +1,14 @@
+{
+  "$comment": "Shared by SQL (supabase/tests/plan_v5.sql), Python (api/tests/test_pay_splits.py) and Dart (app/test/pay_splits_test.dart). value: basis points for percent, cents for fixed.",
+  "cases": [
+    {"name": "no splits", "net": 247707, "splits": [], "want": []},
+    {"name": "rest only", "net": 247707, "splits": [{"kind": "rest", "value": 0}], "want": [247707]},
+    {"name": "fixed then rest", "net": 247707, "splits": [{"kind": "fixed", "value": 50000}, {"kind": "rest", "value": 0}], "want": [50000, 197707]},
+    {"name": "percent floors, rest takes the cent", "net": 247707, "splits": [{"kind": "percent", "value": 3333}, {"kind": "rest", "value": 0}], "want": [82560, 165147]},
+    {"name": "rest listed first still gets what is left", "net": 100000, "splits": [{"kind": "rest", "value": 0}, {"kind": "percent", "value": 1000}, {"kind": "fixed", "value": 25000}], "want": [65000, 10000, 25000]},
+    {"name": "fixed bigger than the paycheck is capped", "net": 30000, "splits": [{"kind": "fixed", "value": 50000}, {"kind": "percent", "value": 5000}, {"kind": "rest", "value": 0}], "want": [30000, 0, 0]},
+    {"name": "percent of the whole net, capped by what fixed left", "net": 100000, "splits": [{"kind": "fixed", "value": 60000}, {"kind": "percent", "value": 5000}, {"kind": "rest", "value": 0}], "want": [60000, 40000, 0]},
+    {"name": "three accounts", "net": 247707, "splits": [{"kind": "fixed", "value": 50000}, {"kind": "percent", "value": 1000}, {"kind": "rest", "value": 0}], "want": [50000, 24770, 172937]},
+    {"name": "100 percent leaves the rest nothing", "net": 99999, "splits": [{"kind": "percent", "value": 10000}, {"kind": "rest", "value": 0}], "want": [99999, 0]}
+  ]
+}

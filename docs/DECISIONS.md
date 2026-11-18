@@ -94,3 +94,23 @@ Format: date · decision · why.
 - **Reduce Motion**: the square-up marks appear finished, page transitions fade (existing), springs unchanged otherwise. 5,000-row Activity scroll test (existing) still passes with no exceptions.
 - 2026-11-09 Review snoozes ("Not sure") are stored on the phone, not the server: nothing about an unsure answer leaves the device, so it can't train rules.
   Cost: a reinstall forgets snoozes, so a question may come back early. The review queue pages with swipes but answers only with buttons.
+
+## Plan v5 (2026-11-15)
+- Commits on this branch use the same steps as `tools/commit.sh` (secret scan, commit, push) but stage by path, because that script's `git add -A`
+  would commit `project.pbxproj` (my DEVELOPMENT_TEAM lines) and `tools/ios_run.sh`.
+- `private/paystub.pdf` did not exist, so Phase 1 was fixed from the Railway logs and synthetic ADP fixtures, not the real file. The first real
+  upload after deploy writes one `paystub read:` log line (field names and counts only) that says what parsed.
+- A pay statement with a field Tick can't read is not refused: preview names the field, the review screen takes the fix, and it is saved as
+  `review` when it still doesn't add up. Only "no pay date, gross or net at all" is refused.
+- Local pypdf was 5.4.0 while production pins 6.21.4; text positions differ between them, so the local install now matches the pin.
+- A planned one-off that leaves the plan short takes the gap out of this paycheck's goal move only (never more than that move); anything beyond
+  that is plain overspending and shows as a negative Safe to spend. The choice I make is stored on the one-off (`shortfall_cents`, `resolution`),
+  and keeps relieving that period even after the purchase is matched, so the money isn't asked for twice.
+- The SQL suites couldn't run on this Mac (no local Postgres; installing one was blocked), so CI is where they ran: the `migrations` job is pinned to
+  ubuntu-24.04 because ubuntu-latest no longer ships postgresql-16. All suites pass there, `plan_v5.sql` included.
+- Review fixes before the PR: (1) Ask Tick counted a goal tied to accounts twice (its old typed per-payday amount plus the amount worked out from
+  balances) and didn't skip paused goals; now it matches the app. (2) A planned one-off that had already been bought but not yet confirmed on the
+  Yes/No card stayed set aside for up to a week, counting it twice. Now a likely purchase dated from two days before the plan's date on stops it
+  being set aside (app and Ask Tick, same rule); the Yes/No card still asks about a wider week. Purchases well before the date never count.
+- Phase 8 built three of the candidates (overdraft-before-payday line, stale-balance note, Tally open-since); the others are in NEXT.md with why.
+- Release builds weren't part of this finish (the brief asked for analyze, tests, pytest, contrast, RLS and the eval); no Swift or pod changed.

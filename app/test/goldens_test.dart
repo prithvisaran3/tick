@@ -16,6 +16,7 @@ import 'package:tick/features/caught_screen.dart';
 import 'package:tick/features/payday_plan_screen.dart';
 import 'package:tick/domain/models.dart';
 import 'package:tick/features/insights_screen.dart';
+import 'package:tick/features/savings_screen.dart';
 import 'package:tick/features/incoming_screen.dart';
 import 'package:tick/features/onboarding_screen.dart';
 import 'package:tick/features/receipt_screen.dart';
@@ -31,6 +32,8 @@ void main() {
     'today': (() => const TodayScreen(), 0),
     'activity': (() => const ActivityScreen(), 1),
     'insights': (() => const InsightsScreen(), 2),
+    'insights-more': (() => const InsightsMoreScreen(), null),
+    'savings': (() => const SavingsScreen(), null),
     'tally': (() => const TallyScreen(), 3),
     'tally-group': (() => const TallyGroupScreen(id: 'g-room'), null),
     'tally-square': (() => const _InSheet(SquareUpMoment()), null),
@@ -71,7 +74,7 @@ void main() {
   }
 
   // The same key screens at the narrowest (SE-class, 320) and widest (Pro Max, 430) iPhone widths.
-  for (final k in ['today', 'activity', 'insights', 'tally', 'tally-group', 'settings']) {
+  for (final k in ['today', 'activity', 'insights', 'insights-more', 'savings', 'tally', 'tally-group', 'settings']) {
     for (final w in [320.0, 430.0]) {
       testWidgets('golden $k ${w.toInt()}pt dark', (tester) async {
         final c = await demoContainer();

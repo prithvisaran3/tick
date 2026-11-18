@@ -149,9 +149,9 @@ DemoData buildDemo(DateTime now) {
       Expected(id: 'e-refund', kind: ExpectedKind.refund, label: 'Amazon refund', amountCents: 2400, date: addDays(today, 4)),
       Expected(id: 'e-iou', kind: ExpectedKind.iou, label: 'Alex owes you', amountCents: 4000, date: addDays(today, 7)),
     ],
-    goals: const [
-      Goal(id: 'g1', name: 'Savings', targetCents: 1000000, savedCents: 840000, perPaydayCents: 40000),
-      Goal(id: 'g2', name: 'Japan trip', targetCents: 400000, savedCents: 120000, perPaydayCents: 0),
+    goals: [
+      Goal(id: 'g1', name: 'Emergency fund', targetCents: 1000000, savedCents: 840000, perPaydayCents: 40000, mode: 'balance', startCents: 760000, startDate: addDays(today, -44), dueDate: addDays(today, 54), accountIds: const ['acc-sav']),
+      const Goal(id: 'g2', name: 'Japan trip', targetCents: 400000, savedCents: 120000, perPaydayCents: 0),
     ],
     budgets: const [
       Budget(id: 'b1', categoryId: 'cat-groceries', capCents: 40000),

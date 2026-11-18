@@ -12,6 +12,7 @@ import 'activity.dart';
 import 'ledger_cache.dart';
 import 'remote.dart';
 import 'settings.dart';
+import 'planned.dart';
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
@@ -332,12 +333,4 @@ final payPeriodProvider = FutureProvider<PayPeriod?>((ref) async {
   try { return await r.loadPayPeriod(); } catch (_) { return null; }
 });
 
-final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
-  final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
-  var rule = ref.watch(settingsProvider.select((s) => s.rule));
-  final l = ref.watch(ledgerProvider);
-  final now = ref.watch(clockProvider)();
-  if (demo) rule = demoPaydayRule(now);
-  if (rule == null) return null;
-  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, expected: l.expected, period: demo ? null : ref.watch(payPeriodProvider).value);
-});
+final safeToSpendProvider = Provider<SafeToSpend?>((ref) => computeSafeFor(ref));

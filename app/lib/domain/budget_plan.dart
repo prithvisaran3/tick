@@ -67,6 +67,7 @@ PaydayPlan buildPaydayPlan({
   required List<Recurring> recurring,
   required List<Goal> goals,
   required bool paycheckLanded,
+  int? intoCashCents,     // the part of the paycheck that lands in Cash (splits); null means all of it
 }) {
   final t = dayOnly(today);
   final next = nextPayday(rule, addDays(t, 1));
@@ -80,7 +81,7 @@ PaydayPlan buildPaydayPlan({
   }
   final moves = goals.where((g) => !g.paused && g.savedCents < g.targetCents && g.perPaydayCents > 0).toList();
   final move = moves.fold<int>(0, (s, g) => s + g.perPaydayCents);
-  final safe = cash - owed + (paycheckLanded ? 0 : paycheck) - bills - move;
+  final safe = cash - owed + (paycheckLanded ? 0 : (intoCashCents ?? paycheck)) - bills - move;
   return PaydayPlan(paycheckCents: paycheck, moves: moves, billsCents: bills, safeAfterCents: safe, nextPayday: next);
 }
 

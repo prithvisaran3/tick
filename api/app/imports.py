@@ -92,30 +92,78 @@ def _splitwise(user_id: str, raw: bytes, mode: str, filename: str, me: str | Non
     audit(user_id, "import_batch", {"count": len(fresh), "scope": "splitwise"})
     return {**out, "batch_id": batch["id"], "imported": len(fresh), "group_id": res.get("group_id")}
 
-def _paystub(user_id: str, raw: bytes, mode: str, filename: str) -> dict:
-    """A PDF is a pay statement (bank statements come as CSV or OFX). Preview reads it; commit saves it once, links its deposit, and sets the expected pay."""
+PAY_PROBLEMS = {"pay_date": "Tick couldn't read the pay date. Enter it to import this.", "gross": "Tick couldn't read gross pay. Enter it to import this.",
+                "net": "Tick couldn't read net pay. Enter it to import this."}
+
+def _apply_fixes(st: PS.Statement, fixes: dict) -> list[str]:
+    """What I corrected on the review screen. Totals stay the sum of their lines: a corrected total replaces that group's lines with one line."""
+    done = []
+    try:
+        if fixes.get("pay_date"):
+            st.pay_date = date.fromisoformat(str(fixes["pay_date"])[:10]); done.append("pay_date")
+        if isinstance(fixes.get("employer"), str) and fixes["employer"].strip():
+            st.employer = fixes["employer"].strip()[:120]; done.append("employer")
+        for key, attr in (("gross_cents", "gross_cents"), ("net_cents", "net_cents")):
+            if fixes.get(key) is not None:
+                v = int(fixes[key])
+                if not 0 < v < 100_000_000:
+                    raise ValueError
+                setattr(st, attr, v); done.append(key.removesuffix("_cents"))
+        for key, kind, label in (("taxes_cents", "tax", "Taxes"), ("deductions_cents", "deduction", "Deductions")):
+            if fixes.get(key) is not None:
+                v = int(fixes[key])
+                if not 0 <= v < 100_000_000:
+                    raise ValueError
+                if v != sum(l.cents for l in st.lines if l.kind == kind):
+                    st.lines = [l for l in st.lines if l.kind != kind] + ([PS.Line(kind, label, v)] if v else [])
+                    done.append(key.removesuffix("_cents"))
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Check the amounts and the date, then try again.")
+    if st.gross_cents and not any(l.kind == "earning" for l in st.lines):
+        st.lines.insert(0, PS.Line("earning", "Earnings", st.gross_cents))
+    return done
+
+def _paystub(user_id: str, raw: bytes, mode: str, filename: str, fixes: dict | None = None) -> dict:
+    """A PDF is a pay statement (bank statements come as CSV or OFX). Preview reads it and names anything it couldn't read; commit takes my
+    fixes, saves it once, links its deposit, and sets the expected pay."""
     prof = rest().select("profiles", user_id=f"eq.{user_id}", select="display_name")
     names = [prof[0]["display_name"]] if prof and prof[0].get("display_name") else []
     try:
-        text = PS.pdf_text(raw)
-        if text.strip() and not PS.looks_like_paystub(text):
-            raise HTTPException(422, "That PDF isn't a pay statement Tick can read. Bank statements come in as CSV or OFX.")
         st = PS.read(user_id, raw, names)
     except PS.PaystubError as e:
+        text = ""
+        try:
+            text = PS.pdf_text(raw)
+        except PS.PaystubError:
+            pass
+        if text.strip() and not PS.looks_like_paystub(text) and "password" not in str(e):
+            raise HTTPException(422, "That PDF isn't a pay statement Tick can read. Bank statements come in as CSV or OFX.")
         raise HTTPException(422, str(e))
-    out = {"source": "paystub", "label": "Pay statement", "employer": st.employer, "pay_date": st.pay_date.isoformat(), "gross_cents": st.gross_cents, "taxes_cents": st.taxes_cents,
+    fixed = _apply_fixes(st, fixes) if fixes else []
+    problems = [{"field": f, "message": PAY_PROBLEMS[f]} for f in st.problems if f in PAY_PROBLEMS]
+    if "adds_up" in st.problems:
+        problems.append({"field": "adds_up", "message": f"Gross minus taxes and deductions is ${abs(st.off_by_cents) / 100:,.2f} away from net pay. Check the amounts."})
+    if st.statements_in_file > 1:
+        problems.append({"field": "file", "message": f"This PDF holds {st.statements_in_file} pay statements. Tick read the first one; import the others one at a time."})
+    out = {"source": "paystub", "label": "Pay statement", "employer": st.employer, "pay_date": st.pay_date.isoformat() if st.pay_date else None, "gross_cents": st.gross_cents, "taxes_cents": st.taxes_cents,
            "deductions_cents": st.deductions_cents, "net_cents": st.net_cents, "adds_up": st.adds_up, "via": st.source, "new": 1, "duplicates": 0, "already_imported": 0, "unreadable": 0,
-           "accounts": [], "needs_account": False, "empty": False, "sample": []}
-    dupe = [s for s in rest().select("pay_statements", user_id=f"eq.{user_id}", pay_date=f"eq.{st.pay_date.isoformat()}", net_cents=f"eq.{st.net_cents}", select="id,employer")
-            if s["employer"].lower() == st.employer.lower()]
-    if dupe:
-        return {**out, "new": 0, "already_imported": 1, "statement_id": dupe[0]["id"], "imported": 0}
+           "accounts": [], "needs_account": False, "empty": False, "sample": [], "problems": problems,
+           "deposits": [{"label": d.label, "mask": d.mask, "cents": d.cents} for d in st.deposits],
+           "lines": [{"kind": l.kind, "label": l.label, "cents": l.cents} for l in st.lines][:60]}
+    if st.pay_date and st.net_cents:
+        dupe = [s for s in rest().select("pay_statements", user_id=f"eq.{user_id}", pay_date=f"eq.{st.pay_date.isoformat()}", net_cents=f"eq.{st.net_cents}", select="id,employer")
+                if s["employer"].lower() == st.employer.lower()]
+        if dupe:
+            return {**out, "new": 0, "already_imported": 1, "statement_id": dupe[0]["id"], "imported": 0}
     if mode == "preview":
         return out
+    blocking = [p["message"] for p in problems if p["field"] in PAY_PROBLEMS]
+    if blocking:
+        raise HTTPException(422, blocking[0])
     row = rest().insert("pay_statements", {"user_id": user_id, "employer": st.employer, "pay_date": st.pay_date.isoformat(), "period_start": st.period_start.isoformat() if st.period_start else None,
                                            "period_end": st.period_end.isoformat() if st.period_end else None, "gross_cents": st.gross_cents, "taxes_cents": st.taxes_cents,
                                            "deductions_cents": st.deductions_cents, "net_cents": st.net_cents, "ytd": st.ytd, "status": "ok" if st.adds_up else "review",
-                                           "source": st.source, "matched_txn": None})[0]
+                                           "source": st.source, "matched_txn": None, "deposits": out["deposits"], "problems": sorted(set(fixed))})[0]
     rest().insert("pay_statement_lines", [{"statement_id": row["id"], "user_id": user_id, "kind": l.kind, "label": l.label, "cents": l.cents, "ytd_cents": l.ytd_cents, "sort": i}
                                           for i, l in enumerate(st.lines)], returning=False)
     keep = rest().select("settings", user_id=f"eq.{user_id}", select="keep_pay_pdfs")
@@ -128,33 +176,79 @@ def _paystub(user_id: str, raw: bytes, mode: str, filename: str) -> dict:
     return {**out, "statement_id": row["id"], "imported": 1}
 
 def link_paystubs(user_id: str) -> int:
-    """Each unlinked statement to its net-pay deposit; the deposit reads "Paycheck · Nov 13", and later expected paychecks follow the latest net."""
+    """Each unlinked statement to its deposit(s). A paycheck split across accounts is several deposits: each statement line is matched to its own
+    row (by the account's last digits when the statement gives them), every matched row reads "Paycheck · Nov 13", and none is used twice.
+    Later expected paychecks follow the latest net, through the splits when there are any."""
+    from . import splits as SP
     rule = ((rest().select("settings", user_id=f"eq.{user_id}", select="payday_rule") or [{}])[0].get("payday_rule")) or {}
+    accounts = rest().select("accounts", user_id=f"eq.{user_id}", select="id,mask,type")
+    splits = SP.load(user_id, rest())
     n = 0
-    for s in rest().select("pay_statements", user_id=f"eq.{user_id}", matched_txn="is.null", select="id,employer,pay_date,net_cents"):
+    for s in rest().select("pay_statements", user_id=f"eq.{user_id}", matched_txn="is.null", select="id,employer,pay_date,net_cents,deposits"):
         d = date.fromisoformat(s["pay_date"])
         rows = rest().select("transactions", user_id=f"eq.{user_id}", occurred_at=f"gte.{(d - timedelta(days=4)).isoformat()}T00:00:00+00:00", select="id,amount_cents,occurred_at,account_id")
-        hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=s["net_cents"]), rows, rule.get("account_id"))
-        if hit:
-            rest().update("pay_statements", {"id": s["id"], "user_id": user_id}, {"matched_txn": hit["id"]})
-            rest().update("transactions", {"id": hit["id"], "user_id": user_id}, {"note": f"Paycheck · {d:%b} {d.day}"})
+        parts: list[tuple[int, str | None]] = []                     # (cents, account or None for "any")
+        deps = s.get("deposits") or []
+        if len(deps) > 1:
+            for dep in deps:
+                acct = next((a["id"] for a in accounts if dep.get("mask") and a.get("mask") and str(a["mask"])[-2:] == str(dep["mask"])[-2:] and str(a["mask"])[-len(str(dep["mask"])):] == str(dep["mask"])[-len(str(a["mask"])):]), None)
+                parts.append((int(dep["cents"]), acct))
+        elif splits:
+            parts = [(c, sp.get("account_id")) for sp, c in SP.per_account(s["net_cents"], splits) if sp.get("account_id")]
+        if not parts:
+            parts = [(s["net_cents"], rule.get("account_id"))]
+        used, hits = set(), []
+        for cents, acct in sorted(parts, key=lambda p: -p[0]):
+            hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=cents), [r for r in rows if r["id"] not in used], acct)
+            if hit:
+                used.add(hit["id"]); hits.append(hit)
+        if not hits and len(parts) > 1:                              # the statement says split, the bank shows one deposit: fall back to the whole net
+            hit = PS.match_deposit(PS.Statement(employer=s["employer"], pay_date=d, net_cents=s["net_cents"]), rows, None)
+            hits = [hit] if hit else []
+        if hits:
+            rest().update("pay_statements", {"id": s["id"], "user_id": user_id}, {"matched_txn": hits[0]["id"]})
+            for h in hits:
+                rest().update("transactions", {"id": h["id"], "user_id": user_id}, {"note": f"Paycheck · {d:%b} {d.day}"})
             n += 1
     latest = rest().select("pay_statements", user_id=f"eq.{user_id}", select="net_cents,pay_date", order="pay_date.desc", limit="1")
     if latest:
-        for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", status="eq.expected", select="id,expected_date"):
+        by_account = {sp["account_id"]: c for sp, c in SP.per_account(latest[0]["net_cents"], splits) if sp.get("account_id")}
+        for e in rest().select("expected", user_id=f"eq.{user_id}", kind="eq.paycheck", status="eq.expected", select="id,expected_date,account_id"):
             if e["expected_date"] > latest[0]["pay_date"]:
-                rest().update("expected", {"id": e["id"]}, {"amount_cents": latest[0]["net_cents"]})
+                amount = by_account.get(e.get("account_id")) if e.get("account_id") else latest[0]["net_cents"]
+                if amount:
+                    rest().update("expected", {"id": e["id"]}, {"amount_cents": amount})
     return n
+
+@router.get("/pay/splits/suggested")
+def suggested_splits(user_id: str = Depends(current_user)):
+    """Pre-fill for Profile > Pay > Where it goes: the latest statement's deposit lines as split lines. Nothing is saved."""
+    from . import splits as SP
+    user_limiter.check(f"splits:{user_id}", 30, 60)
+    st = rest().select("pay_statements", user_id=f"eq.{user_id}", select="deposits,net_cents,pay_date", order="pay_date.desc", limit="1")
+    if not st or len(st[0].get("deposits") or []) < 1:
+        return {"splits": [], "net_cents": st[0]["net_cents"] if st else None}
+    accounts = rest().select("accounts", user_id=f"eq.{user_id}", select="id,mask,type")
+    return {"splits": SP.from_deposits(st[0]["deposits"], accounts), "net_cents": st[0]["net_cents"], "pay_date": st[0]["pay_date"]}
 
 @router.post("/import/statement")
 def import_statement(file: UploadFile = File(...), mode: str = Form("preview"), account_id: str | None = Form(None), mapping: str | None = Form(None),
-                     me_member: str | None = Form(None, max_length=120), group_name: str | None = Form(None, max_length=60), user_id: str = Depends(current_user)):
+                     me_member: str | None = Form(None, max_length=120), group_name: str | None = Form(None, max_length=60), fixes: str | None = Form(None, max_length=600),
+                     user_id: str = Depends(current_user)):
     user_limiter.check(f"import:{user_id}", 8, 60)
     if mode not in ("preview", "commit"):
         raise HTTPException(422, "mode must be preview or commit")
     raw = file.file.read(ST.MAX_BYTES + 1)
     if len(raw) <= ST.MAX_BYTES and raw[:5] == b"%PDF-":
-        return _paystub(user_id, raw, mode, file.filename or "")
+        try:
+            fx = json.loads(fixes) if fixes else None
+            if fx is not None and not isinstance(fx, dict):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(422, "Check the details and try again.")
+        return _paystub(user_id, raw, mode, file.filename or "", fx)
+    if raw[:5] == b"%PDF-":
+        raise HTTPException(422, "That PDF is too big for one pay statement. Download a single statement from myADP and import that.")
     if len(raw) <= ST.MAX_BYTES and SW.looks_like(raw):
         return _splitwise(user_id, raw, mode, file.filename or "", me_member, group_name)
     try:

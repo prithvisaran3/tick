@@ -1,0 +1,32 @@
+{
+  "$comment": "Shared by Python (api/tests/test_goals.py) and Dart (app/test/goals_test.dart). paydays: every payday after start_date up to the deadline. linked: the linked accounts' balance today.",
+  "cases": [
+    {"name": "$9,000 in 3 months, biweekly: six paychecks of $1,500", "mode": "save_more", "target": 900000, "start_cents": 500000, "linked": 500000, "start_date": "2026-11-15", "deadline": "2027-02-15", "today": "2026-11-15",
+     "paydays": ["2026-11-27", "2026-12-11", "2026-12-24", "2027-01-08", "2027-01-22", "2027-02-05"],
+     "want": {"status": "on_track", "saved": 0, "remaining": 900000, "paychecks_left": 6, "per_paycheck": 150000, "behind_by": 0}},
+    {"name": "two paychecks in, both moved: still $1,500", "mode": "save_more", "target": 900000, "start_cents": 500000, "linked": 800000, "start_date": "2026-11-15", "deadline": "2027-02-15", "today": "2026-12-15",
+     "paydays": ["2026-11-27", "2026-12-11", "2026-12-24", "2027-01-08", "2027-01-22", "2027-02-05"],
+     "want": {"status": "on_track", "saved": 300000, "remaining": 600000, "paychecks_left": 4, "per_paycheck": 150000, "behind_by": 0}},
+    {"name": "one paycheck skipped: behind by $1,500, four left carry $1,875", "mode": "save_more", "target": 900000, "start_cents": 500000, "linked": 650000, "start_date": "2026-11-15", "deadline": "2027-02-15", "today": "2026-12-15",
+     "paydays": ["2026-11-27", "2026-12-11", "2026-12-24", "2027-01-08", "2027-01-22", "2027-02-05"],
+     "want": {"status": "behind", "saved": 150000, "remaining": 750000, "paychecks_left": 4, "per_paycheck": 187500, "behind_by": 150000}},
+    {"name": "on payday the paycheck still counts as one to use", "mode": "save_more", "target": 900000, "start_cents": 500000, "linked": 500000, "start_date": "2026-11-15", "deadline": "2027-02-15", "today": "2026-11-27",
+     "paydays": ["2026-11-27", "2026-12-11", "2026-12-24", "2027-01-08", "2027-01-22", "2027-02-05"],
+     "want": {"status": "on_track", "saved": 0, "remaining": 900000, "paychecks_left": 6, "per_paycheck": 150000, "behind_by": 0}},
+    {"name": "reach a balance: only the gap from where it started is the goal", "mode": "balance", "target": 1000000, "start_cents": 840000, "linked": 880000, "start_date": "2026-11-01", "deadline": "2026-12-31", "today": "2026-11-20",
+     "paydays": ["2026-11-13", "2026-11-27", "2026-12-11", "2026-12-24"],
+     "want": {"status": "on_track", "saved": 40000, "remaining": 120000, "paychecks_left": 3, "per_paycheck": 40000, "behind_by": 0}},
+    {"name": "done when the balance is there", "mode": "balance", "target": 1000000, "start_cents": 840000, "linked": 1000500, "start_date": "2026-11-01", "deadline": "2026-12-31", "today": "2026-11-20",
+     "paydays": ["2026-11-13", "2026-11-27", "2026-12-11", "2026-12-24"],
+     "want": {"status": "done", "saved": 160000, "remaining": 0, "paychecks_left": 3, "per_paycheck": 0, "behind_by": 0}},
+    {"name": "money taken out: saved never goes below zero", "mode": "save_more", "target": 100000, "start_cents": 500000, "linked": 450000, "start_date": "2026-11-15", "deadline": "2026-12-31", "today": "2026-11-20",
+     "paydays": ["2026-11-27", "2026-12-11", "2026-12-24"],
+     "want": {"status": "on_track", "saved": 0, "remaining": 100000, "paychecks_left": 3, "per_paycheck": 33334, "behind_by": 0}},
+    {"name": "past the deadline and short: all of it is behind", "mode": "save_more", "target": 100000, "start_cents": 0, "linked": 60000, "start_date": "2026-09-01", "deadline": "2026-11-01", "today": "2026-11-15",
+     "paydays": ["2026-09-04", "2026-09-18", "2026-10-02", "2026-10-16", "2026-10-30"],
+     "want": {"status": "behind", "saved": 60000, "remaining": 40000, "paychecks_left": 0, "per_paycheck": 40000, "behind_by": 40000}},
+    {"name": "no deadline: no schedule, just progress", "mode": "save_more", "target": 100000, "start_cents": 0, "linked": 25000, "start_date": "2026-09-01", "deadline": null, "today": "2026-11-15",
+     "paydays": [],
+     "want": {"status": "on_track", "saved": 25000, "remaining": 75000, "paychecks_left": 0, "per_paycheck": 0, "behind_by": 0}}
+  ]
+}

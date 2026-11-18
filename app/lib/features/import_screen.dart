@@ -17,6 +17,7 @@ import '../services/api.dart';
 import '../services/haptics.dart';
 import '../services/open_file.dart';
 import 'common.dart';
+import 'tally_expense_sheet.dart' show TallyField;
 
 enum _Step { pick, reading, mapping, preview, importing, done, undone, failed }
 
@@ -76,11 +77,11 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
     }
   }
 
-  Future<void> _commit() async {
+  Future<void> _commit({Map<String, dynamic>? fixes}) async {
     setState(() => _step = _Step.importing);
     TickHaptics.instance.confirm();
     try {
-      final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: true, accountId: _accountId, mapping: _p?.source == 'generic' ? _map : null, meMember: _p?.isSplitwise == true ? (_me ?? _p?.meGuess) : null);
+      final p = await ref.read(statementImportApiProvider).send(_file!.$1, _file!.$2, commit: true, accountId: _accountId, mapping: _p?.source == 'generic' ? _map : null, meMember: _p?.isSplitwise == true ? (_me ?? _p?.meGuess) : null, fixes: fixes);
       if (_p?.isSplitwise == true) ref.read(tallyProvider.notifier).refresh();
       if (!mounted) return;
       _p = p;
@@ -117,7 +118,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
           _Step.reading => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Text('Reading your statement…', style: context.ts(TickType.body, color: c.textSecondary)), const SizedBox(height: 16), const Skeleton(height: 96, radius: 24), const SizedBox(height: 12), const ListSkeleton(rows: 4)]),
           _Step.mapping => _Mapping(p: p!, map: _map, split: _splitCols, onSplit: (v) => setState(() => _splitCols = v), onChanged: () => setState(() {}),
               onContinue: () { _map = {..._map, 'header_row': p.mappingHeaderRow}; _analyse(mapping: _map); }),
-          _Step.preview || _Step.importing when p!.isPaystub => PaystubPreview(p: p, busy: _step == _Step.importing, onImport: _commit),
+          _Step.preview || _Step.importing when p!.isPaystub => PaystubPreview(p: p, busy: _step == _Step.importing, onImport: (fixes) => _commit(fixes: fixes)),
           _Step.preview || _Step.importing when p!.isSplitwise => _SplitwisePreview(p: p, me: _me ?? p.meGuess, busy: _step == _Step.importing, onMe: (m) => setState(() => _me = m), onImport: _commit),
           _Step.preview || _Step.importing => _Preview(p: p!, accountId: _accountId, busy: _step == _Step.importing, onAccount: (id) { setState(() => _accountId = id); _analyse(mapping: _p?.source == 'generic' ? _map : null); }, onImport: _commit),
           _Step.done => _Done(p: p!, error: _error, onUndo: _undo, onDone: () => context.pop()),
@@ -151,9 +152,11 @@ class _Pick extends StatelessWidget {
       TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Apple Card, in three steps', style: context.ts(TickType.title, size: 16)),
         const SizedBox(height: 6),
-        step(1, 'Wallet → Apple Card → Statements → pick a month → Export Transactions.'),
+        step(1, 'Wallet → Apple Card → Card Balance → pick a statement → Export Transactions.'),
         step(2, 'Share → choose Tick.'),
         step(3, 'Check the preview and tap Import.'),
+        const SizedBox(height: 4),
+        Text('Purchases your Shortcut already caught are matched, not added again.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       ])),
       const SizedBox(height: 16),
       PillButton('Choose a file', icon: 'import', onTap: onChoose),
@@ -268,30 +271,92 @@ class _SplitwisePreview extends StatelessWidget {
 }
 
 /// A pay statement before it's saved: the four numbers, and whether they add up.
-class PaystubPreview extends StatelessWidget {
+class PaystubPreview extends StatefulWidget {
   const PaystubPreview({super.key, required this.p, required this.busy, required this.onImport});
   final ImportPreview p;
   final bool busy;
-  final VoidCallback onImport;
+  /// Called with what was corrected by hand (empty when nothing was).
+  final ValueChanged<Map<String, dynamic>> onImport;
+  @override
+  State<PaystubPreview> createState() => _PaystubPreviewState();
+}
+
+class _PaystubPreviewState extends State<PaystubPreview> {
+  Map<String, dynamic> get j => widget.p.paystub!;
+  int _n(String k) => (j[k] as num?)?.toInt() ?? 0;
+  late final _problems = [for (final x in (j['problems'] as List? ?? const [])) (field: x['field'] as String, message: x['message'] as String)];
+  late bool _editing = _problems.any((x) => x.field != 'file');
+  late final _date = TextEditingController(text: j['pay_date'] == null ? '' : DateFormat('MM/dd/yyyy').format(DateTime.parse(j['pay_date'] as String)));
+  late final _f = {for (final k in const ['gross', 'taxes', 'deductions', 'net']) k: TextEditingController(text: _n('${k}_cents') == 0 && k != 'taxes' && k != 'deductions' ? '' : formatCents(_n('${k}_cents'), symbol: false, raw: true))};
+  String? _error;
+
+  @override
+  void dispose() { _date.dispose(); for (final c in _f.values) { c.dispose(); } super.dispose(); }
+
+  int _v(String k) => _editing ? (parseCents(_f[k]!.text) ?? 0) : _n('${k}_cents');
+  DateTime? get _payDate {
+    if (!_editing) return j['pay_date'] == null ? null : DateTime.parse(j['pay_date'] as String);
+    try { return DateFormat('MM/dd/yyyy').parseStrict(_date.text.trim()); } catch (_) { return null; }
+  }
+  int get _off => _v('gross') - _v('taxes') - _v('deductions') - _v('net');
+
+  void _save() {
+    final d = _payDate;
+    if (d == null) { setState(() => _error = 'Enter the pay date as MM/DD/YYYY.'); return; }
+    if (_v('gross') <= 0 || _v('net') <= 0) { setState(() => _error = 'Enter gross and net pay.'); return; }
+    final fixes = <String, dynamic>{};
+    if (_editing) {
+      if (j['pay_date'] == null || DateTime.parse(j['pay_date'] as String) != d) fixes['pay_date'] = DateFormat('yyyy-MM-dd').format(d);
+      for (final k in _f.keys) { if (_v(k) != _n('${k}_cents')) fixes['${k}_cents'] = _v(k); }
+    }
+    widget.onImport(fixes);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final j = p.paystub!;
-    int n(String k) => (j[k] as num).toInt();
+    final p = widget.p;
+    final deposits = [for (final d in (j['deposits'] as List? ?? const [])) (label: d['label'] as String, mask: d['mask'] as String?, cents: (d['cents'] as num).toInt())];
     Widget line(String l, int cents) => Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(children: [Expanded(child: Text(l, style: context.ts(TickType.body))), Text(formatCents(cents, sign: true), style: context.ts(TickType.mono))]));
-    final date = DateTime.parse(j['pay_date'] as String);
+    Widget labelled(String label, Widget input) => Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(label, style: context.ts(TickType.bodyS, color: c.textSecondary))), input]));
+    Widget field(String k, String label) => labelled(label, TallyField(controller: _f[k]!, hint: '0.00', label: '$label in dollars',
+        keyboard: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() => _error = null)));
+    final date = _payDate;
+    final blocking = _problems.where((x) => x.field == 'pay_date' || x.field == 'gross' || x.field == 'net');
+    final fileNote = _problems.where((x) => x.field == 'file').firstOrNull;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Pay statement · ${j['employer']}', style: context.ts(TickType.bodyS, color: c.textSecondary)),
-      Text('${formatCents(n('net_cents'))} net', style: context.ts(TickType.hero, size: 44)),
-      Text('Paid ${DateFormat('EEE, MMM d').format(date)}', style: context.ts(TickType.body, color: c.textSecondary)),
+      Text('${formatCents(_v('net'))} net', style: context.ts(TickType.hero, size: 44)),
+      Text(date == null ? 'Pay date needed' : 'Paid ${DateFormat('EEE, MMM d').format(date)}', style: context.ts(TickType.body, color: date == null ? c.alert : c.textSecondary)),
+      for (final x in blocking) Padding(padding: const EdgeInsets.only(top: 8), child: Text(x.message, style: context.ts(TickType.bodyS, color: c.alert))),
       const SizedBox(height: 12),
-      TickCard(child: Column(children: [
-        line('Gross', n('gross_cents')), line('Taxes', -n('taxes_cents')), line('Deductions', -n('deductions_cents')), const Hairline(), line('Net', n('net_cents')),
-      ])),
-      if (j['adds_up'] != true) Padding(padding: const EdgeInsets.only(top: 8), child: Text('These don\'t add up to the cent, so Tick will save it for you to check.', style: context.ts(TickType.bodyS, color: c.alert))),
+      TickCard(child: _editing
+          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              labelled('Pay date', TallyField(controller: _date, hint: 'MM/DD/YYYY', label: 'Pay date', keyboard: TextInputType.datetime, onChanged: (_) => setState(() => _error = null))),
+              field('gross', 'Gross pay'), field('taxes', 'Taxes'), field('deductions', 'Deductions'), field('net', 'Net pay'),
+            ])
+          : Column(children: [
+              line('Gross', _v('gross')), line('Taxes', -_v('taxes')), line('Deductions', -_v('deductions')), const Hairline(), line('Net', _v('net')),
+            ])),
+      if (_off.abs() > 1) Padding(padding: const EdgeInsets.only(top: 8), child: Text(
+          'Gross minus taxes and deductions is ${formatCents(_off.abs())} away from net. ${_editing ? 'Fix it here, or save it to check later.' : 'Tick will save it for you to check.'}', style: context.ts(TickType.bodyS, color: c.alert))),
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: context.ts(TickType.bodyS, color: c.alert))),
+      if (deposits.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Where it went', style: context.ts(TickType.bodyS, color: c.textSecondary)),
+          for (final d in deposits) line(d.mask == null ? d.label : '${d.label} ••${d.mask}', d.cents),
+        ])),
+      ],
+      if (fileNote != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(fileNote.message, style: context.ts(TickType.bodyS, color: c.textSecondary))),
       if (p.already > 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Tick already has this one.', style: context.ts(TickType.bodyS, color: c.textSecondary))),
       const SizedBox(height: 16),
-      PillButton(p.already > 0 ? 'Already imported' : 'Save pay statement', busy: busy, onTap: p.already > 0 ? null : onImport),
+      PillButton(p.already > 0 ? 'Already imported' : 'Save pay statement', busy: widget.busy, onTap: p.already > 0 ? null : _save),
+      if (!_editing && p.already == 0) Center(child: Pressable(
+        onTap: () => setState(() => _editing = true), semanticLabel: 'Fix an amount or the pay date',
+        child: Padding(padding: const EdgeInsets.all(12), child: Text('Something wrong? Fix it', style: context.ts(TickType.bodyS, color: c.textSecondary))),
+      )),
       const SizedBox(height: 8),
       Text('Tick keeps the numbers, not your name, address or ID. The PDF itself is only kept if you turn that on.', style: context.ts(TickType.bodyS, size: 12.5, color: c.textSecondary)),
     ]);

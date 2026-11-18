@@ -53,11 +53,59 @@ void main() {
     await expectLater(find.byType(PayStatementScreen), matchesGoldenFile('goldens/pay-statement.png'));
   });
 
+  Map<String, dynamic> previewJson({String? payDate = '2026-11-13', int net = 247707, List<Map<String, dynamic>> problems = const []}) => {
+        'source': 'paystub', 'label': 'Pay statement', 'employer': 'ACME ROBOTICS INC', 'pay_date': payDate, 'gross_cents': 373500, 'taxes_cents': 87883, 'deductions_cents': 37910,
+        'net_cents': net, 'adds_up': net == 247707, 'new': 1, 'problems': problems,
+        'deposits': [{'label': 'Checking', 'mask': '1234', 'cents': 197707}, {'label': 'Savings', 'mask': '5678', 'cents': 50000}],
+      };
+
   testWidgets('the import preview says when it does not add up', (t) async {
     final c = await demoContainer(demo: false);
     addTearDown(c.dispose);
-    final p = ImportPreview.fromJson({'source': 'paystub', 'label': 'Pay statement', 'employer': 'ACME', 'pay_date': '2026-11-13', 'gross_cents': 100, 'taxes_cents': 10, 'deductions_cents': 10, 'net_cents': 81, 'adds_up': false, 'new': 1});
-    await pumpGolden(t, frame(c, SingleChildScrollView(child: PaystubPreview(p: p, busy: false, onImport: () {})), dark: true));
-    expect(find.textContaining('don\'t add up'), findsOneWidget);
+    await pumpGolden(t, frame(c, SingleChildScrollView(child: PaystubPreview(p: ImportPreview.fromJson(previewJson(net: 247607)), busy: false, onImport: (_) {})), dark: true));
+    expect(find.textContaining('\$1.00 away from net'), findsOneWidget);
+  });
+
+  for (final (w, dark) in [(320.0, true), (430.0, false)]) {
+    testWidgets('review: where it went, and nothing to fix sends no fixes ($w ${dark ? 'dark' : 'light'})', (t) async {
+      final c = await demoContainer(demo: false);
+      addTearDown(c.dispose);
+      Map<String, dynamic>? sent;
+      await pumpGolden(t, frame(c, SingleChildScrollView(child: PaystubPreview(p: ImportPreview.fromJson(previewJson()), busy: false, onImport: (f) => sent = f)), dark: dark), width: w);
+      expect(find.text('Checking ••1234'), findsOneWidget);
+      expect(find.text('Something wrong? Fix it'), findsOneWidget);
+      await expectLater(find.byType(PaystubPreview), matchesGoldenFile('goldens/paystub-review.${w.toInt()}.${dark ? 'dark' : 'light'}.png'));
+      await t.tap(find.text('Save pay statement'));
+      expect(sent, isEmpty);
+    });
+
+    testWidgets('review: a pay date Tick could not read is asked for by name and sent as a fix ($w ${dark ? 'dark' : 'light'})', (t) async {
+      final c = await demoContainer(demo: false);
+      addTearDown(c.dispose);
+      Map<String, dynamic>? sent;
+      final p = ImportPreview.fromJson(previewJson(payDate: null, problems: [{'field': 'pay_date', 'message': 'Tick couldn\'t read the pay date. Enter it to import this.'}]));
+      await pumpGolden(t, frame(c, SingleChildScrollView(child: PaystubPreview(p: p, busy: false, onImport: (f) => sent = f)), dark: dark), width: w);
+      expect(find.text('Pay date needed'), findsOneWidget);
+      expect(find.textContaining('couldn\'t read the pay date'), findsOneWidget);
+      await expectLater(find.byType(PaystubPreview), matchesGoldenFile('goldens/paystub-fix.${w.toInt()}.${dark ? 'dark' : 'light'}.png'));
+      await t.ensureVisible(find.text('Save pay statement'));
+      await t.tap(find.text('Save pay statement'));
+      await t.pump();
+      expect(sent, isNull);
+      expect(find.text('Enter the pay date as MM/DD/YYYY.'), findsOneWidget);
+      await t.enterText(find.byType(EditableText).first, '11/13/2026');
+      await t.pump();
+      await t.ensureVisible(find.text('Save pay statement'));
+      await t.tap(find.text('Save pay statement'));
+      expect(sent, {'pay_date': '2026-11-13'});
+    });
+  }
+
+  testWidgets('review at the largest text size, 320 wide', (t) async {
+    final c = await demoContainer(demo: false);
+    addTearDown(c.dispose);
+    final p = ImportPreview.fromJson(previewJson(payDate: null, problems: [{'field': 'pay_date', 'message': 'Tick couldn\'t read the pay date. Enter it to import this.'}]));
+    await pumpGolden(t, MediaQuery(data: const MediaQueryData(textScaler: TextScaler.linear(2.0)), child: frame(c, SingleChildScrollView(child: PaystubPreview(p: p, busy: false, onImport: (_) {})), dark: true)), width: 320);
+    expect(t.takeException(), isNull);
   });
 }

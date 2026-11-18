@@ -73,9 +73,9 @@ class StatementImportApi {
   StatementImportApi(this.api);
   final Api api;
 
-  Future<ImportPreview> send(List<int> bytes, String name, {required bool commit, String? accountId, Map<String, dynamic>? mapping, String? meMember}) async =>
+  Future<ImportPreview> send(List<int> bytes, String name, {required bool commit, String? accountId, Map<String, dynamic>? mapping, String? meMember, Map<String, dynamic>? fixes}) async =>
       ImportPreview.fromJson(await api.postFile('/import/statement', 'file', bytes, name, fields: {
-        'mode': commit ? 'commit' : 'preview', 'account_id': ?accountId, 'me_member': ?meMember, if (mapping != null) 'mapping': _json(mapping),
+        'mode': commit ? 'commit' : 'preview', 'account_id': ?accountId, 'me_member': ?meMember, if (mapping != null) 'mapping': _json(mapping), if (fixes != null && fixes.isNotEmpty) 'fixes': _json(fixes),
       }));
 
   Future<int> undo(String batchId) async => ((await api.post('/import/$batchId/undo'))['removed'] as num?)?.toInt() ?? 0;

@@ -22,3 +22,5 @@ supabase/.temp/
 app/ios/Flutter/Local.xcconfig
 app/test/failures/
 imports/
+private/
+.arena/

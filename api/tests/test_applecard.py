@@ -59,3 +59,37 @@ def test_wallet_card_name_maps_to_the_apple_card_account(db):
     db.insert("accounts", {"user_id": U, "provider_account_id": "p1", "type": "credit", "institution": "Discover", "name": "Discover it", "mask": "1234"})
     assert store.card_account(U, "Discover It Card") == db.rows("accounts")[1]["id"]
     assert store.card_account(U, "Some Debit Card") is None
+
+# ---------- Plan v5: the Wallet export reconciles with what the Shortcut already captured ----------
+from app import statements as ST
+
+WALLET = (b"Transaction Date,Clearing Date,Description,Merchant,Category,Type,Amount (USD),Purchased By\n"
+          b"11/10/2026,11/11/2026,\"APPLE.COM/BILL ONE APPLE PARK WAY 866-712-7753 95014 CA USA\",Apple Services,Other,Purchase,10.99,Prithvi Saran\n"
+          b"11/12/2026,11/13/2026,\"TRADER JOE S #552 ALBANY NY\",Trader Joe's,Grocery,Purchase,41.20,Prithvi Saran\n"
+          b"11/12/2026,11/13/2026,\"TRADER JOE S #552 ALBANY NY\",Trader Joe's,Grocery,Purchase,41.20,Prithvi Saran\n"
+          b"11/14/2026,11/15/2026,\"AMAZON MKTPL RETURN\",Amazon,Shopping,Credit,-25.00,Prithvi Saran\n"
+          b"11/15/2026,11/15/2026,\"ACH DEPOSIT INTERNET TRANSFER\",Apple Card Payment,Payment,Payment,-300.00,Prithvi Saran\n"
+          b"11/15/2026,11/16/2026,\"Monthly Installments (3 of 12)\",Apple,Other,Installment,83.25,Prithvi Saran\n")
+
+def test_wallet_export_reconciles_with_shortcut_captures_and_never_double_counts():
+    rows, unreadable = AC.parse(WALLET)
+    assert unreadable == 0 and len(rows) == 6
+    assert {r.kind for r in rows} == {"purchase", "credit", "payment"}
+    assert next(r for r in rows if r.kind == "credit").amount_cents == 2500                # a return is money back in
+    acct = "acct-apple"
+    shortcut = {"source": "applepay"}
+    existing = [
+        # captured live by the Shortcut on the Apple Card account: the name Wallet gave the Shortcut is not the CSV's merchant
+        {"id": "s1", "amount_cents": -1099, "occurred_at": "2026-11-10T22:00:00+00:00", "merchant_clean": "APPLE.COM/BILL", "account_id": acct, "sources": [shortcut]},
+        # one of the two identical Trader Joe's purchases came in live; the second is new
+        {"id": "s2", "amount_cents": -4120, "occurred_at": "2026-11-13T01:30:00+00:00", "merchant_clean": "Trader Joe's", "account_id": acct, "sources": [shortcut]},
+        # same amount on another card: not this one
+        {"id": "x", "amount_cents": -8325, "occurred_at": "2026-11-15T15:00:00+00:00", "merchant_clean": "Apple", "account_id": "acct-chase", "sources": [{"source": "plaid"}]},
+    ]
+    p = ST.plan(rows, existing, set(), acct)
+    assert sorted(t for _, t in p.duplicates) == ["s1", "s2"]
+    assert sorted((r.merchant, r.amount_cents) for r in p.inserts) == sorted([("Trader Joe's", -4120), ("Amazon", 2500), ("Apple Card Payment", 30000), ("Apple", -8325)])
+    again = ST.plan(rows, existing + [{"id": f"i{i}", "amount_cents": r.amount_cents, "occurred_at": f"{r.when.isoformat()}T12:00:00+00:00", "merchant_clean": r.merchant,
+                                       "account_id": acct, "external_ref": r.ref, "sources": [{"source": "statement"}]} for i, r in enumerate(p.inserts)], {r.ref for r in p.inserts}, acct)
+    assert again.inserts == [] and again.already_imported == 4                              # the same file again adds nothing
+    assert ST.detect([h.strip() for h in WALLET.split(b"\n")[0].decode().split(",")]) == "apple_card"

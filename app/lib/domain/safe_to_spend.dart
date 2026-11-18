@@ -1,10 +1,13 @@
 import 'models.dart';
 import 'payday.dart';
+import 'planned.dart';
 import 'dates.dart';
 
 class SafeToSpend {
   const SafeToSpend({required this.cashCents, required this.billsCents, required this.goalsCents, required this.nextPayday, required this.daysToPayday,
-      this.cardsDueCents = 0, this.loansDueCents = 0, this.cardsLaterCents = 0, this.periodStart, this.lines = const []});
+      this.cardsDueCents = 0, this.loansDueCents = 0, this.cardsLaterCents = 0, this.periodStart, this.lines = const [], this.plannedCents = 0});
+  /// One-off expenses I planned for this pay period and haven't bought yet.
+  final int plannedCents;
   /// The pay period this covers: [periodStart] to the day before [nextPayday].
   final DateTime? periodStart;
   /// "How it's calculated", one line each, signed: they add up to [cents] exactly.
@@ -21,11 +24,11 @@ class SafeToSpend {
   final DateTime nextPayday;
   final int daysToPayday;
   /// available cash - bills - cards due - loan payments due before payday - planned goal contributions
-  int get cents => cashCents - billsCents - cardsDueCents - loansDueCents - goalsCents;
+  int get cents => cashCents - billsCents - cardsDueCents - loansDueCents - goalsCents - plannedCents;
   bool get overspent => cents < 0;
 }
 
-/// One line of the breakdown. [group]: cash, bill, card, loan or goal. [cents] is signed: cash adds, the rest subtract.
+/// One line of the breakdown. [group]: cash, bill, card, loan, goal or planned. [cents] is signed: cash adds, the rest subtract.
 class SafeLine {
   const SafeLine(this.group, this.label, this.cents, {this.date});
   final String group;
@@ -43,6 +46,7 @@ SafeToSpend computeSafeToSpend({
   required List<Goal> goals,
   List<Expected> expected = const [],
   PayPeriod? period,     // from SQL when there is one; the rule is the fallback
+  List<PlannedExpense> planned = const [],
 }) {
   final t = dayOnly(today);
   // If today is payday the money is arriving: plan to the *following* payday.
@@ -61,6 +65,9 @@ SafeToSpend computeSafeToSpend({
   for (final g in goals) {
     if (!g.paused && g.savedCents < g.targetCents && g.perPaydayCents > 0) lines.add(SafeLine('goal', g.name, -g.perPaydayCents));
   }
+  for (final p in planned) {
+    if (countsThisPeriod(p, t, payday)) lines.add(SafeLine('planned', p.name, -p.amountCents, date: p.due));
+  }
   int sum(String g) => lines.where((l) => l.group == g).fold<int>(0, (s, l) => s + l.cents);
   final cash = sum('cash'), bills = -sum('bill'), cardsDue = -sum('card'), loansDue = -sum('loan'), goalsPlanned = -sum('goal');
   final cardsLater = debts.cardsLater;
@@ -70,6 +77,7 @@ SafeToSpend computeSafeToSpend({
     cashCents: cash,
     billsCents: bills,
     goalsCents: goalsPlanned,
+    plannedCents: -sum('planned'),
     cardsDueCents: cardsDue,
     loansDueCents: loansDue,
     cardsLaterCents: cardsLater,

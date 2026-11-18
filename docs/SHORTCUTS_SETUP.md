@@ -112,7 +112,7 @@ Apple Card isn't on Plaid. Tick gets Apple Card purchases in two ways:
    **Apple Card** account in Tick (it's created the first time). Other card names are matched to a linked card when only
    one card fits, for example "Discover It Card" goes to Discover ••1234.
 2. **From the monthly statement, in three steps.**
-   1. In Wallet, open **Apple Card**, tap **Statements**, pick a month, then tap **Export Transactions** (CSV).
+   1. In Wallet, open **Apple Card**, tap **Card Balance**, pick a statement, then tap **Export Transactions** (CSV).
    2. Tap **Share** and choose **Tick**. (Tick appears because it opens CSV and OFX files. Files works too: long-press the file, Share, Tick.)
    3. Check the preview and tap **Import**. Tick says "Imported N, skipped M duplicates"; **Undo import** removes exactly what that import added.
 

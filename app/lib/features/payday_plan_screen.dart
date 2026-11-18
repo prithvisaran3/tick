@@ -14,6 +14,10 @@ import '../domain/money.dart';
 import '../domain/payday.dart';
 import '../services/haptics.dart';
 import 'common.dart';
+import '../data/pay_splits.dart';
+import '../domain/pay_splits.dart';
+import '../data/savings.dart';
+import '../domain/goals.dart';
 
 /// Payday plan: what comes in, what is already spoken for, what to move to savings, and what is left safe.
 /// Opened from the payday notification and from Today.
@@ -38,7 +42,11 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
       return TickScreen(child: Column(children: [ScreenTitle('Payday plan', onBack: () => context.pop()), const EmptyState('Add your paycheck first', 'Tick plans payday once it knows when you get paid.', icon: 'calendar')]));
     }
     final landed = l.txns.any((t) => t.amountCents > 0 && dayOnly(t.occurredAt) == dayOnly(now) && l.category(t.categoryId)?.name == 'Income' && t.flow != 'transfer');
-    final plan = buildPaydayPlan(today: now, rule: rule, accounts: l.accounts, recurring: l.recurring, goals: l.goals, paycheckLanded: landed);
+    final splits = ref.watch(paySplitsProvider).value ?? const <PaySplit>[];
+    // Goals tied to accounts carry what their deadline needs; marking the move done is checked against the next balance, not typed in.
+    final goals = plannedGoals(l.goals, l.accounts, rule, dayOnly(now));
+    final plan = buildPaydayPlan(today: now, rule: rule, accounts: l.accounts, recurring: l.recurring, goals: goals, paycheckLanded: landed,
+        intoCashCents: paycheckIntoCash(rule.amountCents, splits, l.accounts, landsIn: rule.accountId));
     final headlineAmount = plan.safeAfterCents;
     return TickScreen(
       child: ListView(padding: const EdgeInsets.only(bottom: 40), children: [
@@ -70,7 +78,10 @@ class _PaydayPlanScreenState extends ConsumerState<PaydayPlanScreen> {
           HoldToConfirm(label: 'Move to savings', onConfirmed: () async {
             if (_moved) return;                                          // a second hold can never move money twice
             setState(() => _moved = true);
-            await ref.read(ledgerProvider.notifier).movePaydayToSavings(plan.moves);
+            final linked = plan.moves.where((g) => g.linked).fold<int>(0, (s, g) => s + g.perPaydayCents);
+            final payday = ref.read(currentPaydayProvider);
+            if (linked > 0 && payday != null) { try { await ref.read(goalMovesProvider.notifier).markDone(payday, linked); } catch (_) {/* the card on Home offers it again */} }
+            await ref.read(ledgerProvider.notifier).movePaydayToSavings(plan.moves.where((g) => !g.linked).toList());
             if (mounted) setState(() => _moved = true);
           }),
         const SizedBox(height: 8),
