@@ -41,6 +41,7 @@ begin
   end loop;
 end $$;
 
+-- Callable by the app on purpose (listed in supabase/tests/attacks.sql): it checks the whole set and only ever writes the caller's rows.
 -- Replace my splits with a validated set: none at all, or lines with exactly one "rest", percents within 100%, accounts that are mine.
 create or replace function public.save_pay_splits(p jsonb) returns int language plpgsql security definer set search_path = public as $$
 declare uid uuid := auth.uid(); s jsonb; n int := coalesce(jsonb_array_length(p), 0); i int := 0;
