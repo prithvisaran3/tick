@@ -152,9 +152,11 @@ class _Pick extends StatelessWidget {
       TickCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Apple Card, in three steps', style: context.ts(TickType.title, size: 16)),
         const SizedBox(height: 6),
-        step(1, 'Wallet → Apple Card → Statements → pick a month → Export Transactions.'),
+        step(1, 'Wallet → Apple Card → Card Balance → pick a statement → Export Transactions.'),
         step(2, 'Share → choose Tick.'),
         step(3, 'Check the preview and tap Import.'),
+        const SizedBox(height: 4),
+        Text('Purchases your Shortcut already caught are matched, not added again.', style: context.ts(TickType.bodyS, color: c.textSecondary)),
       ])),
       const SizedBox(height: 16),
       PillButton('Choose a file', icon: 'import', onTap: onChoose),

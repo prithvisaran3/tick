@@ -125,3 +125,11 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
   money with friends, top merchants, subscriptions and the Pay card. Nothing was deleted; nothing on Insights repeats it.
 - "0% less" now reads "About the same as the last one". Goal dates use a non-breaking space so "Dec 28" never splits.
 - Goldens: insights, insights-more and savings at 320 and 430 (dark) plus 393 dark and light, checked by eye.
+### Phase 7: Apple Card CSV
+- The import path already read Wallet's CSV (`api/app/applecard.py`, detected by its columns) and de-duplicated against live captures. Added a
+  test with Wallet's real column set that proves it against the Shortcut: a capture named "APPLE.COM/BILL" matches the CSV's "Apple Services"
+  on the Apple Card account; one of two identical same-day purchases matches and the other is added; a return comes in as money back; the card
+  payment comes in as a transfer; an installment on another card isn't touched; importing the same file again adds nothing.
+- The how-to (Import screen and docs/SHORTCUTS_SETUP.md) now gives Wallet's actual path: Apple Card → Card Balance → a statement → Export
+  Transactions, and says Shortcut captures are matched, not added again.
+- Profile > Banks and cards > Apple Card pointed at a screen that was never built (`/apple-card`); it now opens the import.

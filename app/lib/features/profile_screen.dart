@@ -89,7 +89,7 @@ class ProfileScreen extends ConsumerWidget {
         ProfileGroup(title: 'Banks and cards', rows: [
           if (owner) ProfileRow(title: 'Banks', summary: l.connections.isEmpty ? 'None linked' : '${l.connections.length} linked', onTap: () => context.push('/banks'))
           else const ProfileRow(title: 'Banks', summary: 'Banks are linked by this Tick\'s owner'),
-          ProfileRow(title: 'Apple Card', summary: 'Capture and statements', onTap: () => context.push('/apple-card')),
+          ProfileRow(title: 'Apple Card', summary: 'Import the monthly statement', onTap: () => context.push('/import')),
           ProfileRow(title: 'Capture token for Shortcuts', summary: 'For Apple Pay and alerts', onTap: () => showTokenSheet(context, ref)),
         ]),
         // ---- Help
