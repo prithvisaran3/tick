@@ -18,7 +18,8 @@ def ledger() -> B.Ledger:
     stubs = [{"pay_date": date(2026, 10, 30), "gross": 373500, "net": 247707, "taxes": 87883, "deductions": 37910, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 22410}, {"kind": "deduction", "label": "Medical", "cents": 9500}]},
              {"pay_date": date(2026, 10, 16), "gross": 373500, "net": 247707, "taxes": 87883, "deductions": 37910, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 22410}]},
              {"pay_date": date(2025, 12, 31), "gross": 300000, "net": 200000, "taxes": 70000, "deductions": 30000, "lines": [{"kind": "deduction", "label": "401(K)", "cents": 18000}]}]
-    return B.Ledger(D.rows(), D.TODAY, rec, acc, 10000, PERIOD, PREV, 231000, [{"name": "Asha Rao", "cents": 4000}, {"name": "Jo Lee", "cents": -2500}], ["Kaarthik Roshan", "Asha Rao", "Jo Lee"], {c: f"id-{c}" for c in D.CATS}, stubs)
+    return B.Ledger(D.rows(), D.TODAY, rec, acc, 10000, PERIOD, PREV, 231000, [{"name": "Asha Rao", "cents": 4000}, {"name": "Jo Lee", "cents": -2500}], ["Kaarthik Roshan", "Asha Rao", "Jo Lee"], {c: f"id-{c}" for c in D.CATS}, stubs,
+                    goals=GOALS, planned=PLANNED, savings=[{"name": "SoFi Savings", "balance": 1200000, "month_start": 1150000}])
 
 R = D.rows()
 def s(pred) -> int:
@@ -34,7 +35,16 @@ PAYP = between(date(2026, 10, 30), D.TODAY)
 cat = lambda *c: (lambda t: t["category"] in c)
 both = lambda *p: (lambda t: all(x(t) for x in p))
 kr = lambda t: "kaarthik" in (t["person"] or "").split()
-SAFE = 480000 - 1599 - 60000 - 10000
+# A goal tied to savings, and a one-off planned this pay period. Worked out by hand here, not with the app's maths:
+# $4,000 more from Oct 1 to Jan 1, six paychecks (Oct 16 to Dec 25), so $666.67 a paycheck planned; two have passed (Oct 16, Oct 30), so $1,333.34
+# was due by now and $1,000 is saved: behind by $333.34. $3,000 left over four paychecks is $750 each.
+BIWEEKLY = [date(2026, 10, 16) + timedelta(days=14 * i) for i in range(6)]
+GOALS = [{"name": "Emergency fund", "mode": "save_more", "target": 400000, "start_cents": 1100000, "linked_cents": 1200000, "start_date": date(2026, 10, 1),
+          "deadline": date(2027, 1, 1), "paydays": BIWEEKLY, "paused": False}]
+PLANNED = [{"name": "Concert tickets", "cents": 12000, "due": date(2026, 11, 10), "status": "planned"},
+           {"name": "Flights home", "cents": 45000, "due": date(2026, 12, 18), "status": "planned"}]
+GOAL_PER = 75000
+SAFE = 480000 - 1599 - 60000 - 10000 - GOAL_PER - 12000
 
 CASES = [
  ("how much rent did I pay this year", s(both(YEAR, cat("Rent")))),
@@ -81,6 +91,13 @@ CASES = [
  ("how much can I spend", SAFE),
  ("can I afford $200", SAFE - 20000),
  ("what if I spend $5000", SAFE - 500000),
+ # the planner (UX v5): the three questions from the brief, then one per new tool
+ ("Am I on track for my savings goal?", GOAL_PER),
+ ("Can I afford $300 this weekend?", SAFE - 30000),
+ ("What if I spend $500 on a gift this month?", SAFE - 50000),
+ ("where does my next paycheck go", GOAL_PER),
+ ("what have I planned", 12000),
+ ("are my savings growing", 1200000),
  ("when's payday", None),
  ("who owes me", 4000),
  ("how much does Asha owe me", 4000),
@@ -95,7 +112,7 @@ CASES = [
 
 def main() -> int:
     l = ledger()
-    assert len(CASES) == 54, len(CASES)
+    assert len(CASES) == 60, len(CASES)
     paths: dict = {}
     wrong = []
     for q, want in CASES:

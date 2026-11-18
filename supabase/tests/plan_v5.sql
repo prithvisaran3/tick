@@ -74,6 +74,18 @@ begin
     if (select status from public.planned_expenses where id = pe) <> 'planned' then fails := fails || 'B changed A planned; '; end if;
     reset role;
   end;
+  -- ---------- phase 5: suggestions ----------
+  insert into public.plan_suggestions (user_id, day, kind, text) values (a, '2026-11-13', 'goal_behind', 'House move is $200 behind.');
+  begin insert into public.plan_suggestions (user_id, day, kind, text) values (a, '2026-11-13', 'goal_behind', 'twice'); fails := fails || 'two of one kind in a day; ';
+  exception when unique_violation then null; end;
+  perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true); set local role authenticated;
+  if (select count(*) from public.plan_suggestions) <> 1 then fails := fails || 'A reads own suggestions; '; end if;
+  begin update public.plan_suggestions set status = 'accepted'; fails := fails || 'app answered a suggestion directly; ';
+  exception when insufficient_privilege then null; end;
+  insert into public.ask_memory (kind, key, value) values ('suggestion', 'goal_behind', '{"dismissed": 1}');
+  perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+  if (select count(*) from public.plan_suggestions) <> 0 then fails := fails || 'B reads A suggestions; '; end if;
+  reset role;
   -- ---------- more phases append above this line ----------
   if fails <> '' then raise exception 'PLAN_V5_TESTS_FAILED: %', fails; end if;
   raise exception 'PLAN_V5_TESTS_PASSED';

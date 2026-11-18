@@ -105,3 +105,15 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
 - **Matching.** The purchase a one-off became (money out, within 20% or $20, within a week) is offered once through the existing Yes/No card.
   Yes drops it off the plan; No never offers that purchase for it again.
 - Pill button labels now shrink to fit instead of cutting a word.
+### Phase 5: Ask Tick as a planner
+- New typed tools: `goal_status`, `paycheck_plan`, `planned_expenses`, `savings_trend`. Ask Tick's Safe to spend now uses the same pieces as the
+  app (goal moves from real balances less any absorbed shortfall, planned one-offs this period). The pure arithmetic sits in `api/app/plan_math.py`.
+- `what_if` saves nothing and says so ("Nothing changes until you plan it."). Above Safe to spend it says what the first goal would get instead
+  ("Emergency fund would get $600 instead of $750 this paycheck") when the gap fits inside this paycheck's move.
+- Eval: 60/60 on rules (was 54), including "Am I on track for my savings goal?", "Can I afford $300 this weekend?" and "What if I spend $500 on a
+  gift this month?", with a goal and a planned one-off in the seeded ledger. Expected numbers are worked out by hand in the eval, not with the app's maths.
+- **Suggestions** (`plan_suggestions`, migration `20261127000001`): on payday (or the day after) and otherwise once a week, rules in
+  `api/app/suggestions.py` pick from five kinds, most urgent first: over plan, goal behind, move to savings, a one-off within a week, room to
+  spare. At most two. The model rewrites the template and the rewrite is kept only if it has exactly the same dollar amounts and no new numbers.
+  Accept and dismiss go to `ask_memory` (kind `suggestion`); a kind dismissed twice rests for 30 days; accepting resets it.
+- App: one card, "Suggested", up to two rows (tap acts and opens the right screen), "Not now" dismisses both. It shows only when there is one.

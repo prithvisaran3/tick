@@ -10,35 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import current_user, user_limiter
 from .db import rest
+from .plan_math import goal_status  # noqa: F401  (re-exported; the arithmetic lives with the other plan maths)
 
 router = APIRouter()
 ET = ZoneInfo("America/New_York")
-TOLERANCE = 100          # a dollar of interest or rounding isn't "behind"
 CONFIRM_SHARE = 0.9      # the balance has to rise by most of the move to count as made
-
-def _d(v) -> date:
-    return v if isinstance(v, date) else date.fromisoformat(str(v)[:10])
-
-def goal_status(*, mode: str, target: int, start_cents: int, linked: int, start_date, deadline, today, paydays: list) -> dict:
-    """[paydays]: every payday after start_date up to the deadline. A payday that is today still counts as one to use."""
-    amount = max(0, target - start_cents) if mode == "balance" else max(0, target)
-    saved = min(amount, max(0, linked - start_cents))
-    remaining = amount - saved
-    t = _d(today)
-    days = sorted(_d(p) for p in paydays)
-    left = len([p for p in days if p >= t]) if deadline else 0
-    if remaining == 0:
-        return {"status": "done", "saved": saved, "remaining": 0, "paychecks_left": left, "per_paycheck": 0, "behind_by": 0}
-    if not deadline:
-        return {"status": "on_track", "saved": saved, "remaining": remaining, "paychecks_left": 0, "per_paycheck": 0, "behind_by": 0}
-    if left == 0:
-        return {"status": "behind", "saved": saved, "remaining": remaining, "paychecks_left": 0, "per_paycheck": remaining, "behind_by": remaining}
-    total = len(days)
-    planned = -(-amount // total) if total else amount          # what each paycheck was meant to carry
-    elapsed = len([p for p in days if p < t])
-    behind = max(0, min(amount, planned * elapsed) - saved)
-    behind = behind if behind > TOLERANCE else 0
-    return {"status": "behind" if behind else "on_track", "saved": saved, "remaining": remaining, "paychecks_left": left, "per_paycheck": -(-remaining // left), "behind_by": behind}
 
 def today_ny() -> date:
     return datetime.now(timezone.utc).astimezone(ET).date()

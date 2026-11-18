@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable
 
+from . import plan_math as PM
+
 MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m} | {m.lower(): i for i, m in enumerate(calendar.month_abbr) if m}
 
 @dataclass
@@ -39,6 +41,12 @@ class Ledger:
     people: list[str] = field(default_factory=list)       # names Tick knows: Tally people, rule names, aliases
     category_ids: dict[str, str] = field(default_factory=dict)
     paystubs: list[dict] = field(default_factory=list)    # {pay_date, gross, net, taxes, deductions, lines: [{kind, label, cents}]}, newest first
+    # goals tied to accounts: {name, mode, target, start_cents, linked_cents, start_date, deadline, paydays, paused}; paydays: every payday after start up to the deadline
+    goals: list[dict] = field(default_factory=list)
+    goal_moved: bool = False                              # this payday's "Move to savings" is already marked done
+    planned: list[dict] = field(default_factory=list)     # {name, cents, due, status, resolution, shortfall_cents}
+    savings: list[dict] = field(default_factory=list)     # {name, balance, month_start}: month_start is the balance before this month, or None
+    into_cash_cents: int | None = None                    # the part of a paycheck that lands in Cash (splits); None: all of it
 
 # ---------------- dates ----------------
 def _month_end(y: int, m: int) -> date:
@@ -271,14 +279,86 @@ class Tools:
         total = round(sum(r["expected_cents"] * per.get(r.get("cadence"), 1) for r in self.l.recurring))
         return Result(f"{money(total)} a month across {len(self.l.recurring)} recurring charges.", {"cents": total, "count": len(self.l.recurring)})
 
-    def _safe(self) -> tuple[int, date | None]:
+    def _goal_rows(self) -> list[tuple[dict, dict]]:
+        """(goal, status) for every goal tied to accounts, behind first, then the nearest deadline."""
+        out = [(g, PM.goal_status(mode=g["mode"], target=g["target"], start_cents=g["start_cents"], linked=g["linked_cents"], start_date=g["start_date"],
+                                  deadline=g.get("deadline"), today=self.l.today, paydays=g.get("paydays") or [])) for g in self.l.goals]
+        rank = {"behind": 0, "on_track": 1, "done": 2}
+        return sorted(out, key=lambda x: (x[0].get("paused", False), rank[x[1]["status"]], x[0].get("deadline") or date(9999, 1, 1)))
+
+    def _parts(self) -> dict:
+        """Safe to spend, piece by piece. The same pieces, in the same order, as the app's `computeSafeToSpend`."""
         l = self.l
         pay = l.period["next_payday"] if l.period else None
+        start = l.period["period_start"] if l.period else l.today
         cash = sum((a.get("available_cents") if a.get("available_cents") is not None else a.get("balance_cents") or 0) for a in l.accounts if a["type"] in ("checking", "cash") and a.get("include_in_safe", True))
         end = pay or l.today + timedelta(days=14)
         bills = sum(r["expected_cents"] for r in l.recurring if l.today <= r["next_date"] < end)
         cards = sum(a.get("statement_balance_cents") or 0 for a in l.accounts if a["type"] == "credit" and a.get("due_date") and a["due_date"] <= end)
-        return cash - bills - cards - l.goals_cents, pay
+        moves = 0 if l.goal_moved else sum(st["per_paycheck"] for g, st in self._goal_rows() if not g.get("paused") and st["status"] != "done")
+        moves = max(0, moves - PM.goal_relief(l.planned, start, end))
+        planned = sum(int(p["cents"]) for p in l.planned if PM.counts_this_period(p, l.today, end))
+        return {"cash": cash, "bills": bills, "cards": cards, "goals": l.goals_cents + moves, "planned": planned, "payday": pay,
+                "safe": cash - bills - cards - l.goals_cents - moves - planned}
+
+    def _safe(self) -> tuple[int, date | None]:
+        p = self._parts()
+        return p["safe"], p["payday"]
+
+    def goal_status(self, s: Slots) -> Result:
+        rows = self._goal_rows()
+        named = [r for r in rows if any(w in r[0]["name"].lower() for w in re.findall(r"[a-z]{3,}", (s.merchant or "") + " " + " ".join(s.categories).lower()))]
+        if not rows:
+            return Result("No savings goal yet. Add one in Savings and Tick works out what each paycheck needs.", {})
+        g, st = (named or rows)[0]
+        if g.get("paused"):
+            return Result(f"{g['name']} is paused.", {"cents": 0})
+        by = f"{g['deadline']:%b} {g['deadline'].day}" if g.get("deadline") else None
+        if st["status"] == "done":
+            return Result(f"Yes. {g['name']} is done: {money(st['saved'])} saved.", {"cents": 0, "saved": st["saved"]})
+        if not by:
+            return Result(f"{money(st['saved'])} saved for {g['name']}, {money(st['remaining'])} to go. It has no deadline, so there's no pace to be behind.", {"cents": 0, "saved": st["saved"]})
+        if st["status"] == "behind":
+            return Result(f"Not quite. {g['name']} is {money(st['behind_by'])} behind. {money(st['per_paycheck'])} a paycheck for the next {st['paychecks_left']} catches up by {by}.",
+                          {"cents": st["per_paycheck"], "behind": st["behind_by"], "saved": st["saved"]})
+        return Result(f"Yes. {g['name']} is on track: {money(st['saved'])} saved, {money(st['per_paycheck'])} a paycheck for the next {st['paychecks_left']} gets you there by {by}.",
+                      {"cents": st["per_paycheck"], "saved": st["saved"]})
+
+    def paycheck_plan(self, s: Slots) -> Result:
+        l = self.l
+        if not l.period:
+            return Result("No payday set yet. Add it in Profile > Pay.", {})
+        net = l.paycheck_cents
+        moves = [(g, st) for g, st in self._goal_rows() if not g.get("paused") and st["status"] != "done" and st["per_paycheck"] > 0]
+        to_goals = sum(st["per_paycheck"] for _, st in moves)
+        pay = l.period["next_payday"]
+        bits = [f"{money(st['per_paycheck'])} to {g['name']}" for g, st in moves[:3]]
+        head = f"Next paycheck, {pay:%b} {pay.day}" + (f": {money(net)}" if net else "")
+        return Result(f"{head}. " + ("Goals take " + ", ".join(bits) + "." if bits else "No goal needs money from it.") + (f" {money(net - to_goals)} is left after goals." if net else ""),
+                      {"cents": to_goals, "net": net, "left": net - to_goals if net else None})
+
+    def planned_expenses(self, s: Slots) -> Result:
+        l = self.l
+        end = l.period["next_payday"] if l.period else l.today + timedelta(days=14)
+        now = [p for p in l.planned if PM.counts_this_period(p, l.today, end)]
+        later = [p for p in l.planned if p.get("status", "planned") == "planned" and p not in now and PM._d(p["due"]) >= l.today]
+        total = sum(int(p["cents"]) for p in now)
+        if not now and not later:
+            return Result("Nothing planned. Add a one-off from Safe to spend and Tick sets it aside ahead of time.", {"cents": 0})
+        names = ", ".join(f"{p['name']} {money(p['cents'])}" for p in now[:4])
+        return Result((f"{money(total)} planned this pay period: {names}." if now else "Nothing planned this pay period.") + (f" {len(later)} more after payday." if later else ""), {"cents": total, "count": len(now)})
+
+    def savings_trend(self, s: Slots) -> Result:
+        sv = self.l.savings
+        if not sv:
+            return Result("No savings account yet. Link one in Banks.", {})
+        total = sum(int(a["balance"]) for a in sv)
+        known = [a for a in sv if a.get("month_start") is not None]
+        if not known:
+            return Result(f"{money(total)} in savings. Tick starts tracking the change from tonight's balance.", {"cents": total})
+        change = sum(int(a["balance"]) - int(a["month_start"]) for a in known)
+        word = "up" if change > 0 else "down" if change < 0 else "flat"
+        return Result(f"{money(total)} in savings, {word} {money(change)} this month." if change else f"{money(total)} in savings, no change this month.", {"cents": total, "change": change})
 
     def safe_to_spend(self, s: Slots) -> Result:
         v, pay = self._safe()
@@ -313,12 +393,20 @@ class Tools:
         return Result(f"{money(t['out_cents'])} at {t['merchant']}, your biggest purchase.", {"cents": t["out_cents"]}, s.range, _see(self.l, s.range, s.categories))
 
     def what_if(self, s: Slots) -> Result:
+        """Only a question: nothing is planned or saved. Above Safe to spend, the gap would come out of this paycheck's goal move first."""
         if not s.amount:
             return Result("Give me an amount and I'll check it against Safe to spend.", {})
-        v, pay = self._safe()
-        left = v - s.amount
+        p = self._parts()
+        left, pay = p["safe"] - s.amount, p["payday"]
         tail = f" until {pay:%A}" if pay else ""
-        return Result(f"Yes. {money(s.amount)} leaves {money(left)} safe to spend{tail}." if left >= 0 else f"Not comfortably. {money(s.amount)} puts you {money(left)} past safe to spend{tail}.", {"cents": left})
+        if left >= 0:
+            return Result(f"Yes. {money(s.amount)} leaves {money(left)} safe to spend{tail}, with your goals still funded. Nothing changes until you plan it.", {"cents": left})
+        goals = [(g, st) for g, st in self._goal_rows() if not g.get("paused") and st["status"] != "done" and st["per_paycheck"] > 0]
+        if goals and not self.l.goal_moved and -left <= goals[0][1]["per_paycheck"]:
+            g, st = goals[0]
+            return Result(f"Only by saving less. {money(s.amount)} is {money(-left)} more than Safe to spend{tail}, so {g['name']} would get {money(st['per_paycheck'] + left)} "
+                          f"instead of {money(st['per_paycheck'])} this paycheck. Nothing changes until you plan it.", {"cents": left, "goal_short": -left})
+        return Result(f"Not comfortably. {money(s.amount)} puts you {money(left)} past safe to spend{tail}. Nothing changes until you plan it.", {"cents": left})
 
     def pay_statements(self, s: Slots, metric: str = "net") -> Result:
         """From imported pay statements. "Last" questions read the newest; totals default to this year."""
@@ -340,9 +428,10 @@ class Tools:
             v = sum(p["net"] for p in rows); word = "net pay"
         return Result(f"{money(v)} {word} {r.label}, from {len(rows)} pay {'statement' if len(rows) == 1 else 'statements'}.", {"cents": v, "count": len(rows)}, r)
 
-TOOL_NAMES = ["pay_statements", "spend_summary", "category_breakdown", "top_merchants", "compare_periods", "balance_now", "upcoming_bills", "subscriptions", "safe_to_spend", "payday_info", "tally_balances", "find_transactions", "what_if", "biggest"]
+TOOL_NAMES = ["goal_status", "paycheck_plan", "planned_expenses", "savings_trend", "pay_statements", "spend_summary", "category_breakdown", "top_merchants", "compare_periods", "balance_now", "upcoming_bills", "subscriptions", "safe_to_spend", "payday_info", "tally_balances", "find_transactions", "what_if", "biggest"]
 # In words, for proposals and Profile.
-TOOL_LABELS = {"pay_statements": "Pay statements", "spend_summary": "Total spending", "category_breakdown": "Spending by category", "top_merchants": "Top places",
+TOOL_LABELS = {"goal_status": "Goal progress", "paycheck_plan": "Paycheck plan", "planned_expenses": "Planned one-offs", "savings_trend": "Savings trend",
+               "pay_statements": "Pay statements", "spend_summary": "Total spending", "category_breakdown": "Spending by category", "top_merchants": "Top places",
                "compare_periods": "This vs last period", "balance_now": "Balances now", "upcoming_bills": "Bills coming up", "subscriptions": "Subscriptions",
                "safe_to_spend": "Safe to spend", "payday_info": "Next payday", "tally_balances": "Tally balances", "find_transactions": "Find transactions",
                "what_if": "What if", "biggest": "Biggest purchases"}
@@ -354,6 +443,10 @@ INTENTS: list[tuple[str, str, dict]] = [
     (r"\b(last|latest|most recent) (net )?(pay(?! ?period)|paycheck|pay ?stub|pay statement)\b|\blast net pay\b", "pay_statements", {"metric": "last"}),
     (r"\bgross (pay|income|salary)\b", "pay_statements", {"metric": "gross"}),
     (r"\b(can i afford|what if|if i (spend|buy)|could i (buy|spend)|am i ok(ay)? to)\b", "what_if", {}),
+    (r"\b(on track|savings? goals?|my goals?|goal progress|behind on (my )?(goal|saving)|reach my goal|hit my goal)\b", "goal_status", {}),
+    (r"\b(paycheck plan|plan for (my )?(next )?(paycheck|pay ?day)|where does my (next )?paycheck go|what happens on pay ?day|split my paycheck)\b", "paycheck_plan", {}),
+    (r"\b(planned|one-?offs?|what have i planned|set aside for)\b", "planned_expenses", {}),
+    (r"\b(savings (trend|growth|this month|going)|is my savings (growing|going up|going down)|are my savings (growing|going up|going down)|did my savings (go up|grow|go down)|how (are|is) my savings)\b", "savings_trend", {}),
     (r"\b(safe to spend|how much can i spend|what can i spend|spending money left|left to spend)\b", "safe_to_spend", {}),
     (r"^(?!.*\b(spent|spend|spending|sent|send|earn|earned|made)\b).*\b(pay ?day|paid next|get paid|next paycheck|pay ?period)\b", "payday_info", {}),
     (r"\b(owe[sd]?|owing|tally|split with|square with)\b", "tally_balances", {}),
