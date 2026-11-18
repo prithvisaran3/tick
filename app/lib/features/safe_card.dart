@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
+import '../data/planned.dart';
 import '../data/settings.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
@@ -16,8 +17,9 @@ import '../domain/ideas.dart';
 import '../domain/money.dart';
 import '../domain/safe_to_spend.dart';
 import '../services/haptics.dart';
+import 'planned_screen.dart';
 
-const _groups = <(String, String)>[('cash', 'Cash in checking'), ('bill', 'Bills before payday'), ('card', 'Card payments due'), ('loan', 'Loan payments due'), ('goal', 'Goals planned')];
+const _groups = <(String, String)>[('cash', 'Cash in checking'), ('bill', 'Bills before payday'), ('card', 'Card payments due'), ('loan', 'Loan payments due'), ('goal', 'Goals planned'), ('planned', 'Planned one-offs')];
 
 /// Insights, top: Safe to spend for this pay period, with the sum behind it on a tap. The lines add up to the headline exactly.
 class SafeToSpendCard extends ConsumerStatefulWidget {
@@ -55,6 +57,10 @@ class _SafeToSpendCardState extends ConsumerState<SafeToSpendCard> {
           AnimatedRotation(turns: _open ? 0.25 : 0, duration: Duration(milliseconds: context.reduceMotion ? 0 : 200), child: TickIcon('chevron-right', size: 18, color: c.textSecondary)),
         ])),
       ),
+      if (ref.watch(tradeOffProvider) case final t?) Pressable(
+        onTap: () => context.push('/planned'), scale: 0.99,
+        child: Padding(padding: const EdgeInsets.only(bottom: TickSpace.x2), child: Text('${tradeOffLine(t)} Choose what gives  ›', style: context.ts(TickType.bodyS, color: c.alert))),
+      ),
       AnimatedSize(duration: Duration(milliseconds: context.reduceMotion ? 0 : 220), alignment: Alignment.topCenter, child: !_open ? const SizedBox(width: double.infinity) : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         for (final (g, label) in _groups)
           if (sts.lines.any((l) => l.group == g)) ...[
@@ -73,7 +79,10 @@ class _SafeToSpendCardState extends ConsumerState<SafeToSpendCard> {
         ])),
         if (flags.flag('card_guard')) if (cardGuard(sts, ref.watch(ledgerProvider).accounts, now) case final g?) Padding(padding: const EdgeInsets.only(bottom: TickSpace.x2), child: Text(cardGuardLine(g, now), style: context.ts(TickType.bodyS, color: g.short ? c.alert : c.textSecondary))),
         if (flags.flag('truly_free') && sts.cardsLaterCents > 0) Text(trulyFreeLine(sts), style: context.ts(TickType.bodyS, color: c.textSecondary)),
-        if (flags.flag('what_if')) Align(alignment: Alignment.centerLeft, child: TickChip('What if I spend…', onTap: () => _whatIf(context, sts))),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          TickChip(sts.plannedCents > 0 ? 'Planned one-offs' : 'Plan a one-off', icon: 'calendar', onTap: () => context.push('/planned')),
+          if (flags.flag('what_if')) TickChip('What if I spend…', onTap: () => _whatIf(context, sts)),
+        ]),
       ])),
     ]));
   }

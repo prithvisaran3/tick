@@ -79,14 +79,21 @@ GoalPlan planGoal(Goal g, List<Account> accounts, PaydayRule? rule, DateTime tod
 
 /// Goals as Safe to spend and the payday plan need them: saved and per-paycheck worked out from balances.
 /// [movedThisPeriod]: the payday move is already made (or marked made), so nothing more is set aside until the next payday.
-List<Goal> plannedGoals(List<Goal> goals, List<Account> accounts, PaydayRule? rule, DateTime today, {bool movedThisPeriod = false}) => [
-      for (final g in goals)
-        if (!g.linked) g
-        else () {
-          final s = planGoal(g, accounts, rule, today).status;
-          return g.copyWith(savedCents: g.mode == 'balance' ? g.startCents + s.savedCents : s.savedCents, perPaydayCents: movedThisPeriod || g.paused ? 0 : s.perPaycheckCents);
-        }(),
-    ];
+/// [reliefCents]: what one-offs I chose to absorb take out of this period's moves, first goal first.
+List<Goal> plannedGoals(List<Goal> goals, List<Account> accounts, PaydayRule? rule, DateTime today, {bool movedThisPeriod = false, int reliefCents = 0}) {
+  var relief = reliefCents;
+  return [
+    for (final g in goals)
+      if (!g.linked) g
+      else () {
+        final s = planGoal(g, accounts, rule, today).status;
+        var per = movedThisPeriod || g.paused ? 0 : s.perPaycheckCents;
+        final cut = relief < per ? relief : per;
+        per -= cut; relief -= cut;
+        return g.copyWith(savedCents: g.mode == 'balance' ? g.startCents + s.savedCents : s.savedCents, perPaydayCents: per);
+      }(),
+  ];
+}
 
 /// The one number for the payday card: what to move to savings this payday across every active goal.
 int moveThisPayday(List<Goal> goals, List<Account> accounts, PaydayRule? rule, DateTime today) =>

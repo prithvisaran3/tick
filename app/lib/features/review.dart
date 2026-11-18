@@ -4,11 +4,13 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../data/ledger.dart';
 import '../data/paybacks.dart';
+import '../data/planned.dart';
 import '../data/review_snooze.dart';
 import '../design/theme.dart';
 import '../design/tokens.g.dart';
 import '../design/widgets/core.dart';
 import '../design/widgets/more.dart';
+import '../domain/merchant_name.dart';
 import '../domain/money.dart';
 import '../services/api.dart';
 import '../services/haptics.dart';
@@ -78,6 +80,14 @@ final reviewQuestionsProvider = Provider<List<ReviewQ>>((ref) {
     ),
     for (final s in paybacks)
       if (s.candidates.isNotEmpty) _payback(s),
+    for (final (p, t) in ref.watch(plannedMatchesProvider)) ReviewQ(
+      key: 'plan:${p.id}:${t.id}', kind: 'Planned', question: 'Was ${cleanMerchant(t.merchant)} your ${p.name}?',
+      line: '${formatCents(-t.amountCents)} on ${_d(t.occurredAt)}. You planned ${formatCents(p.amountCents)}.',
+      reason: 'You planned ${p.name} for ${_d(p.due)}, and this purchase is close in amount and date.',
+      txnIds: [t.id], confidence: (-t.amountCents - p.amountCents).abs() <= 500 ? 0.86 : 0.7,
+      yes: ReviewAnswer('Yes', '${p.name} comes off the plan, so its ${formatCents(p.amountCents)} isn\'t set aside twice.', (r) => r.read(plannedProvider.notifier).matched(p, t.id)),
+      no: ReviewAnswer('No', '${p.name} stays planned, and Tick won\'t offer this purchase for it again.', (r) => r.read(plannedProvider.notifier).notThis(p, t.id)),
+    ),
     for (final s in likely) ReviewQ(
       key: 'sw:${s.txnId}', kind: 'Splitwise', question: 'Is ${s.label} Splitwise?', line: formatCents(s.cents),
       reason: s.reason == 'paid_back' ? 'It looks shared, and a friend paid part of it back later.' : 'It\'s money with someone in your Tally groups.',

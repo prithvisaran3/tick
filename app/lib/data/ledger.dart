@@ -12,8 +12,7 @@ import 'activity.dart';
 import 'ledger_cache.dart';
 import 'remote.dart';
 import 'settings.dart';
-import '../domain/goals.dart';
-import 'savings.dart';
+import 'planned.dart';
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
@@ -334,16 +333,4 @@ final payPeriodProvider = FutureProvider<PayPeriod?>((ref) async {
   try { return await r.loadPayPeriod(); } catch (_) { return null; }
 });
 
-final safeToSpendProvider = Provider<SafeToSpend?>((ref) {
-  final demo = ref.watch(settingsProvider.select((s) => s.demoMode));
-  var rule = ref.watch(settingsProvider.select((s) => s.rule));
-  final l = ref.watch(ledgerProvider);
-  final now = ref.watch(clockProvider)();
-  if (demo) rule = demoPaydayRule(now);
-  if (rule == null) return null;
-  // Goals tied to accounts set aside what their deadline needs per paycheck, until this payday's move is made.
-  final payday = payDates(rule, dayOnly(now)).$1;
-  final moved = ref.watch(goalMovesProvider).value?['${payday.year.toString().padLeft(4, '0')}-${payday.month.toString().padLeft(2, '0')}-${payday.day.toString().padLeft(2, '0')}'];
-  final goals = plannedGoals(l.goals, l.accounts, rule, dayOnly(now), movedThisPeriod: moved != null && moved != MoveState.none);
-  return computeSafeToSpend(today: dayOnly(now), rule: rule, accounts: l.accounts, recurring: l.recurring, goals: goals, expected: l.expected, period: demo ? null : ref.watch(payPeriodProvider).value);
-});
+final safeToSpendProvider = Provider<SafeToSpend?>((ref) => computeSafeFor(ref));

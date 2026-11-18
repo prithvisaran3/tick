@@ -103,3 +103,8 @@ Format: date · decision · why.
 - A pay statement with a field Tick can't read is not refused: preview names the field, the review screen takes the fix, and it is saved as
   `review` when it still doesn't add up. Only "no pay date, gross or net at all" is refused.
 - Local pypdf was 5.4.0 while production pins 6.21.4; text positions differ between them, so the local install now matches the pin.
+- A planned one-off that leaves the plan short takes the gap out of this paycheck's goal move only (never more than that move); anything beyond
+  that is plain overspending and shows as a negative Safe to spend. The choice I make is stored on the one-off (`shortfall_cents`, `resolution`),
+  and keeps relieving that period even after the purchase is matched, so the money isn't asked for twice.
+- The SQL suite (`supabase/tests/plan_v5.sql`) could not run on this Mac: there is no local Postgres, and installing one in the scratch folder was
+  blocked. It runs with `python3 tools/run_rls_tests.py` after `supabase db push --remote`.

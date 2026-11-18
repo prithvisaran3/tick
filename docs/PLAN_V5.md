@@ -93,3 +93,15 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
   stops setting the amount aside once it's marked. The old fake "Move to savings" transfer is no longer written for linked goals.
 - Goals made before this have no account: they keep what was typed and say "Link an account to track this from its balance".
 - Profile > Goals now opens Savings; the old goals sheet is gone.
+### Phase 4: planned one-offs
+- `planned_expenses` (migration `20261126000001`, owner-only RLS; a trigger refuses a matched transaction or goal that isn't mine).
+- Safe to spend > "Plan a one-off": name, amount, date. A one-off dated before the next payday (and not more than a week past) comes out of
+  Safe to spend as its own line in "How it's calculated" until it's bought. Test: Birthday gift, $500, Nov 22 lowers Safe to spend by exactly $500.
+- **Trade-off.** If the plan no longer fits (Safe to spend below zero with goal moves and one-offs taken out), the gap comes out of this paycheck's
+  goal move, capped at that move. One line says so ("Birthday gift leaves $200.00 less for House move this paycheck."), with two choices:
+  "Add $40 to later paychecks" (the shortfall spread over the paychecks after this one; progress is real balances, so later paychecks carry it
+  automatically) or "Move deadline to Feb 19" (the first payday after the old deadline that covers it at the current amount, saved on the goal).
+  Either choice stores the shortfall on the one-off, and this period's goal move shrinks by it, so the plan fits again.
+- **Matching.** The purchase a one-off became (money out, within 20% or $20, within a week) is offered once through the existing Yes/No card.
+  Yes drops it off the plan; No never offers that purchase for it again.
+- Pill button labels now shrink to fit instead of cutting a word.

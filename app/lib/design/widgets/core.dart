@@ -236,7 +236,8 @@ class PillButton extends StatelessWidget {
             ? Center(child: TickLoader(color: fg))
             : Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
                 if (icon != null) ...[TickIcon(icon!, size: 22, color: fg), const SizedBox(width: 8)],
-                Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none))),
+                // A long label shrinks to fit; a button never shows half a word.
+                Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontFamily: TickFamilies.text, fontWeight: FontWeight.w900, fontSize: 17, color: fg, decoration: TextDecoration.none)))),
               ]),
       ),
     );

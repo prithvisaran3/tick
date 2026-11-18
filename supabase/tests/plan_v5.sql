@@ -56,6 +56,24 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
   if (select count(*) from public.account_balances) <> 1 or (select count(*) from public.goal_moves) <> 0 or (select count(*) from public.goals) <> 0 then fails := fails || 'B reads A balances, moves or goals; '; end if;
   reset role;
+  -- ---------- phase 4: planned one-offs ----------
+  declare pe uuid; tb uuid; begin
+    insert into public.transactions (user_id, account_id, amount_cents, occurred_at, merchant_raw) values (b, other, -50000, '2026-11-20 15:00Z', 'Theirs') returning id into tb;
+    perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true); set local role authenticated;
+    insert into public.planned_expenses (name, amount_cents, due) values ('Birthday gift', 50000, '2026-11-22') returning id into pe;
+    begin update public.planned_expenses set matched_txn = tb, status = 'matched' where id = pe; fails := fails || 'matched to someone else''s transaction; ';
+    exception when insufficient_privilege then null; end;
+    begin insert into public.planned_expenses (name, amount_cents, due) values ('Free', 0, '2026-11-22'); fails := fails || 'a zero planned expense; ';
+    exception when check_violation then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
+    if (select count(*) from public.planned_expenses) <> 0 then fails := fails || 'B reads A planned; '; end if;
+    update public.planned_expenses set status = 'dismissed' where id = pe;
+    begin insert into public.planned_expenses (user_id, name, amount_cents, due) values (a, 'Planted', 100, '2026-11-22'); fails := fails || 'B planned an expense for A; ';
+    exception when insufficient_privilege then null; end;
+    perform set_config('request.jwt.claims', json_build_object('sub', a, 'role', 'authenticated')::text, true);
+    if (select status from public.planned_expenses where id = pe) <> 'planned' then fails := fails || 'B changed A planned; '; end if;
+    reset role;
+  end;
   -- ---------- more phases append above this line ----------
   if fails <> '' then raise exception 'PLAN_V5_TESTS_FAILED: %', fails; end if;
   raise exception 'PLAN_V5_TESTS_PASSED';

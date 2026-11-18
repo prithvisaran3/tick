@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tick/data/ledger.dart';
 import 'package:tick/data/paybacks.dart';
+import 'package:tick/data/planned.dart';
 import 'package:tick/data/review_snooze.dart';
 import 'package:tick/data/settings.dart';
 import 'package:tick/features/review.dart';
@@ -23,6 +24,7 @@ List<Override> sources() => [
       landedSettlementsProvider.overrideWith((ref) async => const <LandedSettlement>[]),
       ruleSuggestionsProvider.overrideWith((ref) async => rules),
       likelySplitwiseProvider.overrideWith((ref) async => const [LikelySplitwise('s1', 'Zelle with Asha', 2500, confidence: 0.8)]),
+      plannedMatchesProvider.overrideWith((ref) => const []),
     ];
 
 /// The harness has no Navigator; sheets and toasts need one.
