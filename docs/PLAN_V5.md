@@ -133,3 +133,13 @@ Each phase: migration, math + vectors, API, UI, tests, goldens, an entry in `doc
 - The how-to (Import screen and docs/SHORTCUTS_SETUP.md) now gives Wallet's actual path: Apple Card → Card Balance → a statement → Export
   Transactions, and says Shortcut captures are matched, not added again.
 - Profile > Banks and cards > Apple Card pointed at a screen that was never built (`/apple-card`); it now opens the import.
+### Phase 8: three judged improvements
+1. **Checking runs short before payday.** Safe to spend says whether the period adds up; it can't say whether the order of the days does.
+   `firstShortfall` walks Cash forward by date through bills, card statements due and planned one-offs, and Home's Cash card says the first
+   day it would go below zero: "$267.60 short in checking on Nov 5, when Rent comes out. Payday is Nov 6." Nothing shows when it's fine.
+   (The old card-due guard only looked at cards and sat behind a Labs flag.)
+2. **Stale balances say so.** When the oldest sync behind the Cash number is a day old or more, Cash says "Balances from 2 days ago". Typed-in
+   accounts and banks that never synced say nothing (Banks already explains those).
+3. **Tally: how long a balance has been open.** A group row now reads "You owe $70.00 · since Oct 2": the first expense after the last
+   confirmed settle-up, shown once it's two weeks old. Pending settle-ups don't reset it.
+All three are pure functions in `app/lib/domain/runway.dart` with tests, and goldens of the Cash card at 320 and 430.

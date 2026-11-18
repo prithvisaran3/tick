@@ -23,6 +23,8 @@ import 'nudges.dart';
 import 'tips.dart';
 import '../data/savings.dart';
 import 'savings_screen.dart';
+import '../domain/runway.dart';
+import '../data/planned.dart';
 
 /// Home: what you have. Cash in checking leads; savings sits apart; cards are one quiet row and never come off Cash here.
 /// Then the one suggestion that matters most, and the last few purchases. Safe to spend lives in Insights.
@@ -114,14 +116,23 @@ class CashCard extends ConsumerWidget {
         PillButton('Add what\'s in checking', height: 48, onTap: onAdd),
       ]));
     }
+    final l = ref.watch(ledgerProvider);
+    final now = ref.watch(clockProvider)();
+    final sts = ref.watch(safeToSpendProvider);
+    final age = cashAge(accounts: l.accounts, connections: l.connections, now: now);
+    final short = sts == null ? null : firstShortfall(accounts: l.accounts, recurring: l.recurring, today: now, payday: sts.nextPayday, planned: ref.watch(plannedProvider).value ?? const []);
     return TickCard(raised: true, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       TipTarget(id: 'home-cash', child: Pressable(
         onTap: () => context.push('/banks'), scale: 0.99, semanticLabel: 'Cash ${formatCents(b.cashCents)} across ${b.cash.length} checking ${b.cash.length == 1 ? 'account' : 'accounts'}. Show every account',
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Cash', style: context.ts(TickType.bodyS, color: c.textSecondary)),
           FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: CountUpText(cents: b.cashCents, style: context.ts(TickType.hero), haptic: true, format: (v) => formatCents(v))),
+          if (age != null) Text(cashAgeLine(age, now), style: context.ts(TickType.bodyS, color: c.textSecondary)),
         ]),
       )),
+      if (short != null) Padding(padding: const EdgeInsets.only(top: TickSpace.x2), child: Semantics(liveRegion: true, child: Text(
+          '${formatCents(short.shortCents)} short in checking on ${DateFormat('MMM d').format(short.day)}, when ${short.label} comes out. Payday is ${DateFormat('MMM d').format(sts!.nextPayday)}.',
+          style: context.ts(TickType.bodyS, color: c.alert)))),
       const SizedBox(height: TickSpace.x2),
       for (final (a, cents) in b.cash) _AccountRow(a: a, cents: cents),
       if (b.excludedCount > 0) Padding(padding: const EdgeInsets.only(top: TickSpace.x1), child: Text('${b.excludedCount} checking ${b.excludedCount == 1 ? 'account is' : 'accounts are'} left out. Change it in Profile.', style: context.ts(TickType.bodyS, color: c.textSecondary))),

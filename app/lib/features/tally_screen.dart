@@ -17,6 +17,9 @@ import 'common.dart';
 import 'tally_expense_sheet.dart';
 import 'tally_people.dart';
 import 'tips.dart';
+import '../domain/runway.dart';
+import 'package:intl/intl.dart';
+import '../data/ledger.dart';
 
 /// Tally: split costs with friends. Playful on purpose (the one place), but errors and money problems stay plain.
 class TallyScreen extends ConsumerWidget {
@@ -38,8 +41,8 @@ class TallyScreen extends ConsumerWidget {
         else ...[
           _Summary(owed: s.owedToMe, owe: s.iOwe, square: t.allSquare, onSettle: t.plan.length > 1 || t.plan.any((p) => p.legs.length > 1) ? () => context.push('/tally/plan') : null),
           const SizedBox(height: 20),
-          for (final (i, g) in t.groups.where((g) => !g.archived).indexed) StaggerIn(scope: 'tally', index: i, child: _GroupRow(g: g, t: t)),
-          for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t)),
+          for (final (i, g) in t.groups.where((g) => !g.archived).indexed) StaggerIn(scope: 'tally', index: i, child: _GroupRow(g: g, t: t, today: ref.watch(clockProvider)())),
+          for (final g in t.groups) if (g.archived) Opacity(opacity: 0.62, child: _GroupRow(g: g, t: t, today: ref.watch(clockProvider)())),
         ],
         if (t.offline && t.groups.isNotEmpty) OfflineBanner(onRetry: () => ref.read(tallyProvider.notifier).refresh()),
         const SizedBox(height: 16),
@@ -83,15 +86,18 @@ class _Summary extends StatelessWidget {
 }
 
 class _GroupRow extends StatelessWidget {
-  const _GroupRow({required this.g, required this.t});
+  const _GroupRow({required this.g, required this.t, required this.today});
   final TallyGroup g;
   final TallyState t;
+  final DateTime today;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final net = t.balancesOf(g.id)[me] ?? 0;
     final pending = t.pendingCount(g.id);
-    final line = net > 0 ? 'You\'re owed ${formatCents(net)}' : net < 0 ? 'You owe ${formatCents(-net)}' : (t.expensesOf(g.id).isEmpty ? 'Nothing split yet' : 'All square ✓');
+    final since = openSince(netCents: net, expenses: t.expensesOf(g.id), settlements: t.settlementsOf(g.id), today: today);
+    final open = since == null ? '' : ' · since ${DateFormat('MMM d').format(since)}';
+    final line = net > 0 ? 'You\'re owed ${formatCents(net)}$open' : net < 0 ? 'You owe ${formatCents(-net)}$open' : (t.expensesOf(g.id).isEmpty ? 'Nothing split yet' : 'All square ✓');
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: TickCard(

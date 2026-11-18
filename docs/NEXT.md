@@ -1,5 +1,20 @@
 # NEXT: resume here
 
+## Plan v5 (`feat/plan-v5`, 2026-11-17)
+Phases 1–8 are done (docs/PLAN_V5.md has a log per phase). New migrations, in order: `20261123000001_pay_statement_review`,
+`20261124000001_pay_splits`, `20261125000001_savings_goals`, `20261126000001_planned_expenses`, `20261127000001_plan_suggestions`.
+**By hand:** run the SQL suite after `supabase db push --remote` (`python3 tools/run_rls_tests.py`): it includes `plan_v5.sql`, which could not run on
+this Mac (no local Postgres). Import `private/paystub.pdf` once after deploy; the API logs one `paystub read:` line with which fields parsed.
+Existing goals have no account, so they show "Link an account to track this from its balance" until edited in Savings.
+
+### Considered in Phase 8, not built
+- Missed-bill detection (a recurring bill that didn't post within 3 days of its date): needs a per-bill posting history the recurring table doesn't keep.
+- Recurring detection for bills paid by Zelle to a person: covered for rent by category rules; other people-bills are rare and would add guesses.
+- Paycheck didn't land by end of payday: Landed already handles it; a "missing" state needs the bank's posting-time pattern first.
+- Onboarding: import a pay statement during setup to fill take-home and splits in one go. Worth it, but it adds a step to the first run.
+- Tally: a monthly "settle up" reminder to friends needs a messaging channel (no push on the free team); the share link covers it today.
+- Slow screens: none measured as slow in tests; on-device profiling of Insights' two period queries is the next check.
+
 ## UX v4 (`feat/ux-v4`, 2026-11-09): local commits only, not pushed or deployed
 Phases 1–5 and 8–11 are done (see docs/UX_V4.md). Phases 6 and 7 (Apple Pay "Was this for Tally?", Apple Card online capture) were skipped
 on request; nothing was built for them. New migrations: `20261119000001_profile`, `20261120000001_pay_statements`,
